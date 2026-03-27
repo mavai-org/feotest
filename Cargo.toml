@@ -1,0 +1,26 @@
+[package]
+name = "feotest"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+description = "Probabilistic testing framework for stochastic services"
+license = "Apache-2.0"
+readme = "README.md"
+repository = "https://github.com/javai-org/feotest"
+keywords = ["testing", "probabilistic", "statistics", "stochastic", "llm"]
+categories = ["development-tools::testing"]
+
+[dependencies]
+statrs = "0.18"
+
+[dev-dependencies]
+approx = "0.5"
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+nursery = { level = "warn", priority = -1 }
+cargo = { level = "warn", priority = -1 }
