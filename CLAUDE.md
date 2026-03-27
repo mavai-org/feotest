@@ -128,6 +128,10 @@ insta = "1"
 trybuild = "1"
 ```
 
+### Documentation tone
+
+- This is a Rust project. Documentation and comments should be written for a Rust audience. Do not reference Java, JUnit, punit, or the project's Java heritage in code comments or doc strings. The Rust developers using this framework do not need to know about its origins.
+
 ### Git
 
 - Commit messages should be concise and describe the *why*, not just the *what*.

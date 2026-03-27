@@ -1,5 +1,11 @@
 //! Structured output of verdicts and diagnostics.
 //!
-//! Reporting transforms internal verdict and statistical data into
-//! human-readable or machine-readable output for consumption by developers,
-//! CI systems, and monitoring tools.
+//! The primary output format is `JUnit` XML, which is understood by CI systems
+//! (GitHub Actions, GitLab CI, Jenkins) and by `cargo-nextest`.
+//!
+//! Console rendering is available for interactive use and transparent
+//! statistics mode.
+
+mod junit;
+
+pub use junit::JunitXmlWriter;

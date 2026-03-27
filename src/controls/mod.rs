@@ -1,5 +1,11 @@
-//! Operational safeguards: warm-up, budgets, and catastrophic outcome handling.
+//! Operational safeguards: warm-up, budgets, pacing, and token tracking.
 //!
 //! Stochastic service testing requires discipline beyond simply running trials.
-//! This module provides mechanisms for warm-up periods, cost and time budgets,
-//! and detection of catastrophic outcomes that should halt execution immediately.
+//! This module provides configuration types for budgets, pacing constraints,
+//! and a thread-safe token recorder for dynamic token tracking.
+
+mod config;
+mod tokens;
+
+pub use config::{ExecutionConfig, PacingConfig};
+pub use tokens::TokenRecorder;

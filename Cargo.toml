@@ -11,10 +11,13 @@ keywords = ["testing", "probabilistic", "statistics", "stochastic", "llm"]
 categories = ["development-tools::testing"]
 
 [dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_yaml = "0.9"
 statrs = "0.18"
 
 [dev-dependencies]
 approx = "0.5"
+tempfile = "3"
 
 [lints.rust]
 unsafe_code = "forbid"

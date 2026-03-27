@@ -22,6 +22,7 @@
 //! - **`controls`** — operational safeguards: warm-up, budgets, catastrophic
 //!   outcome handling.
 //! - **`experiment`** — experiment workflows for establishing empirical baselines.
+//! - **`ptest`** — probabilistic test execution and verdict production.
 //! - **`reporting`** — structured output of verdicts and diagnostics.
 //! - **`usecase`** — the unit of work under test: a named service invocation
 //!   with associated configuration.
@@ -34,6 +35,7 @@ pub mod contract;
 pub mod controls;
 pub mod experiment;
 pub mod model;
+pub mod ptest;
 pub mod reporting;
 pub mod spec;
 pub mod statistics;
