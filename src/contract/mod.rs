@@ -11,23 +11,31 @@
 //! against a service response.
 
 mod builder;
+mod duration;
 mod evaluation;
 
 pub use builder::ServiceContractBuilder;
+pub use duration::{DurationConstraint, DurationResult};
 pub use evaluation::UseCaseOutcome;
 
 use crate::model::Outcome;
 
-/// A service contract: an ordered chain of postcondition checks.
+/// A service contract: an ordered chain of postcondition checks with an
+/// optional duration constraint.
 ///
-/// Checks are evaluated eagerly in declaration order (fail-fast).
+/// Postcondition checks are evaluated eagerly in declaration order (fail-fast).
 /// Each `ensure` check returns `Result<(), ContractViolation>`.
+///
+/// Duration constraints are evaluated independently from postconditions,
+/// providing a separate dimension of success/failure. Both "was it correct?"
+/// and "was it fast enough?" are answered for every trial.
 ///
 /// Contracts are constructed via [`ServiceContractBuilder`].
 ///
 /// # Examples
 ///
 /// ```
+/// use std::time::Duration;
 /// use feotest::contract::ServiceContract;
 /// use feotest::model::ContractViolation;
 ///
@@ -39,10 +47,12 @@ use crate::model::Outcome;
 ///             Ok(())
 ///         }
 ///     })
+///     .ensure_duration_below(Duration::from_millis(500))
 ///     .build();
 /// ```
 pub struct ServiceContract<I, R> {
     checks: Vec<Check<I, R>>,
+    duration_constraint: Option<DurationConstraint>,
 }
 
 impl<I, R> ServiceContract<I, R> {
@@ -55,6 +65,8 @@ impl<I, R> ServiceContract<I, R> {
     /// Evaluates all postcondition checks against the given input and response.
     ///
     /// Returns the first violation encountered, or `Ok(())` if all checks pass.
+    /// This evaluates postcondition checks only; duration constraints are
+    /// evaluated separately via [`DurationConstraint::evaluate`].
     ///
     /// # Errors
     ///
@@ -64,6 +76,15 @@ impl<I, R> ServiceContract<I, R> {
             (check.f)(input, response)?;
         }
         Ok(())
+    }
+
+    /// The duration constraint, if any.
+    ///
+    /// Duration constraints are evaluated independently from postconditions,
+    /// providing a parallel dimension of success/failure for timing requirements.
+    #[must_use]
+    pub const fn duration_constraint(&self) -> Option<&DurationConstraint> {
+        self.duration_constraint.as_ref()
     }
 }
 
@@ -153,5 +174,61 @@ mod tests {
 
         assert!(contract.evaluate(&5, &6).is_ok());
         assert!(contract.evaluate(&3, &2).is_err());
+    }
+
+    #[test]
+    fn contract_without_duration_constraint_has_none() {
+        let contract = ServiceContract::<u32, u32>::builder().build();
+        assert!(contract.duration_constraint().is_none());
+    }
+
+    #[test]
+    fn contract_with_duration_constraint() {
+        use std::time::Duration;
+        let contract = ServiceContract::<u32, u32>::builder()
+            .ensure_duration_below(Duration::from_millis(500))
+            .build();
+        let constraint = contract.duration_constraint().unwrap();
+        assert_eq!(constraint.max_duration(), Duration::from_millis(500));
+    }
+
+    #[test]
+    fn contract_with_custom_duration_description() {
+        use std::time::Duration;
+        let contract = ServiceContract::<u32, u32>::builder()
+            .ensure_duration_below_with_description("SLA limit", Duration::from_secs(1))
+            .build();
+        let constraint = contract.duration_constraint().unwrap();
+        assert_eq!(constraint.description(), "SLA limit");
+        assert_eq!(constraint.max_duration(), Duration::from_secs(1));
+    }
+
+    #[test]
+    fn duration_constraint_chains_with_ensure() {
+        use std::time::Duration;
+        let contract = ServiceContract::<String, String>::builder()
+            .ensure("has content", |_input, response| {
+                if response.is_empty() {
+                    Err(ContractViolation::new("content", "empty"))
+                } else {
+                    Ok(())
+                }
+            })
+            .ensure_duration_below(Duration::from_millis(500))
+            .build();
+
+        // postconditions still work
+        assert!(
+            contract
+                .evaluate(&"input".to_string(), &"hello".to_string())
+                .is_ok()
+        );
+        assert!(
+            contract
+                .evaluate(&"input".to_string(), &String::new())
+                .is_err()
+        );
+        // duration constraint is present
+        assert!(contract.duration_constraint().is_some());
     }
 }

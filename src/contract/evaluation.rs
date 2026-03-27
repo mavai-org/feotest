@@ -3,13 +3,14 @@
 use std::time::{Duration, Instant};
 
 use crate::contract::ServiceContract;
+use crate::contract::duration::DurationResult;
 use crate::model::{ContractViolation, TrialOutcome};
 
 /// The result of executing a use case trial and evaluating its contract.
 ///
-/// Bundles the service response with contract evaluation results and timing.
-/// This is the type returned from trial closures and consumed by the
-/// execution engine.
+/// Bundles the service response with contract evaluation results, timing,
+/// and duration constraint results. Postconditions and duration constraints
+/// are evaluated independently — a trial can fail on either or both dimensions.
 ///
 /// # Examples
 ///
@@ -38,12 +39,14 @@ use crate::model::{ContractViolation, TrialOutcome};
 pub struct UseCaseOutcome<R> {
     response: R,
     trial_outcome: TrialOutcome,
+    duration_result: Option<DurationResult>,
 }
 
 impl<R> UseCaseOutcome<R> {
     /// Executes a service call and evaluates the contract against the result.
     ///
-    /// Times the service call and evaluates all postconditions.
+    /// Times the service call and evaluates all postconditions and the
+    /// duration constraint (if any).
     pub fn evaluate<I>(
         contract: &ServiceContract<I, R>,
         input: &I,
@@ -55,10 +58,12 @@ impl<R> UseCaseOutcome<R> {
 
         let outcome = contract.evaluate(input, &response);
         let trial_outcome = TrialOutcome::from_outcome(outcome, elapsed);
+        let duration_result = contract.duration_constraint().map(|c| c.evaluate(elapsed));
 
         Self {
             response,
             trial_outcome,
+            duration_result,
         }
     }
 
@@ -73,10 +78,12 @@ impl<R> UseCaseOutcome<R> {
     ) -> Self {
         let outcome = contract.evaluate(input, &response);
         let trial_outcome = TrialOutcome::from_outcome(outcome, elapsed);
+        let duration_result = contract.duration_constraint().map(|c| c.evaluate(elapsed));
 
         Self {
             response,
             trial_outcome,
+            duration_result,
         }
     }
 
@@ -92,26 +99,48 @@ impl<R> UseCaseOutcome<R> {
         &self.response
     }
 
-    /// Whether the contract was satisfied.
+    /// Whether the trial fully succeeded: all postconditions passed and the
+    /// duration constraint (if any) was satisfied.
     #[must_use]
-    pub const fn is_success(&self) -> bool {
-        self.trial_outcome.is_success()
+    pub fn is_success(&self) -> bool {
+        self.trial_outcome.is_success() && self.within_duration_limit()
     }
 
-    /// The contract violation, if any.
+    /// The postcondition violation, if any.
     #[must_use]
     pub fn violation(&self) -> Option<&ContractViolation> {
         self.trial_outcome.violation()
     }
 
-    /// Asserts that the contract was satisfied.
+    /// The duration constraint result, if a constraint was configured.
+    #[must_use]
+    pub const fn duration_result(&self) -> Option<&DurationResult> {
+        self.duration_result.as_ref()
+    }
+
+    /// Whether the execution was within the duration limit.
+    ///
+    /// Returns `true` if no duration constraint is configured or if the
+    /// actual duration was within the limit.
+    #[must_use]
+    pub fn within_duration_limit(&self) -> bool {
+        self.duration_result
+            .as_ref()
+            .is_none_or(DurationResult::passed)
+    }
+
+    /// Asserts that all postconditions and the duration constraint were satisfied.
     ///
     /// # Panics
     ///
-    /// Panics if any postcondition failed, with a message describing the violation.
+    /// Panics if any postcondition failed or the duration constraint was
+    /// violated, with a message describing the failure.
     pub fn assert_contract(&self) {
         if let Some(violation) = self.violation() {
             panic!("Contract violation: {violation}");
+        }
+        if let Some(result) = &self.duration_result {
+            assert!(!result.failed(), "Duration violation: {result}");
         }
     }
 }
@@ -161,7 +190,7 @@ mod tests {
 
     #[test]
     #[should_panic(expected = "Contract violation: content: empty")]
-    fn assert_contract_panics_on_violation() {
+    fn assert_contract_panics_on_postcondition_violation() {
         let contract = ServiceContract::<String, String>::builder()
             .ensure("has content", |_input, _response| {
                 Err(ContractViolation::new("content", "empty"))
@@ -190,5 +219,127 @@ mod tests {
             outcome.trial_outcome().elapsed(),
             Duration::from_millis(100)
         );
+    }
+
+    // --- Duration constraint tests ---
+
+    #[test]
+    fn no_duration_constraint_means_no_duration_result() {
+        let contract = ServiceContract::<u32, u32>::builder().build();
+        let outcome = UseCaseOutcome::from_response(&contract, &1, 42, Duration::from_millis(100));
+        assert!(outcome.duration_result().is_none());
+        assert!(outcome.within_duration_limit());
+    }
+
+    #[test]
+    fn duration_constraint_passes_when_within_limit() {
+        let contract = ServiceContract::<u32, u32>::builder()
+            .ensure_duration_below(Duration::from_millis(500))
+            .build();
+
+        let outcome = UseCaseOutcome::from_response(&contract, &1, 42, Duration::from_millis(200));
+
+        assert!(outcome.within_duration_limit());
+        assert!(outcome.is_success());
+        let dr = outcome.duration_result().unwrap();
+        assert!(dr.passed());
+        assert_eq!(dr.actual(), Duration::from_millis(200));
+        assert_eq!(dr.limit(), Duration::from_millis(500));
+    }
+
+    #[test]
+    fn duration_constraint_fails_when_exceeding_limit() {
+        let contract = ServiceContract::<u32, u32>::builder()
+            .ensure_duration_below(Duration::from_millis(500))
+            .build();
+
+        let outcome = UseCaseOutcome::from_response(&contract, &1, 42, Duration::from_millis(800));
+
+        assert!(!outcome.within_duration_limit());
+        assert!(!outcome.is_success());
+        let dr = outcome.duration_result().unwrap();
+        assert!(dr.failed());
+    }
+
+    #[test]
+    fn postcondition_pass_and_duration_fail_means_overall_failure() {
+        let contract = ServiceContract::<u32, u32>::builder()
+            .ensure("always passes", |_input, _response| Ok(()))
+            .ensure_duration_below(Duration::from_millis(100))
+            .build();
+
+        let outcome = UseCaseOutcome::from_response(&contract, &1, 42, Duration::from_millis(200));
+
+        assert!(outcome.violation().is_none()); // postconditions passed
+        assert!(!outcome.within_duration_limit()); // duration failed
+        assert!(!outcome.is_success()); // overall failure
+    }
+
+    #[test]
+    fn postcondition_fail_and_duration_pass_means_overall_failure() {
+        let contract = ServiceContract::<u32, u32>::builder()
+            .ensure("always fails", |_input, _response| {
+                Err(ContractViolation::new("check", "forced"))
+            })
+            .ensure_duration_below(Duration::from_millis(500))
+            .build();
+
+        let outcome = UseCaseOutcome::from_response(&contract, &1, 42, Duration::from_millis(100));
+
+        assert!(outcome.violation().is_some()); // postconditions failed
+        assert!(outcome.within_duration_limit()); // duration passed
+        assert!(!outcome.is_success()); // overall failure
+    }
+
+    #[test]
+    fn both_postcondition_and_duration_fail() {
+        let contract = ServiceContract::<u32, u32>::builder()
+            .ensure("always fails", |_input, _response| {
+                Err(ContractViolation::new("check", "forced"))
+            })
+            .ensure_duration_below(Duration::from_millis(100))
+            .build();
+
+        let outcome = UseCaseOutcome::from_response(&contract, &1, 42, Duration::from_millis(200));
+
+        assert!(outcome.violation().is_some());
+        assert!(!outcome.within_duration_limit());
+        assert!(!outcome.is_success());
+    }
+
+    #[test]
+    #[should_panic(expected = "Duration violation")]
+    fn assert_contract_panics_on_duration_violation() {
+        let contract = ServiceContract::<u32, u32>::builder()
+            .ensure_duration_below(Duration::from_millis(100))
+            .build();
+
+        let outcome = UseCaseOutcome::from_response(&contract, &1, 42, Duration::from_millis(500));
+        outcome.assert_contract();
+    }
+
+    #[test]
+    #[should_panic(expected = "Contract violation")]
+    fn assert_contract_reports_postcondition_before_duration() {
+        let contract = ServiceContract::<u32, u32>::builder()
+            .ensure("always fails", |_input, _response| {
+                Err(ContractViolation::new("check", "forced"))
+            })
+            .ensure_duration_below(Duration::from_millis(100))
+            .build();
+
+        let outcome = UseCaseOutcome::from_response(&contract, &1, 42, Duration::from_millis(500));
+        outcome.assert_contract(); // should report postcondition first
+    }
+
+    #[test]
+    fn from_response_evaluates_duration_constraint() {
+        let contract = ServiceContract::<u32, u32>::builder()
+            .ensure_duration_below(Duration::from_millis(500))
+            .build();
+
+        let outcome = UseCaseOutcome::from_response(&contract, &1, 42, Duration::from_millis(300));
+        assert!(outcome.duration_result().is_some());
+        assert!(outcome.within_duration_limit());
     }
 }
