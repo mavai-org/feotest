@@ -1,3 +1,15 @@
+[workspace]
+members = ["feotest-macros"]
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+nursery = { level = "warn", priority = -1 }
+cargo = { level = "warn", priority = -1 }
+
 [package]
 name = "feotest"
 version = "0.1.0"
@@ -11,6 +23,7 @@ keywords = ["testing", "probabilistic", "statistics", "stochastic", "llm"]
 categories = ["development-tools::testing"]
 
 [dependencies]
+feotest-macros = { path = "feotest-macros" }
 serde = { version = "1", features = ["derive"] }
 serde_yaml = "0.9"
 statrs = "0.18"
@@ -20,11 +33,5 @@ approx = "0.5"
 serde_json = "1"
 tempfile = "3"
 
-[lints.rust]
-unsafe_code = "forbid"
-
-[lints.clippy]
-all = { level = "warn", priority = -1 }
-pedantic = { level = "warn", priority = -1 }
-nursery = { level = "warn", priority = -1 }
-cargo = { level = "warn", priority = -1 }
+[lints]
+workspace = true

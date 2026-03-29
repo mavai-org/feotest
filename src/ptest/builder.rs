@@ -3,7 +3,7 @@
 use crate::controls::ExecutionConfig;
 use crate::model::{TestIntent, ThresholdOrigin, TrialOutcome};
 use crate::ptest::runner::{self, ProbabilisticTestResult};
-use crate::spec::SpecResolver;
+use crate::spec::{BaselineSpec, SpecResolver};
 
 /// Configures the threshold derivation approach.
 ///
@@ -107,6 +107,7 @@ pub struct ProbabilisticTestBuilder<'a, F> {
     threshold_origin: ThresholdOrigin,
     contract_ref: Option<String>,
     spec_resolver: Option<SpecResolver>,
+    baseline_spec: Option<BaselineSpec>,
     config_overrides: Option<ExecutionConfig>,
     transparent_stats: bool,
 }
@@ -131,6 +132,7 @@ where
             threshold_origin: ThresholdOrigin::Unspecified,
             contract_ref: None,
             spec_resolver: None,
+            baseline_spec: None,
             config_overrides: None,
             transparent_stats: false,
         }
@@ -171,6 +173,17 @@ where
         self
     }
 
+    /// Sets a pre-resolved baseline spec directly.
+    ///
+    /// Use this when the spec has already been loaded (e.g., by the
+    /// `#[probabilistic_test]` macro) instead of going through the
+    /// resolver.
+    #[must_use]
+    pub fn baseline_spec(mut self, spec: BaselineSpec) -> Self {
+        self.baseline_spec = Some(spec);
+        self
+    }
+
     /// Overrides execution configuration (warmup, budgets, pacing).
     #[must_use]
     pub const fn execution_config(mut self, config: ExecutionConfig) -> Self {
@@ -204,6 +217,7 @@ where
             self.threshold_origin,
             self.contract_ref.as_deref(),
             self.spec_resolver.as_ref(),
+            self.baseline_spec,
             self.config_overrides.as_ref(),
         )
     }

@@ -41,3 +41,5 @@ pub mod spec;
 pub mod statistics;
 pub mod usecase;
 pub mod verdict;
+
+pub use feotest_macros::{measure_experiment, probabilistic_test};

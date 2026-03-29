@@ -20,6 +20,7 @@
 
 pub mod builder;
 mod runner;
+pub mod validation;
 
 pub use builder::ProbabilisticTestBuilder;
 pub use runner::ProbabilisticTestResult;

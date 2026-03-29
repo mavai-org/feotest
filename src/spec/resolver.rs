@@ -57,6 +57,27 @@ impl SpecResolver {
             .map_err(|e| SpecResolveError::ParseError { path, source: e })
     }
 
+    /// Reads a baseline spec directly from a file path.
+    ///
+    /// Use this when the exact file path is known (e.g., from a macro
+    /// `spec` attribute) rather than resolving by use case ID.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the file is not found or cannot be parsed.
+    pub fn resolve_file(path: impl AsRef<Path>) -> Result<BaselineSpec, SpecResolveError> {
+        let path = path.as_ref();
+        let content = std::fs::read_to_string(path).map_err(|e| SpecResolveError::NotFound {
+            use_case_id: path.display().to_string(),
+            path: path.to_path_buf(),
+            source: e,
+        })?;
+        BaselineSpec::from_yaml(&content).map_err(|e| SpecResolveError::ParseError {
+            path: path.to_path_buf(),
+            source: e,
+        })
+    }
+
     /// Writes a baseline spec to the spec directory.
     ///
     /// Creates the directory if it does not exist.

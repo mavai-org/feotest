@@ -1,0 +1,22 @@
+[package]
+name = "feotest-macros"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+description = "Proc-macros for the feotest probabilistic testing framework"
+license-file = "../LICENSE"
+readme = "../README.md"
+repository = "https://github.com/javai-org/feotest"
+keywords = ["testing", "probabilistic", "macros"]
+categories = ["development-tools::testing"]
+
+[lib]
+proc-macro = true
+
+[dependencies]
+syn = { version = "2", features = ["full", "extra-traits"] }
+quote = "1"
+proc-macro2 = "1"
+
+[lints]
+workspace = true

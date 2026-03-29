@@ -51,6 +51,12 @@ impl ProbabilisticTestResult {
     pub const fn verdict_record(&self) -> &VerdictRecord {
         &self.verdict_record
     }
+
+    /// Whether the test passed.
+    #[must_use]
+    pub fn passed(&self) -> bool {
+        self.verdict_record.verdict() == Verdict::Pass
+    }
 }
 
 /// Executes a probabilistic test and produces a verdict.
@@ -64,6 +70,7 @@ pub fn execute<F>(
     threshold_origin: ThresholdOrigin,
     contract_ref: Option<&str>,
     spec_resolver: Option<&SpecResolver>,
+    pre_resolved_spec: Option<crate::spec::BaselineSpec>,
     config_overrides: Option<&ExecutionConfig>,
 ) -> ProbabilisticTestResult
 where
@@ -71,8 +78,9 @@ where
 {
     let mut warnings: Vec<Warning> = Vec::new();
 
-    // Resolve baseline spec if needed and available
-    let baseline_spec = spec_resolver.and_then(|resolver| resolver.resolve(use_case_id).ok());
+    // Use pre-resolved spec if provided, otherwise resolve from filesystem
+    let baseline_spec = pre_resolved_spec
+        .or_else(|| spec_resolver.and_then(|resolver| resolver.resolve(use_case_id).ok()));
 
     // Determine samples and threshold based on the approach
     let (samples, derived_threshold) = resolve_threshold(
