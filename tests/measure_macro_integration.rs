@@ -43,7 +43,14 @@ fn measure_with_warmup(input: &str) -> TrialOutcome {
     TrialOutcome::success(Duration::from_millis(1))
 }
 
-// --- With spec_dir (writes to temp dir via env override) ---
+// --- Default spec_dir (tests/baselines) ---
+
+#[measure_experiment(use_case = "default-baselines", samples = 10)]
+fn measure_default_spec_dir(input: &str) -> TrialOutcome {
+    TrialOutcome::success(Duration::from_millis(1))
+}
+
+// --- Explicit spec_dir override ---
 
 #[measure_experiment(use_case = "with-spec", samples = 10, spec_dir = "target/test-specs")]
 fn measure_with_spec_dir(input: &str) -> TrialOutcome {

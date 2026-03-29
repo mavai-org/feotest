@@ -58,16 +58,12 @@ pub fn expand(attr: TokenStream, item: TokenStream) -> syn::Result<TokenStream> 
             quote! { .with_experiment_id(#id) }
         });
 
-    let spec_resolver_call = attrs
-        .spec_dir
-        .as_ref()
-        .map_or_else(TokenStream::new, |dir| {
-            quote! {
-                .with_spec_resolver(feotest::spec::SpecResolver::with_dir(
-                    std::path::Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/", #dir))
-                ))
-            }
-        });
+    let dir = attrs.spec_dir.as_deref().unwrap_or("tests/baselines");
+    let spec_resolver_call = quote! {
+        .with_spec_resolver(feotest::spec::SpecResolver::with_dir(
+            std::path::Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/", #dir))
+        ))
+    };
 
     Ok(quote! {
         #[test]
