@@ -15,12 +15,14 @@
 //! - [`sample_size`] — power analysis for sample size planning
 //! - [`evaluator`] — evaluating test outcomes against thresholds
 //! - [`feasibility`] — pre-flight checks on sample sizing
+//! - [`latency`] — empirical percentiles and latency threshold derivation
 //! - [`types`] — shared domain types
 //! - [`defaults`] — default statistical parameters
 
 pub mod defaults;
 pub mod evaluator;
 pub mod feasibility;
+pub mod latency;
 pub mod proportion;
 pub mod sample_size;
 pub mod threshold;

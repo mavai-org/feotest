@@ -9,6 +9,7 @@ use serde::Deserialize;
 
 use feotest::statistics::evaluator;
 use feotest::statistics::feasibility;
+use feotest::statistics::latency;
 use feotest::statistics::proportion;
 use feotest::statistics::sample_size;
 use feotest::statistics::threshold;
@@ -451,6 +452,162 @@ fn conformance_verdict() {
             suite.tolerance,
             &case.name,
             "p_value",
+        );
+    }
+}
+
+// ---------------------------------------------------------------------------
+// latency_percentile
+// ---------------------------------------------------------------------------
+
+/// Deserialises a latency input value that may be a single number or an array.
+fn deserialize_latencies<'de, D>(deserializer: D) -> Result<Vec<f64>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum OneOrMany {
+        One(f64),
+        Many(Vec<f64>),
+    }
+
+    match OneOrMany::deserialize(deserializer)? {
+        OneOrMany::One(v) => Ok(vec![v]),
+        OneOrMany::Many(v) => Ok(v),
+    }
+}
+
+#[derive(Deserialize)]
+struct LatencyPercentileCase {
+    name: String,
+    inputs: LatencyPercentileInputs,
+    expected: LatencyPercentileExpected,
+}
+
+#[derive(Deserialize)]
+struct LatencyPercentileInputs {
+    #[serde(deserialize_with = "deserialize_latencies")]
+    latencies: Vec<f64>,
+    #[serde(default)]
+    percentile: Option<f64>,
+}
+
+#[derive(Deserialize)]
+struct LatencyPercentileExpected {
+    #[serde(default)]
+    value: Option<f64>,
+    #[serde(default)]
+    mean: Option<f64>,
+    #[serde(default)]
+    sd: Option<f64>,
+    #[serde(default)]
+    max: Option<f64>,
+}
+
+#[test]
+fn conformance_latency_percentile() {
+    let suite: Suite<LatencyPercentileCase> =
+        serde_json::from_str(include_str!("conformance/latency_percentile.json")).unwrap();
+
+    for case in &suite.cases {
+        if let Some(p) = case.inputs.percentile {
+            // Percentile case
+            let result = latency::nearest_rank_percentile(&case.inputs.latencies, p);
+            assert_close(
+                result,
+                case.expected.value.unwrap(),
+                suite.tolerance,
+                &case.name,
+                "value",
+            );
+        } else {
+            // Summary statistics case
+            let summary = latency::LatencySummary::from_latencies(&case.inputs.latencies);
+
+            assert_close(
+                summary.mean(),
+                case.expected.mean.unwrap(),
+                suite.tolerance,
+                &case.name,
+                "mean",
+            );
+            assert_close(
+                summary.max(),
+                case.expected.max.unwrap(),
+                suite.tolerance,
+                &case.name,
+                "max",
+            );
+
+            match case.expected.sd {
+                Some(expected_sd) => {
+                    assert_close(summary.sd(), expected_sd, suite.tolerance, &case.name, "sd");
+                }
+                None => {
+                    assert!(
+                        summary.sd().is_nan(),
+                        "Case '{}', field 'sd': expected NaN, got {}",
+                        case.name,
+                        summary.sd()
+                    );
+                }
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// latency_threshold
+// ---------------------------------------------------------------------------
+
+#[derive(Deserialize)]
+struct LatencyThresholdCase {
+    name: String,
+    inputs: LatencyThresholdInputs,
+    expected: LatencyThresholdExpected,
+}
+
+#[derive(Deserialize)]
+struct LatencyThresholdInputs {
+    baseline_percentile: f64,
+    baseline_sd: f64,
+    baseline_n: u32,
+    confidence: f64,
+}
+
+#[derive(Deserialize)]
+struct LatencyThresholdExpected {
+    raw_upper: f64,
+    threshold: f64,
+}
+
+#[test]
+fn conformance_latency_threshold() {
+    let suite: Suite<LatencyThresholdCase> =
+        serde_json::from_str(include_str!("conformance/latency_threshold.json")).unwrap();
+
+    for case in &suite.cases {
+        let result = latency::derive_latency_threshold(
+            case.inputs.baseline_percentile,
+            case.inputs.baseline_sd,
+            case.inputs.baseline_n,
+            case.inputs.confidence,
+        );
+
+        assert_close(
+            result.raw_upper(),
+            case.expected.raw_upper,
+            suite.tolerance,
+            &case.name,
+            "raw_upper",
+        );
+        assert_close(
+            result.threshold(),
+            case.expected.threshold,
+            suite.tolerance,
+            &case.name,
+            "threshold",
         );
     }
 }
