@@ -8,6 +8,8 @@
 //! condition is fixed during sampling, which is a direct expression of the
 //! i.i.d. assumption required for valid statistical inference.
 
+use std::fmt;
+
 use crate::controls::{ExecutionConfig, TokenRecorder};
 use crate::experiment::engine::{ExecutionEngine, ExecutionResult};
 use crate::model::TrialOutcome;
@@ -43,6 +45,7 @@ impl ConfigResult {
 /// ```
 /// use feotest::experiment::ExploreExperiment;
 /// use feotest::model::TrialOutcome;
+/// use std::fmt;
 /// use std::time::Duration;
 ///
 /// struct MyService { factor: f64 }
@@ -55,6 +58,11 @@ impl ConfigResult {
 ///         }
 ///     }
 /// }
+/// impl fmt::Display for MyService {
+///     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+///         write!(f, "MyService (factor={})", self.factor)
+///     }
+/// }
 ///
 /// let inputs = vec!["request".to_string()];
 ///
@@ -64,11 +72,12 @@ impl ConfigResult {
 /// let result = ExploreExperiment::new("MyService", 10, &inputs, |svc: &MyService, input| {
 ///     svc.call(input)
 /// })
-/// .config("factor=0.3", &svc_a)
-/// .config("factor=0.8", &svc_b)
+/// .config(&svc_a)
+/// .config(&svc_b)
 /// .run();
 ///
 /// assert_eq!(result.configs().len(), 2);
+/// assert_eq!(result.configs()[0].name(), "MyService (factor=0.3)");
 /// ```
 pub struct ExploreExperiment<'a, T, F> {
     use_case_id: String,
@@ -81,6 +90,7 @@ pub struct ExploreExperiment<'a, T, F> {
 
 impl<'a, T, F> ExploreExperiment<'a, T, F>
 where
+    T: fmt::Display,
     F: Fn(&T, &str) -> TrialOutcome,
 {
     /// Creates a new explore experiment.
@@ -108,12 +118,24 @@ where
         }
     }
 
-    /// Adds a named configuration with a pre-built use case instance.
+    /// Adds a configuration with a pre-built use case instance.
+    ///
+    /// The label is derived from the use case's `Display` implementation,
+    /// which should describe the configuration's distinguishing factors.
     ///
     /// The use case is borrowed immutably for the duration of the experiment.
-    /// It must not be mutated between calling `.config()` and `.run()`.
     #[must_use]
-    pub fn config(mut self, name: impl Into<String>, use_case: &'a T) -> Self {
+    pub fn config(mut self, use_case: &'a T) -> Self {
+        self.configs.push((use_case.to_string(), use_case));
+        self
+    }
+
+    /// Adds a configuration with an explicit label.
+    ///
+    /// Use this when you need a label that differs from the use case's
+    /// `Display` output — for example, a shorter name for reports.
+    #[must_use]
+    pub fn config_named(mut self, name: impl Into<String>, use_case: &'a T) -> Self {
         self.configs.push((name.into(), use_case));
         self
     }
@@ -205,23 +227,43 @@ mod tests {
         }
     }
 
+    impl fmt::Display for MockService {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            write!(f, "MockService (rate={})", self.success_rate)
+        }
+    }
+
     #[test]
     fn explores_multiple_configurations() {
         let inputs = vec!["input".to_string()];
 
         let svc_a = MockService::new(1.0);
-        let svc_b = MockService::new(1.0);
+        let svc_b = MockService::new(0.8);
 
         let result = ExploreExperiment::new("test-uc", 5, &inputs, |_svc, _input| {
             TrialOutcome::success(Duration::ZERO)
         })
-        .config("config-a", &svc_a)
-        .config("config-b", &svc_b)
+        .config(&svc_a)
+        .config(&svc_b)
         .run();
 
         assert_eq!(result.configs().len(), 2);
-        assert_eq!(result.configs()[0].name(), "config-a");
-        assert_eq!(result.configs()[1].name(), "config-b");
+        assert_eq!(result.configs()[0].name(), "MockService (rate=1)");
+        assert_eq!(result.configs()[1].name(), "MockService (rate=0.8)");
+    }
+
+    #[test]
+    fn config_named_overrides_label() {
+        let inputs = vec!["input".to_string()];
+        let svc = MockService::new(1.0);
+
+        let result = ExploreExperiment::new("test-uc", 5, &inputs, |_svc, _input| {
+            TrialOutcome::success(Duration::ZERO)
+        })
+        .config_named("custom-label", &svc)
+        .run();
+
+        assert_eq!(result.configs()[0].name(), "custom-label");
     }
 
     #[test]
@@ -232,7 +274,7 @@ mod tests {
         let result = ExploreExperiment::new("test-uc", 10, &inputs, |_svc, _input| {
             TrialOutcome::success(Duration::ZERO)
         })
-        .config("single", &svc)
+        .config(&svc)
         .run();
 
         assert_eq!(
@@ -258,8 +300,8 @@ mod tests {
                 )
             }
         })
-        .config("good", &svc_good)
-        .config("bad", &svc_bad)
+        .config(&svc_good)
+        .config(&svc_bad)
         .run();
 
         let good_result = &result.configs()[0];

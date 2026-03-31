@@ -1,5 +1,7 @@
 //! Optimize experiment: iterative factor tuning.
 
+use std::fmt;
+
 use crate::controls::{ExecutionConfig, TokenRecorder};
 use crate::experiment::engine::{ExecutionEngine, ExecutionResult};
 use crate::model::TrialOutcome;
@@ -299,6 +301,53 @@ impl OptimizeResult {
     }
 }
 
+impl fmt::Display for OptimizeResult {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let objective_label = match self.objective {
+            Objective::Maximize => "maximize",
+            Objective::Minimize => "minimize",
+        };
+
+        writeln!(
+            f,
+            "OptimizeResult: {} ({objective_label} '{}')",
+            self.use_case_id, self.control_factor,
+        )?;
+
+        if let Some(id) = &self.experiment_id {
+            writeln!(f, "  experiment: {id}")?;
+        }
+
+        writeln!(f, "  iterations: {}", self.history.len())?;
+
+        if let (Some(best_iter), Some(best_score)) = (self.best_iteration, self.best_score) {
+            writeln!(f, "  best: iteration {best_iter}, score {best_score:.4}")?;
+            if let Some(value) = self.best_factor_value() {
+                writeln!(f, "  best value: {value}")?;
+            }
+        } else {
+            writeln!(f, "  best: none")?;
+        }
+
+        if !self.history.is_empty() {
+            writeln!(f, "  history:")?;
+            for record in &self.history {
+                writeln!(
+                    f,
+                    "    [{:>2}] {} → score {:.4} ({} ok, {} fail)",
+                    record.iteration,
+                    record.factor_value,
+                    record.score,
+                    record.successes,
+                    record.failures,
+                )?;
+            }
+        }
+
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -365,6 +414,35 @@ mod tests {
         assert!(result.best_score().is_some());
         assert!(result.best_factor_value().is_some());
         assert_eq!(result.control_factor(), "temperature");
+    }
+
+    #[test]
+    fn display_shows_summary_and_history() {
+        let inputs = vec!["input".to_string()];
+
+        let result = OptimizeExperiment::new(
+            "display-test",
+            "temperature",
+            FactorValue::Float(0.5),
+            SuccessRateScorer,
+            IncrementMutator,
+            &inputs,
+            |_input| TrialOutcome::success(Duration::ZERO),
+            |_value| {},
+        )
+        .with_max_iterations(3)
+        .with_samples_per_iteration(5)
+        .with_no_improvement_window(10)
+        .with_experiment_id("display-exp")
+        .run();
+
+        let output = result.to_string();
+        assert!(output.contains("display-test"));
+        assert!(output.contains("temperature"));
+        assert!(output.contains("maximize"));
+        assert!(output.contains("display-exp"));
+        assert!(output.contains("best:"));
+        assert!(output.contains("history:"));
     }
 
     #[test]
