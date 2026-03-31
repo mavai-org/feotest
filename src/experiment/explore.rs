@@ -1,14 +1,16 @@
 //! Explore experiment: rapid configuration comparison.
+//!
+//! Each configuration is a pre-built, immutable use case instance.
+//! The framework runs the same trial function against each configuration
+//! independently, collecting results for side-by-side comparison.
+//!
+//! This design enforces the immutable use case principle: the experimental
+//! condition is fixed during sampling, which is a direct expression of the
+//! i.i.d. assumption required for valid statistical inference.
 
 use crate::controls::{ExecutionConfig, TokenRecorder};
 use crate::experiment::engine::{ExecutionEngine, ExecutionResult};
 use crate::model::TrialOutcome;
-
-/// A named configuration to explore.
-pub struct ExploreConfig {
-    name: String,
-    setup: Box<dyn FnMut()>,
-}
 
 /// A single configuration's exploration results.
 #[derive(Debug)]
@@ -33,24 +35,63 @@ impl ConfigResult {
 
 /// An explore experiment that compares multiple configurations.
 ///
-/// Each configuration is executed independently with the same inputs
-/// and trial closure. Results are collected per-configuration for
-/// side-by-side comparison.
-pub struct ExploreExperiment<'a, F> {
+/// Each configuration provides a pre-built, immutable use case instance.
+/// The trial function is declared once and shared across all configurations.
+///
+/// # Examples
+///
+/// ```
+/// use feotest::experiment::ExploreExperiment;
+/// use feotest::model::TrialOutcome;
+/// use std::time::Duration;
+///
+/// struct MyService { factor: f64 }
+/// impl MyService {
+///     fn call(&self, _input: &str) -> TrialOutcome {
+///         if self.factor > 0.5 {
+///             TrialOutcome::success(Duration::from_millis(1))
+///         } else {
+///             TrialOutcome::success(Duration::from_millis(2))
+///         }
+///     }
+/// }
+///
+/// let inputs = vec!["request".to_string()];
+///
+/// let svc_a = MyService { factor: 0.3 };
+/// let svc_b = MyService { factor: 0.8 };
+///
+/// let result = ExploreExperiment::new("MyService", 10, &inputs, |svc: &MyService, input| {
+///     svc.call(input)
+/// })
+/// .config("factor=0.3", &svc_a)
+/// .config("factor=0.8", &svc_b)
+/// .run();
+///
+/// assert_eq!(result.configs().len(), 2);
+/// ```
+pub struct ExploreExperiment<'a, T, F> {
     use_case_id: String,
     samples_per_config: u32,
     inputs: &'a [String],
     trial: F,
-    configs: Vec<ExploreConfig>,
+    configs: Vec<(String, &'a T)>,
     experiment_id: Option<String>,
-    warmup: u32,
 }
 
-impl<'a, F> ExploreExperiment<'a, F>
+impl<'a, T, F> ExploreExperiment<'a, T, F>
 where
-    F: FnMut(&str) -> TrialOutcome,
+    F: Fn(&T, &str) -> TrialOutcome,
 {
     /// Creates a new explore experiment.
+    ///
+    /// # Arguments
+    ///
+    /// * `use_case_id` — identifies the use case.
+    /// * `samples_per_config` — number of trials per configuration.
+    /// * `inputs` — the input strings to cycle through during trials.
+    /// * `trial` — function that executes one trial given a use case
+    ///   reference and an input string.
     pub fn new(
         use_case_id: impl Into<String>,
         samples_per_config: u32,
@@ -64,54 +105,51 @@ where
             trial,
             configs: Vec::new(),
             experiment_id: None,
-            warmup: 0,
         }
     }
 
-    /// Adds a named configuration with a setup closure.
+    /// Adds a named configuration with a pre-built use case instance.
     ///
-    /// The setup closure is called before running trials for this configuration.
-    /// Use it to set factors on the use case.
+    /// The use case is borrowed immutably for the duration of the experiment.
+    /// It must not be mutated between calling `.config()` and `.run()`.
     #[must_use]
-    pub fn config(mut self, name: impl Into<String>, setup: impl FnMut() + 'static) -> Self {
-        self.configs.push(ExploreConfig {
-            name: name.into(),
-            setup: Box::new(setup),
-        });
+    pub fn config(mut self, name: impl Into<String>, use_case: &'a T) -> Self {
+        self.configs.push((name.into(), use_case));
         self
     }
 
     /// Sets the experiment identifier.
     #[must_use]
-    pub fn with_experiment_id(mut self, id: impl Into<String>) -> Self {
+    pub fn experiment_id(mut self, id: impl Into<String>) -> Self {
         self.experiment_id = Some(id.into());
         self
     }
 
-    /// Sets the warmup count applied before each configuration.
-    #[must_use]
-    pub const fn with_warmup(mut self, warmup: u32) -> Self {
-        self.warmup = warmup;
-        self
-    }
-
     /// Runs the explore experiment and returns results per configuration.
-    pub fn run(mut self) -> ExploreResult {
+    ///
+    /// # Panics
+    ///
+    /// Panics if no configurations have been added.
+    pub fn run(self) -> ExploreResult {
+        assert!(
+            !self.configs.is_empty(),
+            "ExploreExperiment '{}': at least one configuration is required",
+            self.use_case_id
+        );
+
         let mut results = Vec::new();
 
-        for mut cfg in self.configs.drain(..) {
-            // Run setup for this configuration
-            (cfg.setup)();
-
-            let exec_config =
-                ExecutionConfig::new(self.samples_per_config).with_warmup(self.warmup);
+        for (name, use_case) in &self.configs {
+            let exec_config = ExecutionConfig::new(self.samples_per_config);
             let recorder = TokenRecorder::new();
 
+            let mut trial_fn = |input: &str| (self.trial)(use_case, input);
+
             let execution =
-                ExecutionEngine::run(&exec_config, self.inputs, &recorder, &mut self.trial);
+                ExecutionEngine::run(&exec_config, self.inputs, &recorder, &mut trial_fn);
 
             results.push(ConfigResult {
-                name: cfg.name,
+                name: name.clone(),
                 execution,
             });
         }
@@ -155,48 +193,79 @@ impl ExploreResult {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::Arc;
-    use std::sync::atomic::{AtomicU32, Ordering};
     use std::time::Duration;
+
+    struct MockService {
+        success_rate: f64,
+    }
+
+    impl MockService {
+        const fn new(success_rate: f64) -> Self {
+            Self { success_rate }
+        }
+    }
 
     #[test]
     fn explores_multiple_configurations() {
         let inputs = vec!["input".to_string()];
-        let config_counter = Arc::new(AtomicU32::new(0));
 
-        let c1 = Arc::clone(&config_counter);
-        let c2 = Arc::clone(&config_counter);
+        let svc_a = MockService::new(1.0);
+        let svc_b = MockService::new(1.0);
 
-        let result = ExploreExperiment::new("test-uc", 5, &inputs, |_input| {
+        let result = ExploreExperiment::new("test-uc", 5, &inputs, |_svc, _input| {
             TrialOutcome::success(Duration::ZERO)
         })
-        .config("config-a", move || {
-            c1.fetch_add(1, Ordering::SeqCst);
-        })
-        .config("config-b", move || {
-            c2.fetch_add(1, Ordering::SeqCst);
-        })
+        .config("config-a", &svc_a)
+        .config("config-b", &svc_b)
         .run();
 
         assert_eq!(result.configs().len(), 2);
         assert_eq!(result.configs()[0].name(), "config-a");
         assert_eq!(result.configs()[1].name(), "config-b");
-        assert_eq!(config_counter.load(Ordering::SeqCst), 2);
     }
 
     #[test]
     fn each_config_gets_correct_sample_count() {
         let inputs = vec!["input".to_string()];
+        let svc = MockService::new(1.0);
 
-        let result = ExploreExperiment::new("test-uc", 10, &inputs, |_input| {
+        let result = ExploreExperiment::new("test-uc", 10, &inputs, |_svc, _input| {
             TrialOutcome::success(Duration::ZERO)
         })
-        .config("single", || {})
+        .config("single", &svc)
         .run();
 
         assert_eq!(
             result.configs()[0].execution().summary().samples_executed(),
             10
         );
+    }
+
+    #[test]
+    fn trial_receives_correct_use_case() {
+        let inputs = vec!["input".to_string()];
+
+        let svc_good = MockService::new(1.0);
+        let svc_bad = MockService::new(0.0);
+
+        let result = ExploreExperiment::new("test-uc", 5, &inputs, |svc: &MockService, _input| {
+            if svc.success_rate > 0.5 {
+                TrialOutcome::success(Duration::ZERO)
+            } else {
+                TrialOutcome::failure(
+                    crate::model::ContractViolation::new("test", "forced failure"),
+                    Duration::ZERO,
+                )
+            }
+        })
+        .config("good", &svc_good)
+        .config("bad", &svc_bad)
+        .run();
+
+        let good_result = &result.configs()[0];
+        let bad_result = &result.configs()[1];
+
+        assert_eq!(good_result.execution().summary().successes(), 5);
+        assert_eq!(bad_result.execution().summary().failures(), 5);
     }
 }

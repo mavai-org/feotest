@@ -1,6 +1,6 @@
 //! Measure experiment: establishing precise empirical baselines.
 
-use crate::controls::{ExecutionConfig, TokenRecorder};
+use crate::controls::{ExecutionConfig, PacingConfig, TokenRecorder};
 use crate::experiment::engine::{ExecutionEngine, ExecutionResult};
 use crate::model::TrialOutcome;
 use crate::spec::SpecResolver;
@@ -79,6 +79,57 @@ where
     #[must_use]
     pub fn with_spec_resolver(mut self, resolver: SpecResolver) -> Self {
         self.spec_resolver = Some(resolver);
+        self
+    }
+
+    // --- Bare-name builder aliases (preferred API) ---
+
+    /// Sets the experiment identifier.
+    ///
+    /// Bare-name alias for [`with_experiment_id`](Self::with_experiment_id).
+    #[must_use]
+    pub fn experiment_id(self, id: impl Into<String>) -> Self {
+        self.with_experiment_id(id)
+    }
+
+    /// Sets the directory for writing the baseline spec.
+    ///
+    /// Convenience method that constructs a [`SpecResolver`] internally.
+    #[must_use]
+    pub fn spec_dir(self, path: impl Into<std::path::PathBuf>) -> Self {
+        self.with_spec_resolver(SpecResolver::with_dir(path))
+    }
+
+    /// Sets the directory for writing the baseline spec.
+    ///
+    /// Preferred alias for [`spec_dir`](Self::spec_dir).
+    #[must_use]
+    pub fn baseline_dir(self, path: impl Into<std::path::PathBuf>) -> Self {
+        self.spec_dir(path)
+    }
+
+    /// Sets the time budget for the experiment.
+    ///
+    /// The execution engine will stop once this wall-clock duration has elapsed.
+    #[must_use]
+    pub const fn time_budget(mut self, duration: std::time::Duration) -> Self {
+        self.config = ExecutionConfig::set_time_budget(self.config, duration);
+        self
+    }
+
+    /// Sets the token budget for the experiment.
+    ///
+    /// The execution engine will stop once this many tokens have been consumed.
+    #[must_use]
+    pub const fn token_budget(mut self, budget: u64) -> Self {
+        self.config = ExecutionConfig::set_token_budget(self.config, budget);
+        self
+    }
+
+    /// Sets pacing constraints for rate-limiting trial execution.
+    #[must_use]
+    pub const fn pacing(mut self, pacing_config: PacingConfig) -> Self {
+        self.config = ExecutionConfig::set_pacing(self.config, pacing_config);
         self
     }
 

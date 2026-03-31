@@ -19,8 +19,10 @@
 //! [`VerdictRecord`]: crate::verdict::VerdictRecord
 
 pub mod builder;
+mod probabilistic_test;
 mod runner;
 pub mod validation;
 
 pub use builder::ProbabilisticTestBuilder;
+pub use probabilistic_test::ProbabilisticTest;
 pub use runner::ProbabilisticTestResult;

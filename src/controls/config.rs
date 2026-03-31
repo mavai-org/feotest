@@ -96,6 +96,29 @@ impl ExecutionConfig {
         self
     }
 
+    // --- Internal helpers for experiment builders ---
+
+    /// Sets the time budget on this config (consuming and returning it).
+    #[must_use]
+    pub(crate) const fn set_time_budget(mut self, budget: Duration) -> Self {
+        self.time_budget = Some(budget);
+        self
+    }
+
+    /// Sets the token budget on this config (consuming and returning it).
+    #[must_use]
+    pub(crate) const fn set_token_budget(mut self, budget: u64) -> Self {
+        self.token_budget = Some(budget);
+        self
+    }
+
+    /// Sets the pacing config (consuming and returning it).
+    #[must_use]
+    pub(crate) const fn set_pacing(mut self, pacing: PacingConfig) -> Self {
+        self.pacing = Some(pacing);
+        self
+    }
+
     /// Number of samples to execute.
     #[must_use]
     pub const fn samples(&self) -> u32 {
