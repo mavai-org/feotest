@@ -429,17 +429,15 @@ where
         }
 
         // Default: tests/baselines resolved from CARGO_MANIFEST_DIR
-        let manifest_dir = std::env::var("CARGO_MANIFEST_DIR")
-            .unwrap_or_else(|_| ".".to_string());
+        let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").unwrap_or_else(|_| ".".to_string());
         let default_dir = PathBuf::from(manifest_dir).join("tests").join("baselines");
         Some(SpecResolver::with_dir(default_dir))
     }
 
     /// Builds `ExecutionConfig` from the approach and optional overrides.
     fn build_execution_config(&self, approach: &ThresholdApproach) -> Option<ExecutionConfig> {
-        let has_overrides = self.time_budget.is_some()
-            || self.token_budget.is_some()
-            || self.pacing.is_some();
+        let has_overrides =
+            self.time_budget.is_some() || self.token_budget.is_some() || self.pacing.is_some();
 
         if !has_overrides {
             return None;

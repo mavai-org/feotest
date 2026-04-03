@@ -16,6 +16,8 @@ pub struct SampleAggregate {
     failure_distribution: Vec<(String, u32)>,
     total_elapsed: Duration,
     example_failures: Vec<ContractViolation>,
+    conformance_mismatches: u32,
+    example_mismatches: Vec<String>,
 }
 
 impl SampleAggregate {
@@ -28,6 +30,8 @@ impl SampleAggregate {
             failure_distribution: Vec::new(),
             total_elapsed: Duration::ZERO,
             example_failures: Vec::new(),
+            conformance_mismatches: 0,
+            example_mismatches: Vec::new(),
         }
     }
 
@@ -124,6 +128,29 @@ impl SampleAggregate {
             self.total_elapsed / self.total()
         }
     }
+
+    /// Records a conformance mismatch.
+    ///
+    /// Stores the diff string as an example up to `max_examples`.
+    pub fn record_conformance_mismatch(&mut self, diff: &str, max_examples: u32) {
+        self.conformance_mismatches += 1;
+        #[allow(clippy::cast_possible_truncation)]
+        if (self.example_mismatches.len() as u32) < max_examples {
+            self.example_mismatches.push(diff.to_owned());
+        }
+    }
+
+    /// Number of conformance mismatches across all trials.
+    #[must_use]
+    pub const fn conformance_mismatches(&self) -> u32 {
+        self.conformance_mismatches
+    }
+
+    /// Example mismatch diff strings captured for diagnostic purposes.
+    #[must_use]
+    pub fn example_mismatches(&self) -> &[String] {
+        &self.example_mismatches
+    }
 }
 
 impl Default for SampleAggregate {
@@ -191,5 +218,32 @@ mod tests {
         agg.record_success(Duration::from_millis(10));
         agg.record_success(Duration::from_millis(30));
         assert_eq!(agg.avg_elapsed(), Duration::from_millis(20));
+    }
+
+    #[test]
+    fn records_conformance_mismatches() {
+        let mut agg = SampleAggregate::new();
+        agg.record_conformance_mismatch("expected A, got B", 5);
+        agg.record_conformance_mismatch("expected X, got Y", 5);
+        assert_eq!(agg.conformance_mismatches(), 2);
+        assert_eq!(agg.example_mismatches().len(), 2);
+        assert_eq!(agg.example_mismatches()[0], "expected A, got B");
+    }
+
+    #[test]
+    fn respects_max_example_mismatches() {
+        let mut agg = SampleAggregate::new();
+        for i in 0..10 {
+            agg.record_conformance_mismatch(&format!("diff {i}"), 3);
+        }
+        assert_eq!(agg.conformance_mismatches(), 10);
+        assert_eq!(agg.example_mismatches().len(), 3);
+    }
+
+    #[test]
+    fn empty_aggregate_has_no_conformance_mismatches() {
+        let agg = SampleAggregate::new();
+        assert_eq!(agg.conformance_mismatches(), 0);
+        assert!(agg.example_mismatches().is_empty());
     }
 }

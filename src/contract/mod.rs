@@ -11,10 +11,14 @@
 //! against a service response.
 
 mod builder;
+pub mod conformance;
 mod duration;
 mod evaluation;
+#[cfg(feature = "json-matcher")]
+pub mod json_matcher;
 
 pub use builder::ServiceContractBuilder;
+pub use conformance::{ConformanceResult, MatchResult, StringMatcher, VerificationMatcher};
 pub use duration::{DurationConstraint, DurationResult};
 pub use evaluation::UseCaseOutcome;
 
@@ -86,11 +90,16 @@ impl<I, R> ServiceContract<I, R> {
     pub const fn duration_constraint(&self) -> Option<&DurationConstraint> {
         self.duration_constraint.as_ref()
     }
+
+    /// Returns the names of all postcondition checks in evaluation order.
+    #[must_use]
+    pub fn check_names(&self) -> Vec<&str> {
+        self.checks.iter().map(|c| c.name.as_str()).collect()
+    }
 }
 
 /// A named postcondition check within a service contract.
 struct Check<I, R> {
-    #[allow(dead_code)]
     name: String,
     #[allow(clippy::type_complexity)]
     f: Box<dyn Fn(&I, &R) -> Outcome + Send + Sync>,
@@ -201,6 +210,22 @@ mod tests {
         let constraint = contract.duration_constraint().unwrap();
         assert_eq!(constraint.description(), "SLA limit");
         assert_eq!(constraint.max_duration(), Duration::from_secs(1));
+    }
+
+    #[test]
+    fn check_names_returns_names_in_order() {
+        let contract = ServiceContract::<String, String>::builder()
+            .ensure("alpha", |_input, _response| Ok(()))
+            .ensure("beta", |_input, _response| Ok(()))
+            .ensure("gamma", |_input, _response| Ok(()))
+            .build();
+        assert_eq!(contract.check_names(), vec!["alpha", "beta", "gamma"]);
+    }
+
+    #[test]
+    fn check_names_empty_contract() {
+        let contract = ServiceContract::<String, String>::builder().build();
+        assert!(contract.check_names().is_empty());
     }
 
     #[test]

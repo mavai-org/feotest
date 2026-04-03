@@ -22,9 +22,14 @@ repository = "https://github.com/javai-org/feotest"
 keywords = ["testing", "probabilistic", "statistics", "stochastic", "llm"]
 categories = ["development-tools::testing"]
 
+[features]
+default = []
+json-matcher = ["dep:serde_json"]
+
 [dependencies]
 feotest-macros = { path = "feotest-macros" }
 serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", optional = true }
 serde_yaml = "0.9"
 statrs = "0.18"
 

@@ -1,8 +1,10 @@
 //! Use case outcome: the result of executing a trial and evaluating its contract.
 
+use std::fmt;
 use std::time::{Duration, Instant};
 
 use crate::contract::ServiceContract;
+use crate::contract::conformance::{ConformanceResult, VerificationMatcher};
 use crate::contract::duration::DurationResult;
 use crate::model::{ContractViolation, TrialOutcome};
 
@@ -40,6 +42,7 @@ pub struct UseCaseOutcome<R> {
     response: R,
     trial_outcome: TrialOutcome,
     duration_result: Option<DurationResult>,
+    conformance_result: Option<ConformanceResult>,
 }
 
 impl<R> UseCaseOutcome<R> {
@@ -64,6 +67,7 @@ impl<R> UseCaseOutcome<R> {
             response,
             trial_outcome,
             duration_result,
+            conformance_result: None,
         }
     }
 
@@ -84,6 +88,7 @@ impl<R> UseCaseOutcome<R> {
             response,
             trial_outcome,
             duration_result,
+            conformance_result: None,
         }
     }
 
@@ -99,11 +104,12 @@ impl<R> UseCaseOutcome<R> {
         &self.response
     }
 
-    /// Whether the trial fully succeeded: all postconditions passed and the
-    /// duration constraint (if any) was satisfied.
+    /// Whether the trial fully succeeded: all postconditions passed, the
+    /// duration constraint (if any) was satisfied, and the conformance check
+    /// (if any) matched.
     #[must_use]
     pub fn is_success(&self) -> bool {
-        self.trial_outcome.is_success() && self.within_duration_limit()
+        self.trial_outcome.is_success() && self.within_duration_limit() && self.matches_expected()
     }
 
     /// The postcondition violation, if any.
@@ -129,19 +135,82 @@ impl<R> UseCaseOutcome<R> {
             .is_none_or(DurationResult::passed)
     }
 
-    /// Asserts that all postconditions and the duration constraint were satisfied.
+    /// Attaches an instance conformance check to this outcome.
+    ///
+    /// The extractor projects the response into the matchable type, the matcher
+    /// compares it against the expected value, and the result is stored for
+    /// diagnostic reporting.
+    #[must_use]
+    pub fn conforms_to<T: fmt::Debug>(
+        mut self,
+        expected: &T,
+        extractor: impl Fn(&R) -> T,
+        matcher: &dyn VerificationMatcher<T>,
+    ) -> Self {
+        let actual = extractor(&self.response);
+        let match_result = matcher.verify(expected, &actual);
+        self.conformance_result = Some(ConformanceResult::new(
+            format!("{expected:?}"),
+            match_result,
+        ));
+        self
+    }
+
+    /// The conformance result, if a conformance check was specified.
+    #[must_use]
+    pub const fn conformance_result(&self) -> Option<&ConformanceResult> {
+        self.conformance_result.as_ref()
+    }
+
+    /// Whether the actual value matched the expected value.
+    ///
+    /// Returns `true` if no conformance check was specified, or if it passed.
+    #[must_use]
+    pub fn matches_expected(&self) -> bool {
+        self.conformance_result
+            .as_ref()
+            .is_none_or(ConformanceResult::is_match)
+    }
+
+    /// Asserts that all postconditions, the duration constraint, and the
+    /// conformance check were satisfied.
     ///
     /// # Panics
     ///
-    /// Panics if any postcondition failed or the duration constraint was
-    /// violated, with a message describing the failure.
+    /// Panics if any postcondition failed, the conformance check mismatched,
+    /// or the duration constraint was violated, with a message describing the
+    /// failure.
     pub fn assert_contract(&self) {
+        let mut failures: Vec<String> = Vec::new();
+
         if let Some(violation) = self.violation() {
-            panic!("Contract violation: {violation}");
+            failures.push(format!(
+                "Postcondition '{}' failed: {}",
+                violation.check(),
+                violation.reason()
+            ));
         }
-        if let Some(result) = &self.duration_result {
-            assert!(!result.failed(), "Duration violation: {result}");
+
+        if let Some(cr) = &self.conformance_result {
+            if cr.match_result().is_mismatch() {
+                failures.push(format!(
+                    "Expected value mismatch: {}",
+                    cr.match_result().diff()
+                ));
+            }
         }
+
+        if let Some(dr) = &self.duration_result {
+            if dr.failed() {
+                failures.push(dr.message());
+            }
+        }
+
+        assert!(
+            failures.is_empty(),
+            "Contract violations:\n  - {}",
+            failures.join("\n  - ")
+        );
     }
 }
 
@@ -189,7 +258,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "Contract violation: content: empty")]
+    #[should_panic(expected = "Postcondition 'content' failed: empty")]
     fn assert_contract_panics_on_postcondition_violation() {
         let contract = ServiceContract::<String, String>::builder()
             .ensure("has content", |_input, _response| {
@@ -308,7 +377,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "Duration violation")]
+    #[should_panic(expected = "Contract violations")]
     fn assert_contract_panics_on_duration_violation() {
         let contract = ServiceContract::<u32, u32>::builder()
             .ensure_duration_below(Duration::from_millis(100))
@@ -319,7 +388,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "Contract violation")]
+    #[should_panic(expected = "Postcondition 'check' failed: forced")]
     fn assert_contract_reports_postcondition_before_duration() {
         let contract = ServiceContract::<u32, u32>::builder()
             .ensure("always fails", |_input, _response| {
@@ -341,5 +410,161 @@ mod tests {
         let outcome = UseCaseOutcome::from_response(&contract, &1, 42, Duration::from_millis(300));
         assert!(outcome.duration_result().is_some());
         assert!(outcome.within_duration_limit());
+    }
+
+    // --- Conformance tests ---
+
+    #[test]
+    fn no_conformance_means_matches_expected_is_true() {
+        let contract = ServiceContract::<u32, u32>::builder().build();
+        let outcome = UseCaseOutcome::from_response(&contract, &1, 42, Duration::from_millis(10));
+        assert!(outcome.matches_expected());
+        assert!(outcome.conformance_result().is_none());
+    }
+
+    #[test]
+    fn conforms_to_match_succeeds() {
+        use crate::contract::conformance::StringMatcher;
+
+        let contract = ServiceContract::<String, String>::builder().build();
+        let outcome = UseCaseOutcome::from_response(
+            &contract,
+            &"input".into(),
+            "hello".into(),
+            Duration::from_millis(10),
+        );
+        let outcome =
+            outcome.conforms_to(&"hello".to_string(), |r| r.clone(), &StringMatcher::exact());
+
+        assert!(outcome.matches_expected());
+        assert!(outcome.conformance_result().unwrap().is_match());
+        assert!(outcome.is_success());
+    }
+
+    #[test]
+    fn conforms_to_mismatch_fails() {
+        use crate::contract::conformance::StringMatcher;
+
+        let contract = ServiceContract::<String, String>::builder().build();
+        let outcome = UseCaseOutcome::from_response(
+            &contract,
+            &"input".into(),
+            "hello".into(),
+            Duration::from_millis(10),
+        );
+        let outcome = outcome.conforms_to(
+            &"goodbye".to_string(),
+            |r| r.clone(),
+            &StringMatcher::exact(),
+        );
+
+        assert!(!outcome.matches_expected());
+        assert!(!outcome.is_success());
+        let cr = outcome.conformance_result().unwrap();
+        assert!(cr.match_result().is_mismatch());
+        assert!(cr.match_result().diff().contains("hello"));
+        assert!(cr.match_result().diff().contains("goodbye"));
+    }
+
+    #[test]
+    fn conforms_to_extractor_projects_response() {
+        use crate::contract::conformance::StringMatcher;
+
+        let contract = ServiceContract::<String, String>::builder().build();
+        let outcome = UseCaseOutcome::from_response(
+            &contract,
+            &"input".into(),
+            "HELLO WORLD".into(),
+            Duration::from_millis(10),
+        );
+        // Extract first word
+        let outcome = outcome.conforms_to(
+            &"HELLO".to_string(),
+            |r| r.split_whitespace().next().unwrap_or("").to_string(),
+            &StringMatcher::exact(),
+        );
+
+        assert!(outcome.matches_expected());
+    }
+
+    #[test]
+    fn postcondition_pass_conformance_fail_means_overall_failure() {
+        use crate::contract::conformance::StringMatcher;
+
+        let contract = ServiceContract::<String, String>::builder()
+            .ensure("not empty", |_input, response| {
+                if response.is_empty() {
+                    Err(ContractViolation::new("content", "empty"))
+                } else {
+                    Ok(())
+                }
+            })
+            .build();
+
+        let outcome = UseCaseOutcome::from_response(
+            &contract,
+            &"input".into(),
+            "hello".into(),
+            Duration::from_millis(10),
+        );
+        let outcome = outcome.conforms_to(
+            &"goodbye".to_string(),
+            |r| r.clone(),
+            &StringMatcher::exact(),
+        );
+
+        assert!(outcome.violation().is_none()); // postconditions passed
+        assert!(!outcome.matches_expected()); // conformance failed
+        assert!(!outcome.is_success()); // overall failure
+    }
+
+    #[test]
+    fn all_three_dimensions_pass() {
+        use crate::contract::conformance::StringMatcher;
+
+        let contract = ServiceContract::<String, String>::builder()
+            .ensure("not empty", |_input, response| {
+                if response.is_empty() {
+                    Err(ContractViolation::new("content", "empty"))
+                } else {
+                    Ok(())
+                }
+            })
+            .ensure_duration_below(Duration::from_millis(500))
+            .build();
+
+        let outcome = UseCaseOutcome::from_response(
+            &contract,
+            &"input".into(),
+            "hello".into(),
+            Duration::from_millis(100),
+        );
+        let outcome =
+            outcome.conforms_to(&"hello".to_string(), |r| r.clone(), &StringMatcher::exact());
+
+        assert!(outcome.violation().is_none());
+        assert!(outcome.within_duration_limit());
+        assert!(outcome.matches_expected());
+        assert!(outcome.is_success());
+    }
+
+    #[test]
+    #[should_panic(expected = "Expected value mismatch")]
+    fn assert_contract_includes_conformance_mismatch() {
+        use crate::contract::conformance::StringMatcher;
+
+        let contract = ServiceContract::<String, String>::builder().build();
+        let outcome = UseCaseOutcome::from_response(
+            &contract,
+            &"input".into(),
+            "hello".into(),
+            Duration::from_millis(10),
+        );
+        let outcome = outcome.conforms_to(
+            &"goodbye".to_string(),
+            |r| r.clone(),
+            &StringMatcher::exact(),
+        );
+        outcome.assert_contract();
     }
 }

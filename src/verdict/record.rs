@@ -147,6 +147,8 @@ pub struct FunctionalDimension {
     failures: u32,
     pass_rate: f64,
     failure_distribution: Vec<(String, u32)>,
+    conformance_mismatches: u32,
+    example_mismatches: Vec<String>,
 }
 
 impl FunctionalDimension {
@@ -164,7 +166,21 @@ impl FunctionalDimension {
             failures,
             pass_rate,
             failure_distribution,
+            conformance_mismatches: 0,
+            example_mismatches: Vec::new(),
         }
+    }
+
+    /// Creates a functional dimension with conformance data.
+    #[must_use]
+    pub fn conformance(
+        mut self,
+        conformance_mismatches: u32,
+        example_mismatches: Vec<String>,
+    ) -> Self {
+        self.conformance_mismatches = conformance_mismatches;
+        self.example_mismatches = example_mismatches;
+        self
     }
 
     /// Number of successful trials.
@@ -189,6 +205,18 @@ impl FunctionalDimension {
     #[must_use]
     pub fn failure_distribution(&self) -> &[(String, u32)] {
         &self.failure_distribution
+    }
+
+    /// Number of instance conformance mismatches.
+    #[must_use]
+    pub const fn conformance_mismatches(&self) -> u32 {
+        self.conformance_mismatches
+    }
+
+    /// Example mismatch diffs for diagnostic reporting.
+    #[must_use]
+    pub fn example_mismatches(&self) -> &[String] {
+        &self.example_mismatches
     }
 }
 
