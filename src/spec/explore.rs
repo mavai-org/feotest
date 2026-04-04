@@ -138,10 +138,10 @@ impl ExploreSpecWriter {
     ) -> Result<Vec<PathBuf>, std::io::Error> {
         let dir = self
             .output_dir
-            .join("explorations")
             .join(result.use_case_id());
 
         std::fs::create_dir_all(&dir)?;
+        let dir = dir.canonicalize()?;
 
         let mut paths = Vec::new();
         for config in result.configs() {
@@ -179,7 +179,7 @@ impl ExploreSpecWriter {
         execution: &ExecutionResult,
         factors: Option<&BTreeMap<String, FactorYamlValue>>,
     ) -> Result<PathBuf, std::io::Error> {
-        let dir = self.output_dir.join("explorations").join(use_case_id);
+        let dir = self.output_dir.join(use_case_id);
         std::fs::create_dir_all(&dir)?;
 
         let spec = Self::build_spec(use_case_id, experiment_id, execution, factors);
