@@ -10,13 +10,18 @@
 
 use std::collections::BTreeMap;
 use std::fmt;
+use std::fmt::Write as _;
 use std::path::PathBuf;
 
 use crate::controls::{ExecutionConfig, TokenRecorder};
 use crate::experiment::engine::{ExecutionEngine, ExecutionResult};
 use crate::model::TrialOutcome;
-use crate::spec::explore::{ExploreSpecWriter, FactorYamlValue};
-use crate::spec::projection::{SampleProjection, build_projection};
+use crate::spec::explore::{
+    ExplorationSpec, ExplorationStatisticsBlock, ExploreSpecWriter, FactorYamlValue,
+};
+use crate::spec::baseline::ExecutionBlock;
+use crate::spec::common::{build_cost_block, build_failure_distribution, now_iso8601, round4};
+use crate::spec::projection::{SampleProjection, build_projection, format_projections};
 
 /// A single configuration's exploration results.
 #[derive(Debug)]
@@ -273,6 +278,64 @@ impl ExploreResult {
     #[must_use]
     pub fn spec_paths(&self) -> Option<&[PathBuf]> {
         self.spec_paths.as_deref()
+    }
+
+    /// Renders all configuration results as YAML to stdout.
+    ///
+    /// Each configuration produces a separate YAML document, delimited by
+    /// `---`. Includes per-sample result projections when the trial
+    /// function enriched the `TrialOutcome` with projection metadata.
+    ///
+    /// This is the primary output mechanism for explore experiments.
+    /// The developer pipes or redirects as needed:
+    ///
+    /// ```text
+    /// cargo test --test my_explore -- --nocapture > results.yaml
+    /// cargo test --test my_explore -- --nocapture | less
+    /// ```
+    pub fn to_yaml(&self) -> String {
+        let timestamp = now_iso8601();
+        let mut out = String::new();
+
+        for (i, config) in self.configs.iter().enumerate() {
+            if i > 0 {
+                let _ = writeln!(out, "---");
+            }
+
+            let summary = config.execution().summary();
+            let agg = config.execution().aggregate();
+
+            let spec = ExplorationSpec {
+                schema_version: "feotest-spec-1".to_owned(),
+                use_case_id: self.use_case_id.clone(),
+                generated_at: timestamp.clone(),
+                experiment_id: self.experiment_id.clone(),
+                execution_context: BTreeMap::new(),
+                execution: ExecutionBlock {
+                    samples_planned: summary.samples_planned(),
+                    samples_executed: summary.samples_executed(),
+                    termination_reason: Some(summary.termination().reason().to_string()),
+                },
+                statistics: ExplorationStatisticsBlock {
+                    observed: round4(summary.observed_pass_rate()),
+                    successes: summary.successes(),
+                    failures: summary.failures(),
+                    failure_distribution: build_failure_distribution(agg),
+                },
+                cost: Some(build_cost_block(summary.cost())),
+            };
+
+            if let Ok(yaml) = spec.to_yaml() {
+                let _ = write!(out, "{yaml}");
+            }
+
+            let projection_yaml = format_projections(config.projections());
+            if !projection_yaml.is_empty() {
+                let _ = write!(out, "{projection_yaml}");
+            }
+        }
+
+        out
     }
 }
 
