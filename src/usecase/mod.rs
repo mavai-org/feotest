@@ -138,6 +138,19 @@ pub enum CovariateCategory {
     DataState,
 }
 
+impl fmt::Display for CovariateCategory {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Configuration => write!(f, "Configuration"),
+            Self::Temporal => write!(f, "Temporal"),
+            Self::Infrastructure => write!(f, "Infrastructure"),
+            Self::Operational => write!(f, "Operational"),
+            Self::ExternalDependency => write!(f, "ExternalDependency"),
+            Self::DataState => write!(f, "DataState"),
+        }
+    }
+}
+
 /// A covariate declaration on a use case.
 ///
 /// Covariates represent contextual factors that drive variance in system
@@ -158,6 +171,30 @@ impl CovariateDeclaration {
         }
     }
 
+    /// Built-in: sensitivity to day of week.
+    #[must_use]
+    pub fn day_of_week() -> Self {
+        Self::new("day-of-week", CovariateCategory::Temporal)
+    }
+
+    /// Built-in: sensitivity to time of day.
+    #[must_use]
+    pub fn time_of_day() -> Self {
+        Self::new("time-of-day", CovariateCategory::Temporal)
+    }
+
+    /// Built-in: sensitivity to deployment region.
+    #[must_use]
+    pub fn region() -> Self {
+        Self::new("region", CovariateCategory::Infrastructure)
+    }
+
+    /// Built-in: sensitivity to timezone.
+    #[must_use]
+    pub fn timezone() -> Self {
+        Self::new("timezone", CovariateCategory::Infrastructure)
+    }
+
     /// The covariate key.
     #[must_use]
     pub fn key(&self) -> &str {
@@ -168,6 +205,29 @@ impl CovariateDeclaration {
     #[must_use]
     pub const fn category(&self) -> CovariateCategory {
         self.category
+    }
+}
+
+impl fmt::Display for CovariateDeclaration {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{} ({})", self.key, self.category)
+    }
+}
+
+/// Validates that covariate declarations have unique keys.
+///
+/// # Panics
+///
+/// Panics if two or more declarations share the same key.
+pub fn validate_covariates(covariates: &[CovariateDeclaration]) {
+    let mut seen = std::collections::HashSet::new();
+    for cov in covariates {
+        if !seen.insert(cov.key()) {
+            panic!(
+                "duplicate covariate key '{}': each covariate must have a unique name within a use case",
+                cov.key()
+            );
+        }
     }
 }
 
@@ -299,5 +359,90 @@ mod tests {
         let cov = CovariateDeclaration::new("llm_model", CovariateCategory::ExternalDependency);
         assert_eq!(cov.key(), "llm_model");
         assert_eq!(cov.category(), CovariateCategory::ExternalDependency);
+    }
+
+    #[test]
+    fn built_in_covariate_helpers() {
+        let dow = CovariateDeclaration::day_of_week();
+        assert_eq!(dow.key(), "day-of-week");
+        assert_eq!(dow.category(), CovariateCategory::Temporal);
+
+        let tod = CovariateDeclaration::time_of_day();
+        assert_eq!(tod.key(), "time-of-day");
+        assert_eq!(tod.category(), CovariateCategory::Temporal);
+
+        let reg = CovariateDeclaration::region();
+        assert_eq!(reg.key(), "region");
+        assert_eq!(reg.category(), CovariateCategory::Infrastructure);
+
+        let tz = CovariateDeclaration::timezone();
+        assert_eq!(tz.key(), "timezone");
+        assert_eq!(tz.category(), CovariateCategory::Infrastructure);
+    }
+
+    #[test]
+    fn covariate_category_display() {
+        assert_eq!(CovariateCategory::Configuration.to_string(), "Configuration");
+        assert_eq!(CovariateCategory::Temporal.to_string(), "Temporal");
+        assert_eq!(CovariateCategory::Infrastructure.to_string(), "Infrastructure");
+        assert_eq!(CovariateCategory::Operational.to_string(), "Operational");
+        assert_eq!(CovariateCategory::ExternalDependency.to_string(), "ExternalDependency");
+        assert_eq!(CovariateCategory::DataState.to_string(), "DataState");
+    }
+
+    #[test]
+    fn covariate_declaration_display() {
+        let cov = CovariateDeclaration::new("llm_model", CovariateCategory::ExternalDependency);
+        assert_eq!(cov.to_string(), "llm_model (ExternalDependency)");
+    }
+
+    #[test]
+    fn validate_covariates_accepts_unique_keys() {
+        let covs = vec![
+            CovariateDeclaration::day_of_week(),
+            CovariateDeclaration::region(),
+            CovariateDeclaration::new("llm_model", CovariateCategory::ExternalDependency),
+        ];
+        validate_covariates(&covs); // should not panic
+    }
+
+    #[test]
+    fn validate_covariates_accepts_empty() {
+        validate_covariates(&[]); // should not panic
+    }
+
+    #[test]
+    #[should_panic(expected = "duplicate covariate key 'region'")]
+    fn validate_covariates_rejects_duplicates() {
+        let covs = vec![
+            CovariateDeclaration::region(),
+            CovariateDeclaration::new("region", CovariateCategory::Operational),
+        ];
+        validate_covariates(&covs);
+    }
+
+    #[test]
+    fn use_case_with_covariates() {
+        struct WithCovariates;
+        impl UseCase for WithCovariates {
+            fn id(&self) -> &str {
+                "with-covariates"
+            }
+            fn covariates(&self) -> Vec<CovariateDeclaration> {
+                vec![
+                    CovariateDeclaration::day_of_week(),
+                    CovariateDeclaration::time_of_day(),
+                    CovariateDeclaration::new("llm_model", CovariateCategory::ExternalDependency),
+                ]
+            }
+        }
+
+        let uc = WithCovariates;
+        let covs = uc.covariates();
+        assert_eq!(covs.len(), 3);
+        assert_eq!(covs[0].key(), "day-of-week");
+        assert_eq!(covs[1].key(), "time-of-day");
+        assert_eq!(covs[2].key(), "llm_model");
+        validate_covariates(&covs);
     }
 }
