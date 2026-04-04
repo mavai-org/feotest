@@ -4,11 +4,11 @@ use crate::controls::{ExecutionConfig, PacingConfig, TokenRecorder};
 use crate::experiment::engine::{ExecutionEngine, ExecutionResult};
 use crate::model::TrialOutcome;
 use crate::spec::SpecResolver;
-use crate::spec::baseline::{
-    BaselineSpec, CostBlock, ExecutionBlock, RequirementsBlock, StatisticsBlock, SuccessRateBlock,
+use crate::spec::baseline::{BaselineSpec, RequirementsBlock, StatisticsBlock, SuccessRateBlock};
+use crate::spec::common::{
+    build_cost_block, build_execution_block, build_failure_distribution, now_iso8601, round4,
+    standard_error, wilson_interval, wilson_lower_bound,
 };
-use crate::statistics::types::ConfidenceLevel;
-use crate::statistics::{defaults, proportion};
 
 /// A measure experiment that runs many samples to establish a precise baseline.
 ///
@@ -161,37 +161,14 @@ where
         let failures = summary.failures();
 
         let observed_rate = summary.observed_pass_rate();
-        let confidence = ConfidenceLevel::new(defaults::DEFAULT_CONFIDENCE);
-
-        // Compute Wilson score interval
-        let estimate = proportion::estimate(successes, total, confidence);
-
-        // Wilson lower bound as the derived threshold
-        let lower_bound = proportion::lower_bound(successes, total, confidence);
-
-        let se = proportion::standard_error(successes, total);
-
-        // Build failure distribution
-        let failure_dist = if result.aggregate().failure_distribution().is_empty() {
-            None
-        } else {
-            let mut map = std::collections::BTreeMap::new();
-            for (check, count) in result.aggregate().failure_distribution() {
-                map.insert(check.clone(), *count);
-            }
-            Some(map)
-        };
-
-        let now = chrono_like_now();
+        let (ci_lower, ci_upper) = wilson_interval(successes, total);
+        let lower_bound = wilson_lower_bound(successes, total);
+        let se = standard_error(successes, total);
 
         let mut spec = BaselineSpec::new(
             &self.use_case_id,
-            &now,
-            ExecutionBlock {
-                samples_planned: self.config.samples(),
-                samples_executed: total,
-                termination_reason: Some(summary.termination().reason().to_string()),
-            },
+            now_iso8601(),
+            build_execution_block(summary, self.config.samples()),
             RequirementsBlock {
                 min_pass_rate: round4(lower_bound),
             },
@@ -199,72 +176,19 @@ where
                 success_rate: SuccessRateBlock {
                     observed: round4(observed_rate),
                     standard_error: round4(se),
-                    confidence_interval95: [
-                        round4(estimate.lower_bound()),
-                        round4(estimate.upper_bound()),
-                    ],
+                    confidence_interval95: [round4(ci_lower), round4(ci_upper)],
                 },
                 successes,
                 failures,
-                failure_distribution: failure_dist,
+                failure_distribution: build_failure_distribution(result.aggregate()),
             },
         );
 
         spec.experiment_id.clone_from(&self.experiment_id);
-
-        let cost = summary.cost();
-        spec.cost = Some(CostBlock {
-            total_time_ms: u64::try_from(cost.total_time().as_millis()).unwrap_or(u64::MAX),
-            avg_time_per_sample_ms: u64::try_from(cost.avg_time_per_sample().as_millis())
-                .unwrap_or(u64::MAX),
-            total_tokens: cost.total_tokens(),
-            avg_tokens_per_sample: cost.avg_tokens_per_sample(),
-        });
+        spec.cost = Some(build_cost_block(summary.cost()));
 
         spec
     }
-}
-
-/// Round to 4 decimal places for spec output.
-fn round4(v: f64) -> f64 {
-    (v * 10000.0).round() / 10000.0
-}
-
-/// Simple ISO 8601 timestamp (no chrono dependency).
-fn chrono_like_now() -> String {
-    use std::time::SystemTime;
-    let duration = SystemTime::now()
-        .duration_since(SystemTime::UNIX_EPOCH)
-        .unwrap_or_default();
-    let secs = duration.as_secs();
-
-    // Basic formatting without chrono
-    let days = secs / 86400;
-    let time_secs = secs % 86400;
-    let hours = time_secs / 3600;
-    let minutes = (time_secs % 3600) / 60;
-    let seconds = time_secs % 60;
-
-    // Approximate date from days since epoch
-    // Good enough for spec timestamps
-    let (year, month, day) = days_to_date(days);
-    format!("{year:04}-{month:02}-{day:02}T{hours:02}:{minutes:02}:{seconds:02}Z")
-}
-
-/// Converts days since Unix epoch to (year, month, day).
-const fn days_to_date(days: u64) -> (u64, u64, u64) {
-    // Civil date algorithm from Howard Hinnant
-    let z = days + 719_468;
-    let era = z / 146_097;
-    let doe = z - era * 146_097;
-    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146_096) / 365;
-    let y = yoe + era * 400;
-    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-    let mp = (5 * doy + 2) / 153;
-    let d = doy - (153 * mp + 2) / 5 + 1;
-    let m = if mp < 10 { mp + 3 } else { mp - 9 };
-    let y = if m <= 2 { y + 1 } else { y };
-    (y, m, d)
 }
 
 /// Result of a measure experiment.
@@ -358,7 +282,6 @@ mod tests {
 
     #[test]
     fn round4_works() {
-        assert!((round4(0.123_456_789) - 0.1235).abs() < 1e-10);
-        assert!((round4(0.5) - 0.5).abs() < 1e-10);
+        assert!((crate::spec::common::round4(0.123_456_789) - 0.1235).abs() < 1e-10);
     }
 }

@@ -95,6 +95,51 @@ impl TrialOutcome {
         self
     }
 
+    /// Well-known metadata key for response content in result projections.
+    pub const CONTENT_KEY: &str = "_projection.content";
+
+    /// Well-known metadata key prefix for postcondition status in result projections.
+    pub const POSTCONDITION_PREFIX: &str = "_projection.postcondition.";
+
+    /// Attaches response content for result projection output.
+    ///
+    /// The content is the raw service response captured for diagnostic
+    /// reporting in exploration YAML files.
+    #[must_use]
+    pub fn content(self, content: impl Into<String>) -> Self {
+        self.with_meta(Self::CONTENT_KEY, content)
+    }
+
+    /// Records a postcondition check result for result projection output.
+    ///
+    /// Status should be `"passed"`, `"failed"`, or `"skipped"`.
+    #[must_use]
+    pub fn postcondition(self, name: impl Into<String>, status: impl Into<String>) -> Self {
+        let key = format!("{}{}", Self::POSTCONDITION_PREFIX, name.into());
+        self.with_meta(key, status)
+    }
+
+    /// Extracts the projection content from metadata, if present.
+    #[must_use]
+    pub fn projection_content(&self) -> Option<&str> {
+        self.metadata
+            .iter()
+            .find(|(k, _)| k == Self::CONTENT_KEY)
+            .map(|(_, v)| v.as_str())
+    }
+
+    /// Extracts postcondition statuses from metadata as (name, status) pairs.
+    #[must_use]
+    pub fn projection_postconditions(&self) -> Vec<(&str, &str)> {
+        self.metadata
+            .iter()
+            .filter_map(|(k, v)| {
+                k.strip_prefix(Self::POSTCONDITION_PREFIX)
+                    .map(|name| (name, v.as_str()))
+            })
+            .collect()
+    }
+
     /// Whether this trial succeeded.
     #[must_use]
     pub const fn is_success(&self) -> bool {

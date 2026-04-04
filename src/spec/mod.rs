@@ -9,6 +9,9 @@
 //! probabilistic tests (which consume them).
 
 pub mod baseline;
+pub mod common;
+pub mod explore;
+pub mod projection;
 mod resolver;
 
 pub use baseline::BaselineSpec;

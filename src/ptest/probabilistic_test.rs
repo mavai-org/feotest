@@ -291,19 +291,18 @@ where
         let has_power = self.power.is_some();
 
         // Over-specification: samples + threshold + confidence
-        if has_samples && has_threshold && has_confidence {
-            panic!(
-                "\n\nOVER-SPECIFIED in ProbabilisticTest '{}':\n\n\
-                 samples, threshold, and confidence are all set.\n\
-                 Sample size, confidence, and threshold are mathematically linked.\n\
-                 You choose two; the framework derives the third.\n\n\
-                 Pick one approach:\n  \
-                 - Threshold-first:   .samples(n).threshold(rate)\n  \
-                 - Sample-size-first: .samples(n).confidence(level)\n  \
-                 - Confidence-first:  .confidence(level).min_detectable_effect(mde).power(p)\n",
-                self.use_case_id
-            );
-        }
+        assert!(
+            !(has_samples && has_threshold && has_confidence),
+            "\n\nOVER-SPECIFIED in ProbabilisticTest '{}':\n\n\
+             samples, threshold, and confidence are all set.\n\
+             Sample size, confidence, and threshold are mathematically linked.\n\
+             You choose two; the framework derives the third.\n\n\
+             Pick one approach:\n  \
+             - Threshold-first:   .samples(n).threshold(rate)\n  \
+             - Sample-size-first: .samples(n).confidence(level)\n  \
+             - Confidence-first:  .confidence(level).min_detectable_effect(mde).power(p)\n",
+            self.use_case_id
+        );
 
         // Threshold-first: samples + threshold
         if has_samples && has_threshold && !has_confidence && !has_mde && !has_power {

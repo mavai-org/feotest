@@ -8,17 +8,22 @@
 //! condition is fixed during sampling, which is a direct expression of the
 //! i.i.d. assumption required for valid statistical inference.
 
+use std::collections::BTreeMap;
 use std::fmt;
+use std::path::PathBuf;
 
 use crate::controls::{ExecutionConfig, TokenRecorder};
 use crate::experiment::engine::{ExecutionEngine, ExecutionResult};
 use crate::model::TrialOutcome;
+use crate::spec::explore::{ExploreSpecWriter, FactorYamlValue};
+use crate::spec::projection::{SampleProjection, build_projection};
 
 /// A single configuration's exploration results.
 #[derive(Debug)]
 pub struct ConfigResult {
     name: String,
     execution: ExecutionResult,
+    projections: Vec<SampleProjection>,
 }
 
 impl ConfigResult {
@@ -32,6 +37,12 @@ impl ConfigResult {
     #[must_use]
     pub const fn execution(&self) -> &ExecutionResult {
         &self.execution
+    }
+
+    /// Per-sample result projections.
+    #[must_use]
+    pub fn projections(&self) -> &[SampleProjection] {
+        &self.projections
     }
 }
 
@@ -86,6 +97,8 @@ pub struct ExploreExperiment<'a, T, F> {
     trial: F,
     configs: Vec<(String, &'a T)>,
     experiment_id: Option<String>,
+    output_dir: Option<PathBuf>,
+    factor_values: BTreeMap<String, BTreeMap<String, FactorYamlValue>>,
 }
 
 impl<'a, T, F> ExploreExperiment<'a, T, F>
@@ -115,6 +128,8 @@ where
             trial,
             configs: Vec::new(),
             experiment_id: None,
+            output_dir: None,
+            factor_values: BTreeMap::new(),
         }
     }
 
@@ -147,6 +162,29 @@ where
         self
     }
 
+    /// Configures YAML spec output for each explored configuration.
+    ///
+    /// When set, running the experiment writes per-configuration specs to
+    /// `{output_dir}/explorations/{use_case_id}/{config_name}.yaml`.
+    #[must_use]
+    pub fn output_dir(mut self, dir: impl Into<PathBuf>) -> Self {
+        self.output_dir = Some(dir.into());
+        self
+    }
+
+    /// Records factor values for a named configuration.
+    ///
+    /// These appear in the `executionContext` block of the exploration YAML.
+    #[must_use]
+    pub fn factors(
+        mut self,
+        config_name: impl Into<String>,
+        values: BTreeMap<String, FactorYamlValue>,
+    ) -> Self {
+        self.factor_values.insert(config_name.into(), values);
+        self
+    }
+
     /// Runs the explore experiment and returns results per configuration.
     ///
     /// # Panics
@@ -165,7 +203,15 @@ where
             let exec_config = ExecutionConfig::new(self.samples_per_config);
             let recorder = TokenRecorder::new();
 
-            let mut trial_fn = |input: &str| (self.trial)(use_case, input);
+            let mut projections = Vec::new();
+            let mut sample_idx: u32 = 0;
+
+            let mut trial_fn = |input: &str| {
+                let outcome = (self.trial)(use_case, input);
+                projections.push(build_projection(sample_idx, input, &outcome));
+                sample_idx += 1;
+                outcome
+            };
 
             let execution =
                 ExecutionEngine::run(&exec_config, self.inputs, &recorder, &mut trial_fn);
@@ -173,14 +219,25 @@ where
             results.push(ConfigResult {
                 name: name.clone(),
                 execution,
+                projections,
             });
         }
 
-        ExploreResult {
+        let mut result = ExploreResult {
             use_case_id: self.use_case_id,
             experiment_id: self.experiment_id,
             configs: results,
+            spec_paths: None,
+        };
+
+        if let Some(ref dir) = self.output_dir {
+            let writer = ExploreSpecWriter::new(dir);
+            if let Ok(paths) = writer.write_all(&result, &self.factor_values) {
+                result.spec_paths = Some(paths);
+            }
         }
+
+        result
     }
 }
 
@@ -190,6 +247,7 @@ pub struct ExploreResult {
     use_case_id: String,
     experiment_id: Option<String>,
     configs: Vec<ConfigResult>,
+    spec_paths: Option<Vec<PathBuf>>,
 }
 
 impl ExploreResult {
@@ -209,6 +267,12 @@ impl ExploreResult {
     #[must_use]
     pub fn configs(&self) -> &[ConfigResult] {
         &self.configs
+    }
+
+    /// Paths of written spec files, if output was configured.
+    #[must_use]
+    pub fn spec_paths(&self) -> Option<&[PathBuf]> {
+        self.spec_paths.as_deref()
     }
 }
 
