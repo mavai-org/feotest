@@ -149,6 +149,17 @@ pub enum CovariateCategory {
     DataState,
 }
 
+impl CovariateCategory {
+    /// Whether this category acts as a hard gate during baseline selection.
+    ///
+    /// Configuration covariates must match exactly; all others are scored
+    /// as soft matches with warnings on mismatch.
+    #[must_use]
+    pub const fn is_hard_gate(self) -> bool {
+        matches!(self, Self::Configuration)
+    }
+}
+
 impl fmt::Display for CovariateCategory {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -225,6 +236,47 @@ impl fmt::Display for CovariateDeclaration {
     }
 }
 
+/// Covariate context for baseline selection.
+///
+/// Bundles the declarations (what covariates exist) with the resolved
+/// profile (what values they have at the current point in time).
+#[derive(Debug, Clone)]
+pub struct CovariateContext {
+    declarations: Vec<CovariateDeclaration>,
+    profile: CovariateProfile,
+}
+
+impl CovariateContext {
+    /// Creates a covariate context from a use case.
+    ///
+    /// Extracts declarations and resolves the current profile. Returns
+    /// `None` if the use case declares no covariates.
+    #[must_use]
+    pub fn from_use_case(use_case: &dyn UseCase) -> Option<Self> {
+        let declarations = use_case.covariates();
+        if declarations.is_empty() {
+            return None;
+        }
+        let profile = use_case.resolve_covariates();
+        Some(Self {
+            declarations,
+            profile,
+        })
+    }
+
+    /// The covariate declarations.
+    #[must_use]
+    pub fn declarations(&self) -> &[CovariateDeclaration] {
+        &self.declarations
+    }
+
+    /// The resolved covariate profile.
+    #[must_use]
+    pub const fn profile(&self) -> &CovariateProfile {
+        &self.profile
+    }
+}
+
 /// Validates that covariate declarations have unique keys.
 ///
 /// # Panics
@@ -233,12 +285,11 @@ impl fmt::Display for CovariateDeclaration {
 pub fn validate_covariates(covariates: &[CovariateDeclaration]) {
     let mut seen = std::collections::HashSet::new();
     for cov in covariates {
-        if !seen.insert(cov.key()) {
-            panic!(
-                "duplicate covariate key '{}': each covariate must have a unique name within a use case",
-                cov.key()
-            );
-        }
+        assert!(
+            seen.insert(cov.key()),
+            "duplicate covariate key '{}': each covariate must have a unique name within a use case",
+            cov.key()
+        );
     }
 }
 
@@ -455,5 +506,42 @@ mod tests {
         assert_eq!(covs[1].key(), "time-of-day");
         assert_eq!(covs[2].key(), "llm_model");
         validate_covariates(&covs);
+    }
+
+    #[test]
+    fn configuration_is_hard_gate() {
+        assert!(CovariateCategory::Configuration.is_hard_gate());
+    }
+
+    #[test]
+    fn non_configuration_categories_are_not_hard_gates() {
+        assert!(!CovariateCategory::Temporal.is_hard_gate());
+        assert!(!CovariateCategory::Infrastructure.is_hard_gate());
+        assert!(!CovariateCategory::Operational.is_hard_gate());
+        assert!(!CovariateCategory::ExternalDependency.is_hard_gate());
+        assert!(!CovariateCategory::DataState.is_hard_gate());
+    }
+
+    #[test]
+    fn covariate_context_from_use_case_with_covariates() {
+        struct WithCovs;
+        impl UseCase for WithCovs {
+            fn id(&self) -> &str { "ctx-test" }
+            fn covariates(&self) -> Vec<CovariateDeclaration> {
+                vec![CovariateDeclaration::region()]
+            }
+            fn resolve_covariates(&self) -> CovariateProfile {
+                CovariateProfile::builder().put("region", "EU").build()
+            }
+        }
+
+        let ctx = CovariateContext::from_use_case(&WithCovs).unwrap();
+        assert_eq!(ctx.declarations().len(), 1);
+        assert_eq!(ctx.profile().get("region"), Some("EU"));
+    }
+
+    #[test]
+    fn covariate_context_none_for_no_covariates() {
+        assert!(CovariateContext::from_use_case(&TestUseCase).is_none());
     }
 }

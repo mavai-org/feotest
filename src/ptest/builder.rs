@@ -4,6 +4,7 @@ use crate::controls::ExecutionConfig;
 use crate::model::{TestIntent, ThresholdOrigin, TrialOutcome};
 use crate::ptest::runner::{self, ProbabilisticTestResult};
 use crate::spec::{BaselineSpec, SpecResolver};
+use crate::usecase::{CovariateContext, UseCase};
 
 /// Configures the threshold derivation approach.
 ///
@@ -110,6 +111,7 @@ pub struct ProbabilisticTestBuilder<'a, F> {
     baseline_spec: Option<BaselineSpec>,
     config_overrides: Option<ExecutionConfig>,
     transparent_stats: bool,
+    covariate_context: Option<CovariateContext>,
 }
 
 impl<'a, F> ProbabilisticTestBuilder<'a, F>
@@ -135,6 +137,7 @@ where
             baseline_spec: None,
             config_overrides: None,
             transparent_stats: false,
+            covariate_context: None,
         }
     }
 
@@ -198,6 +201,17 @@ where
         self
     }
 
+    /// Sets covariate context from a use case for baseline selection.
+    ///
+    /// When set, the resolver uses covariate-aware selection to find
+    /// the best-matching baseline rather than returning the first match.
+    /// If the use case declares no covariates, this is a no-op.
+    #[must_use]
+    pub fn use_case(mut self, use_case: &dyn UseCase) -> Self {
+        self.covariate_context = CovariateContext::from_use_case(use_case);
+        self
+    }
+
     /// Runs the probabilistic test and returns the result.
     ///
     /// # Panics
@@ -219,6 +233,7 @@ where
             self.spec_resolver.as_ref(),
             self.baseline_spec,
             self.config_overrides.as_ref(),
+            self.covariate_context.as_ref(),
         )
     }
 }

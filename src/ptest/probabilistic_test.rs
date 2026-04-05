@@ -13,6 +13,7 @@ use crate::model::{TestIntent, ThresholdOrigin, TrialOutcome};
 use crate::ptest::builder::ThresholdApproach;
 use crate::ptest::runner;
 use crate::spec::SpecResolver;
+use crate::usecase::{CovariateContext, UseCase};
 use crate::verdict::{Verdict, VerdictRecord};
 
 /// A probabilistic test with approach detection from parameter combination.
@@ -74,6 +75,7 @@ pub struct ProbabilisticTest<'a, F> {
     time_budget: Option<Duration>,
     token_budget: Option<u64>,
     pacing: Option<PacingConfig>,
+    covariate_context: Option<CovariateContext>,
 }
 
 impl<'a, F> ProbabilisticTest<'a, F>
@@ -113,6 +115,7 @@ where
             time_budget: None,
             token_budget: None,
             pacing: None,
+            covariate_context: None,
         }
     }
 
@@ -224,6 +227,17 @@ where
         self
     }
 
+    /// Sets covariate context from a use case for baseline selection.
+    ///
+    /// When set, the resolver uses covariate-aware selection to find
+    /// the best-matching baseline rather than returning the first match.
+    /// If the use case declares no covariates, this is a no-op.
+    #[must_use]
+    pub fn use_case(mut self, use_case: &dyn UseCase) -> Self {
+        self.covariate_context = CovariateContext::from_use_case(use_case);
+        self
+    }
+
     // --- Execution ---
 
     /// Runs the probabilistic test.
@@ -259,6 +273,7 @@ where
             spec_resolver.as_ref(),
             None, // baseline spec resolved via the resolver
             config_overrides.as_ref(),
+            self.covariate_context.as_ref(),
         );
 
         let record = result.verdict_record();

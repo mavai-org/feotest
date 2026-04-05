@@ -7,6 +7,8 @@ use sha2::{Digest, Sha256};
 
 use crate::spec::BaselineSpec;
 use crate::spec::namer::{CovariateProfile, baseline_filename, compute_footprint};
+use crate::spec::selector::{BaselineCandidate, SelectionError, SelectionResult};
+use crate::usecase::CovariateDeclaration;
 
 /// Resolves baseline specs from the filesystem.
 ///
@@ -46,13 +48,70 @@ impl SpecResolver {
     ///
     /// Scans the spec directory for YAML files whose name starts with
     /// the sanitized use case ID followed by `-`. If multiple candidates
-    /// exist, the first match is returned (future: covariate-aware
-    /// selection).
+    /// exist, the first match is returned. Use [`resolve_with_covariates`]
+    /// for covariate-aware selection.
     ///
     /// # Errors
     ///
     /// Returns an error if no matching file is found or parsing fails.
     pub fn resolve(&self, use_case_id: &str) -> Result<BaselineSpec, SpecResolveError> {
+        let candidates = self.find_candidates(use_case_id)?;
+        candidates
+            .into_iter()
+            .next()
+            .map(|c| c.spec)
+            .ok_or_else(|| SpecResolveError::NotFound {
+                use_case_id: use_case_id.to_string(),
+                path: self.spec_dir.clone(),
+                source: std::io::Error::new(
+                    std::io::ErrorKind::NotFound,
+                    format!("no baseline file for '{use_case_id}'"),
+                ),
+            })
+    }
+
+    /// Resolves the best baseline spec using covariate-aware selection.
+    ///
+    /// Scans the spec directory for all candidates matching the use case ID,
+    /// then selects the best match based on the current covariate profile
+    /// and declarations.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if no candidates are found, no candidates match the
+    /// required configuration covariates, or parsing fails.
+    pub fn resolve_with_covariates(
+        &self,
+        use_case_id: &str,
+        profile: &CovariateProfile,
+        declarations: &[CovariateDeclaration],
+    ) -> Result<SelectionResult, SpecResolveError> {
+        let candidates = self.find_candidates(use_case_id)?;
+        if candidates.is_empty() {
+            return Err(SpecResolveError::NotFound {
+                use_case_id: use_case_id.to_string(),
+                path: self.spec_dir.clone(),
+                source: std::io::Error::new(
+                    std::io::ErrorKind::NotFound,
+                    format!("no baseline file for '{use_case_id}'"),
+                ),
+            });
+        }
+        crate::spec::selector::select(&candidates, profile, declarations)
+            .map_err(|e| SpecResolveError::Selection {
+                use_case_id: use_case_id.to_string(),
+                source: e,
+            })
+    }
+
+    /// Discovers all baseline spec candidates for a use case.
+    ///
+    /// Scans the spec directory for YAML files whose name starts with
+    /// the sanitized use case ID followed by `-`.
+    pub(crate) fn find_candidates(
+        &self,
+        use_case_id: &str,
+    ) -> Result<Vec<BaselineCandidate>, SpecResolveError> {
         let sanitized = use_case_id
             .chars()
             .map(|c| {
@@ -73,6 +132,7 @@ impl SpecResolver {
             }
         })?;
 
+        let mut candidates = Vec::new();
         for entry in entries.flatten() {
             let name = entry.file_name();
             let name_str = name.to_string_lossy();
@@ -84,19 +144,15 @@ impl SpecResolver {
                         path: path.clone(),
                         source: e,
                     })?;
-                return BaselineSpec::from_yaml(&content)
-                    .map_err(|e| SpecResolveError::ParseError { path, source: e });
+                let spec = BaselineSpec::from_yaml(&content)
+                    .map_err(|e| SpecResolveError::ParseError { path, source: e })?;
+                candidates.push(BaselineCandidate {
+                    filename: name_str.into_owned(),
+                    spec,
+                });
             }
         }
-
-        Err(SpecResolveError::NotFound {
-            use_case_id: use_case_id.to_string(),
-            path: self.spec_dir.join(format!("{prefix}*.yaml")),
-            source: std::io::Error::new(
-                std::io::ErrorKind::NotFound,
-                format!("no baseline file matching '{prefix}*.yaml'"),
-            ),
-        })
+        Ok(candidates)
     }
 
     /// Reads a baseline spec directly from a file path.
@@ -180,6 +236,13 @@ pub enum SpecResolveError {
         /// The underlying parse error.
         source: serde_yaml::Error,
     },
+    /// Covariate-aware selection failed (e.g., configuration mismatch).
+    Selection {
+        /// The use case ID.
+        use_case_id: String,
+        /// The underlying selection error.
+        source: SelectionError,
+    },
 }
 
 impl std::fmt::Display for SpecResolveError {
@@ -195,6 +258,13 @@ impl std::fmt::Display for SpecResolveError {
             Self::ParseError { path, source } => {
                 write!(f, "failed to parse spec at {}: {source}", path.display())
             }
+            Self::Selection {
+                use_case_id,
+                source,
+            } => write!(
+                f,
+                "baseline selection failed for use case '{use_case_id}': {source}"
+            ),
         }
     }
 }
@@ -204,6 +274,7 @@ impl std::error::Error for SpecResolveError {
         match self {
             Self::NotFound { source, .. } => Some(source),
             Self::ParseError { source, .. } => Some(source),
+            Self::Selection { source, .. } => Some(source),
         }
     }
 }
@@ -277,5 +348,45 @@ mod tests {
         let resolver = SpecResolver::with_dir(dir.path());
         let result = resolver.resolve("bad-spec");
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn find_candidates_returns_all_matching() {
+        let dir = tempfile::tempdir().unwrap();
+        let resolver = SpecResolver::with_dir(dir.path());
+
+        // Write two specs with different covariate profiles
+        let spec = sample_spec();
+        let profile_eu = CovariateProfile::builder().put("region", "EU").build();
+        let profile_us = CovariateProfile::builder().put("region", "US").build();
+        resolver.write(&spec, &["region"], &profile_eu).unwrap();
+        resolver.write(&spec, &["region"], &profile_us).unwrap();
+
+        let candidates = resolver.find_candidates("test-use-case").unwrap();
+        assert_eq!(candidates.len(), 2);
+    }
+
+    #[test]
+    fn resolve_with_covariates_selects_best() {
+        use crate::usecase::{CovariateCategory, CovariateDeclaration};
+
+        let dir = tempfile::tempdir().unwrap();
+        let resolver = SpecResolver::with_dir(dir.path());
+
+        let spec = sample_spec();
+        let profile_eu = CovariateProfile::builder().put("region", "EU").build();
+        let profile_us = CovariateProfile::builder().put("region", "US").build();
+        resolver.write(&spec, &["region"], &profile_eu).unwrap();
+        resolver.write(&spec, &["region"], &profile_us).unwrap();
+
+        let test_profile = CovariateProfile::builder().put("region", "US").build();
+        let declarations =
+            vec![CovariateDeclaration::new("region", CovariateCategory::Infrastructure)];
+
+        let result = resolver
+            .resolve_with_covariates("test-use-case", &test_profile, &declarations)
+            .unwrap();
+        assert_eq!(result.selected().covariates.get("region").unwrap(), "US");
+        assert_eq!(result.candidate_count(), 2);
     }
 }

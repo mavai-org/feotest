@@ -94,6 +94,15 @@ impl CovariateProfile {
         format!("{window_start:02}:00/4h")
     }
 
+    /// Returns the value for a covariate key, if present.
+    #[must_use]
+    pub fn get(&self, key: &str) -> Option<&str> {
+        self.entries
+            .iter()
+            .find(|(k, _)| k == key)
+            .map(|(_, v)| v.as_str())
+    }
+
     /// Computes a 4-character SHA-256 hash for each covariate key-value pair.
     ///
     /// Each hash is computed from `"{key}={value}"`. Different values for
@@ -209,6 +218,28 @@ fn sanitize(name: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn get_returns_value_for_existing_key() {
+        let profile = CovariateProfile::builder()
+            .put("region", "EU")
+            .put("model", "gpt-4o")
+            .build();
+        assert_eq!(profile.get("region"), Some("EU"));
+        assert_eq!(profile.get("model"), Some("gpt-4o"));
+    }
+
+    #[test]
+    fn get_returns_none_for_missing_key() {
+        let profile = CovariateProfile::builder().put("region", "EU").build();
+        assert_eq!(profile.get("model"), None);
+    }
+
+    #[test]
+    fn get_returns_none_for_empty_profile() {
+        let profile = CovariateProfile::empty();
+        assert_eq!(profile.get("region"), None);
+    }
 
     #[test]
     fn empty_profile_produces_no_covariate_hashes() {

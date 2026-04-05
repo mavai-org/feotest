@@ -11,10 +11,14 @@
 pub mod baseline;
 pub mod common;
 pub mod explore;
+pub(crate) mod matching;
 pub mod namer;
 pub mod projection;
 mod resolver;
+pub(crate) mod selector;
 
 pub use baseline::BaselineSpec;
+pub use matching::{ConformanceDetail, MatchResult};
 pub use namer::{CovariateProfile, baseline_filename, compute_footprint};
-pub use resolver::SpecResolver;
+pub use resolver::{SpecResolveError, SpecResolver};
+pub use selector::SelectionResult;

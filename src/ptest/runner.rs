@@ -7,6 +7,7 @@ use crate::ptest::builder::ThresholdApproach;
 use crate::spec::SpecResolver;
 use crate::statistics::types::ConfidenceLevel;
 use crate::statistics::{defaults, evaluator, feasibility, proportion, sample_size, threshold};
+use crate::usecase::CovariateContext;
 use crate::verdict::{
     FunctionalDimension, SpecProvenance, StatisticalAnalysis, Verdict, VerdictRecord,
 };
@@ -72,6 +73,7 @@ pub fn execute<F>(
     spec_resolver: Option<&SpecResolver>,
     pre_resolved_spec: Option<crate::spec::BaselineSpec>,
     config_overrides: Option<&ExecutionConfig>,
+    covariate_context: Option<&CovariateContext>,
 ) -> ProbabilisticTestResult
 where
     F: FnMut(&str) -> TrialOutcome,
@@ -79,8 +81,12 @@ where
     let mut warnings: Vec<Warning> = Vec::new();
 
     // Use pre-resolved spec if provided, otherwise resolve from filesystem
-    let baseline_spec = pre_resolved_spec
-        .or_else(|| spec_resolver.and_then(|resolver| resolver.resolve(use_case_id).ok()));
+    // (with covariate-aware selection when context is available)
+    let baseline_spec = pre_resolved_spec.or_else(|| {
+        spec_resolver.and_then(|resolver| {
+            resolve_baseline(resolver, use_case_id, covariate_context, &mut warnings)
+        })
+    });
 
     // Determine samples and threshold based on the approach
     let (samples, derived_threshold) = resolve_threshold(
@@ -159,6 +165,48 @@ where
 
     ProbabilisticTestResult {
         verdict_record: builder.build(),
+    }
+}
+
+/// Resolves a baseline spec, using covariate-aware selection when context is available.
+fn resolve_baseline(
+    resolver: &SpecResolver,
+    use_case_id: &str,
+    covariate_context: Option<&CovariateContext>,
+    warnings: &mut Vec<Warning>,
+) -> Option<crate::spec::BaselineSpec> {
+    let Some(ctx) = covariate_context else {
+        return resolver.resolve(use_case_id).ok();
+    };
+
+    match resolver.resolve_with_covariates(use_case_id, ctx.profile(), ctx.declarations()) {
+        Ok(result) => {
+            for detail in result.non_conforming() {
+                warnings.push(Warning::new(
+                    "COVARIATE_MISMATCH",
+                    format!(
+                        "covariate '{}': baseline='{}', test='{}'",
+                        detail.key(),
+                        detail.baseline_value(),
+                        detail.test_value(),
+                    ),
+                ));
+            }
+            if result.ambiguous() {
+                warnings.push(Warning::new(
+                    "AMBIGUOUS_BASELINE",
+                    format!(
+                        "multiple equally-scored baselines ({} candidates)",
+                        result.candidate_count(),
+                    ),
+                ));
+            }
+            Some(result.into_selected())
+        }
+        Err(e) => {
+            warnings.push(Warning::new("BASELINE_SELECTION_FAILED", e.to_string()));
+            None
+        }
     }
 }
 
