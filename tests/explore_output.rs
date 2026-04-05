@@ -7,16 +7,25 @@ use std::time::Duration;
 use feotest::experiment::ExploreExperiment;
 use feotest::model::TrialOutcome;
 use feotest::spec::explore::{ExplorationSpec, ExploreSpecWriter, FactorYamlValue};
+use feotest::usecase::UseCase;
 
 struct MockService {
+    id: &'static str,
     label: String,
 }
 
 impl MockService {
-    fn new(label: &str) -> Self {
+    fn new(id: &'static str, label: &str) -> Self {
         Self {
+            id,
             label: label.to_owned(),
         }
+    }
+}
+
+impl UseCase for MockService {
+    fn id(&self) -> &str {
+        self.id
     }
 }
 
@@ -31,23 +40,20 @@ fn explore_writes_per_config_yaml_files() {
     let dir = tempfile::tempdir().unwrap();
     let inputs = vec!["request".to_string()];
 
-    let svc_a = MockService::new("config-a");
-    let svc_b = MockService::new("config-b");
+    let svc_a = MockService::new("test-uc", "config-a");
+    let svc_b = MockService::new("test-uc", "config-b");
 
-    let result = ExploreExperiment::new("test-uc", 5, &inputs, |_svc: &MockService, _input| {
+    let result = ExploreExperiment::new(&svc_a, 5, &inputs, |_svc: &MockService, _input| {
         TrialOutcome::success(Duration::from_millis(1))
     })
-    .config(&svc_a)
     .config(&svc_b)
     .experiment_id("test-explore")
     .output_dir(dir.path())
     .run();
 
-    // Spec paths should be populated
     let paths = result.spec_paths().expect("spec paths should be set");
     assert_eq!(paths.len(), 2);
 
-    // Files should exist on disk
     for path in paths {
         assert!(path.exists(), "spec file should exist: {}", path.display());
         assert!(
@@ -56,7 +62,6 @@ fn explore_writes_per_config_yaml_files() {
         );
     }
 
-    // Directory structure: {output_dir}/{use_case_id}/
     let explore_dir = dir.path().join("test-uc");
     assert!(explore_dir.exists());
     assert!(explore_dir.join("config-a.yaml").exists());
@@ -68,13 +73,12 @@ fn explore_yaml_contains_correct_content() {
     let dir = tempfile::tempdir().unwrap();
     let inputs = vec!["request".to_string()];
 
-    let svc = MockService::new("all-pass");
+    let svc = MockService::new("content-test", "all-pass");
 
     let result =
-        ExploreExperiment::new("content-test", 10, &inputs, |_svc: &MockService, _input| {
+        ExploreExperiment::new(&svc, 10, &inputs, |_svc: &MockService, _input| {
             TrialOutcome::success(Duration::from_millis(5))
         })
-        .config(&svc)
         .output_dir(dir.path())
         .run();
 
@@ -94,7 +98,7 @@ fn explore_yaml_includes_factor_values() {
     let dir = tempfile::tempdir().unwrap();
     let inputs = vec!["request".to_string()];
 
-    let svc = MockService::new("gpt-4_temp-0.7");
+    let svc = MockService::new("factor-test", "gpt-4_temp-0.7");
 
     let factors = BTreeMap::from([
         (
@@ -104,10 +108,9 @@ fn explore_yaml_includes_factor_values() {
         ("temperature".to_owned(), FactorYamlValue::Float(0.7)),
     ]);
 
-    let result = ExploreExperiment::new("factor-test", 5, &inputs, |_svc: &MockService, _input| {
+    let result = ExploreExperiment::new(&svc, 5, &inputs, |_svc: &MockService, _input| {
         TrialOutcome::success(Duration::from_millis(1))
     })
-    .config(&svc)
     .factors("gpt-4_temp-0.7", factors)
     .output_dir(dir.path())
     .run();
@@ -125,15 +128,11 @@ fn explore_yaml_includes_factor_values() {
 #[test]
 fn explore_without_output_dir_produces_no_files() {
     let inputs = vec!["request".to_string()];
-    let svc = MockService::new("no-output");
+    let svc = MockService::new("no-output-test", "no-output");
 
-    let result = ExploreExperiment::new(
-        "no-output-test",
-        5,
-        &inputs,
-        |_svc: &MockService, _input| TrialOutcome::success(Duration::from_millis(1)),
-    )
-    .config(&svc)
+    let result = ExploreExperiment::new(&svc, 5, &inputs, |_svc: &MockService, _input| {
+        TrialOutcome::success(Duration::from_millis(1))
+    })
     .run();
 
     assert!(result.spec_paths().is_none());
@@ -144,15 +143,13 @@ fn explore_spec_writer_standalone() {
     let dir = tempfile::tempdir().unwrap();
     let inputs = vec!["input".to_string()];
 
-    let svc = MockService::new("standalone");
+    let svc = MockService::new("writer-test", "standalone");
 
-    let result = ExploreExperiment::new("writer-test", 5, &inputs, |_svc: &MockService, _input| {
+    let result = ExploreExperiment::new(&svc, 5, &inputs, |_svc: &MockService, _input| {
         TrialOutcome::success(Duration::from_millis(1))
     })
-    .config(&svc)
     .run();
 
-    // Use the writer directly
     let writer = ExploreSpecWriter::new(dir.path());
     let factors = BTreeMap::new();
     let paths = writer.write_all(&result, &factors).unwrap();
@@ -165,25 +162,22 @@ fn explore_spec_writer_standalone() {
 fn explore_yaml_is_descriptive_not_inferential() {
     let dir = tempfile::tempdir().unwrap();
     let inputs = vec!["input".to_string()];
-    let svc = MockService::new("descriptive");
+    let svc = MockService::new("desc-test", "descriptive");
 
-    let result = ExploreExperiment::new("desc-test", 5, &inputs, |_svc: &MockService, _input| {
+    let result = ExploreExperiment::new(&svc, 5, &inputs, |_svc: &MockService, _input| {
         TrialOutcome::success(Duration::from_millis(1))
     })
-    .config(&svc)
     .output_dir(dir.path())
     .run();
 
     let paths = result.spec_paths().unwrap();
     let yaml = std::fs::read_to_string(&paths[0]).unwrap();
 
-    // Exploration output should NOT contain inferential statistics
     assert!(!yaml.contains("standardError"));
     assert!(!yaml.contains("confidenceInterval"));
     assert!(!yaml.contains("minPassRate"));
     assert!(!yaml.contains("requirements"));
 
-    // But should contain descriptive statistics
     assert!(yaml.contains("observed"));
     assert!(yaml.contains("successes"));
     assert!(yaml.contains("failures"));

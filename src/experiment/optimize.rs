@@ -5,7 +5,7 @@ use std::fmt;
 use crate::controls::{ExecutionConfig, TokenRecorder};
 use crate::experiment::engine::{ExecutionEngine, ExecutionResult};
 use crate::model::TrialOutcome;
-use crate::usecase::FactorValue;
+use crate::usecase::{FactorValue, UseCase};
 
 /// A scoring function that evaluates an iteration's results.
 pub trait Scorer: Send + Sync {
@@ -97,7 +97,7 @@ where
     ///
     /// # Parameters
     ///
-    /// - `use_case_id`: The use case identifier.
+    /// - `use_case`: The use case (provides identity).
     /// - `control_factor`: Name of the factor being optimised.
     /// - `initial_value`: Starting value for the control factor.
     /// - `scorer`: Scoring function.
@@ -107,7 +107,7 @@ where
     /// - `apply_factor`: Closure that applies a factor value to the use case.
     #[allow(clippy::too_many_arguments)]
     pub fn new(
-        use_case_id: impl Into<String>,
+        use_case: &dyn UseCase,
         control_factor: impl Into<String>,
         initial_value: FactorValue,
         scorer: impl Scorer + 'static,
@@ -117,7 +117,7 @@ where
         apply_factor: impl FnMut(&FactorValue) + 'static,
     ) -> Self {
         Self {
-            use_case_id: use_case_id.into(),
+            use_case_id: use_case.id().to_owned(),
             control_factor: control_factor.into(),
             initial_value,
             scorer: Box::new(scorer),
@@ -371,8 +371,14 @@ mod tests {
         }
     }
 
+    struct TestUc(&'static str);
+    impl UseCase for TestUc {
+        fn id(&self) -> &str { self.0 }
+    }
+
     #[test]
     fn runs_optimization_iterations() {
+        let uc = TestUc("test-uc");
         let inputs = vec!["input".to_string()];
         let current_temp = Arc::new(Mutex::new(0.5_f64));
 
@@ -380,7 +386,7 @@ mod tests {
         let temp_for_trial = Arc::clone(&current_temp);
 
         let result = OptimizeExperiment::new(
-            "test-uc",
+            &uc,
             "temperature",
             FactorValue::Float(0.5),
             SuccessRateScorer,
@@ -420,8 +426,9 @@ mod tests {
     fn display_shows_summary_and_history() {
         let inputs = vec!["input".to_string()];
 
+        let uc = TestUc("display-test");
         let result = OptimizeExperiment::new(
-            "display-test",
+            &uc,
             "temperature",
             FactorValue::Float(0.5),
             SuccessRateScorer,
@@ -449,8 +456,9 @@ mod tests {
     fn stops_on_plateau() {
         let inputs = vec!["input".to_string()];
 
+        let uc = TestUc("test-uc");
         let result = OptimizeExperiment::new(
-            "test-uc",
+            &uc,
             "factor",
             FactorValue::Float(1.0),
             SuccessRateScorer,

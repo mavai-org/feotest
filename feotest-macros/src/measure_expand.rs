@@ -70,12 +70,18 @@ pub fn expand(attr: TokenStream, item: TokenStream) -> syn::Result<TokenStream> 
         #fn_vis fn #fn_name() {
             #trial_fn
 
+            struct __FeoTestMacroUseCase;
+            impl feotest::usecase::UseCase for __FeoTestMacroUseCase {
+                fn id(&self) -> &str { #use_case }
+            }
+            let __feotest_uc = __FeoTestMacroUseCase;
+
             let __feotest_inputs = #inputs_expr;
 
             #config_expr
 
             let __feotest_result = feotest::experiment::MeasureExperiment::new(
-                #use_case,
+                &__feotest_uc,
                 #samples,
                 &__feotest_inputs,
                 __feotest_trial_fn,

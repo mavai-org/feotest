@@ -440,9 +440,14 @@ mod tests {
         let resolver = crate::spec::SpecResolver::with_dir(dir.path());
 
         // Create a baseline via measure experiment
+        struct SpecTestUc;
+        impl crate::usecase::UseCase for SpecTestUc {
+            fn id(&self) -> &str { "spec-test" }
+        }
+        let uc = SpecTestUc;
         let inputs = vec!["input".to_string()];
         let measure_result =
-            crate::experiment::MeasureExperiment::new("spec-test", 200, &inputs, always_succeeds)
+            crate::experiment::MeasureExperiment::new(&uc, 200, &inputs, always_succeeds)
                 .with_spec_resolver(crate::spec::SpecResolver::with_dir(dir.path()))
                 .run();
 
@@ -467,8 +472,13 @@ mod tests {
     fn confidence_first_with_spec() {
         let dir = tempfile::tempdir().unwrap();
 
+        struct ConfTestUc;
+        impl crate::usecase::UseCase for ConfTestUc {
+            fn id(&self) -> &str { "conf-test" }
+        }
+        let uc = ConfTestUc;
         let inputs = vec!["input".to_string()];
-        crate::experiment::MeasureExperiment::new("conf-test", 200, &inputs, always_succeeds)
+        crate::experiment::MeasureExperiment::new(&uc, 200, &inputs, always_succeeds)
             .with_spec_resolver(crate::spec::SpecResolver::with_dir(dir.path()))
             .run();
 

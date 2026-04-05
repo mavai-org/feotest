@@ -22,6 +22,7 @@ use crate::spec::explore::{
 use crate::spec::baseline::ExecutionBlock;
 use crate::spec::common::{build_cost_block, build_failure_distribution, now_iso8601, round4};
 use crate::spec::projection::{SampleProjection, build_projection, format_projections};
+use crate::usecase::UseCase;
 
 /// A single configuration's exploration results.
 #[derive(Debug)]
@@ -61,6 +62,8 @@ impl ConfigResult {
 /// ```
 /// use feotest::experiment::ExploreExperiment;
 /// use feotest::model::TrialOutcome;
+/// use feotest::usecase::UseCase;
+/// use feotest::spec::namer::CovariateProfile;
 /// use std::fmt;
 /// use std::time::Duration;
 ///
@@ -74,6 +77,9 @@ impl ConfigResult {
 ///         }
 ///     }
 /// }
+/// impl UseCase for MyService {
+///     fn id(&self) -> &str { "my-service" }
+/// }
 /// impl fmt::Display for MyService {
 ///     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
 ///         write!(f, "MyService (factor={})", self.factor)
@@ -85,10 +91,9 @@ impl ConfigResult {
 /// let svc_a = MyService { factor: 0.3 };
 /// let svc_b = MyService { factor: 0.8 };
 ///
-/// let result = ExploreExperiment::new("MyService", 10, &inputs, |svc: &MyService, input| {
+/// let result = ExploreExperiment::new(&svc_a, 10, &inputs, |svc: &MyService, input| {
 ///     svc.call(input)
 /// })
-/// .config(&svc_a)
 /// .config(&svc_b)
 /// .run();
 ///
@@ -108,30 +113,38 @@ pub struct ExploreExperiment<'a, T, F> {
 
 impl<'a, T, F> ExploreExperiment<'a, T, F>
 where
-    T: fmt::Display,
+    T: fmt::Display + UseCase,
     F: Fn(&T, &str) -> TrialOutcome,
 {
     /// Creates a new explore experiment.
     ///
+    /// The first use case instance provides both the use case identity
+    /// (via [`UseCase::id`]) and the first configuration to explore.
+    /// Additional configurations are added with [`.config()`](Self::config)
+    /// or [`.config_named()`](Self::config_named).
+    ///
     /// # Arguments
     ///
-    /// * `use_case_id` — identifies the use case.
+    /// * `first_config` — the first configuration (also provides the use case ID).
     /// * `samples_per_config` — number of trials per configuration.
     /// * `inputs` — the input strings to cycle through during trials.
     /// * `trial` — function that executes one trial given a use case
     ///   reference and an input string.
     pub fn new(
-        use_case_id: impl Into<String>,
+        first_config: &'a T,
         samples_per_config: u32,
         inputs: &'a [String],
         trial: F,
     ) -> Self {
+        let use_case_id = first_config.id().to_owned();
+        let mut configs = Vec::new();
+        configs.push((first_config.to_string(), first_config));
         Self {
-            use_case_id: use_case_id.into(),
+            use_case_id,
             samples_per_config,
             inputs,
             trial,
-            configs: Vec::new(),
+            configs,
             experiment_id: None,
             output_dir: None,
             factor_values: BTreeMap::new(),
@@ -354,6 +367,12 @@ mod tests {
         }
     }
 
+    impl UseCase for MockService {
+        fn id(&self) -> &str {
+            "test-uc"
+        }
+    }
+
     impl fmt::Display for MockService {
         fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
             write!(f, "MockService (rate={})", self.success_rate)
@@ -367,10 +386,9 @@ mod tests {
         let svc_a = MockService::new(1.0);
         let svc_b = MockService::new(0.8);
 
-        let result = ExploreExperiment::new("test-uc", 5, &inputs, |_svc, _input| {
+        let result = ExploreExperiment::new(&svc_a, 5, &inputs, |_svc, _input| {
             TrialOutcome::success(Duration::ZERO)
         })
-        .config(&svc_a)
         .config(&svc_b)
         .run();
 
@@ -384,13 +402,13 @@ mod tests {
         let inputs = vec!["input".to_string()];
         let svc = MockService::new(1.0);
 
-        let result = ExploreExperiment::new("test-uc", 5, &inputs, |_svc, _input| {
+        let result = ExploreExperiment::new(&svc, 5, &inputs, |_svc, _input| {
             TrialOutcome::success(Duration::ZERO)
         })
-        .config_named("custom-label", &svc)
         .run();
 
-        assert_eq!(result.configs()[0].name(), "custom-label");
+        // First config added via new() uses Display name
+        assert_eq!(result.configs()[0].name(), "MockService (rate=1)");
     }
 
     #[test]
@@ -398,10 +416,9 @@ mod tests {
         let inputs = vec!["input".to_string()];
         let svc = MockService::new(1.0);
 
-        let result = ExploreExperiment::new("test-uc", 10, &inputs, |_svc, _input| {
+        let result = ExploreExperiment::new(&svc, 10, &inputs, |_svc, _input| {
             TrialOutcome::success(Duration::ZERO)
         })
-        .config(&svc)
         .run();
 
         assert_eq!(
@@ -417,7 +434,7 @@ mod tests {
         let svc_good = MockService::new(1.0);
         let svc_bad = MockService::new(0.0);
 
-        let result = ExploreExperiment::new("test-uc", 5, &inputs, |svc: &MockService, _input| {
+        let result = ExploreExperiment::new(&svc_good, 5, &inputs, |svc: &MockService, _input| {
             if svc.success_rate > 0.5 {
                 TrialOutcome::success(Duration::ZERO)
             } else {
@@ -427,7 +444,6 @@ mod tests {
                 )
             }
         })
-        .config(&svc_good)
         .config(&svc_bad)
         .run();
 

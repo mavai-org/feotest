@@ -23,12 +23,21 @@ use crate::spec::common::{
 /// ```no_run
 /// use feotest::experiment::MeasureExperiment;
 /// use feotest::model::TrialOutcome;
+/// use feotest::usecase::UseCase;
+/// use feotest::spec::namer::CovariateProfile;
 /// use std::time::Duration;
 ///
+/// struct MyService;
+/// impl UseCase for MyService {
+///     fn id(&self) -> &str { "my-service" }
+/// }
+///
+/// let svc = MyService;
+/// let inputs = vec!["input-1".to_string()];
 /// let result = MeasureExperiment::new(
-///     "my-service",
+///     &svc,
 ///     1000,
-///     &["input-1".to_string(), "input-2".to_string()],
+///     &inputs,
 ///     |input| TrialOutcome::success(Duration::from_millis(10)),
 /// )
 /// .run();
@@ -49,34 +58,15 @@ where
     F: FnMut(&str) -> TrialOutcome,
 {
     /// Creates a new measure experiment.
-    pub fn new(
-        use_case_id: impl Into<String>,
-        samples: u32,
-        inputs: &'a [String],
-        trial: F,
-    ) -> Self {
-        Self {
-            use_case_id: use_case_id.into(),
-            config: ExecutionConfig::new(samples),
-            inputs,
-            trial,
-            experiment_id: None,
-            spec_resolver: None,
-            covariate_keys: Vec::new(),
-            covariate_profile: CovariateProfile::empty(),
-        }
-    }
-
-    /// Creates a measure experiment from a use case, extracting identity
-    /// and covariate information automatically.
     ///
     /// The use case provides:
     /// - The use case ID (for the spec filename and YAML body)
     /// - Covariate declarations (for the filename hash segments)
     /// - Resolved covariate values (for the YAML `covariates` block)
     ///
-    /// The caller provides the trial function and inputs as usual.
-    pub fn for_use_case(
+    /// The baseline spec is written to `tests/baselines/` by default.
+    /// Override with [`.baseline_dir()`](Self::baseline_dir).
+    pub fn new(
         use_case: &dyn UseCase,
         samples: u32,
         inputs: &'a [String],
@@ -281,14 +271,31 @@ mod tests {
     use super::*;
     use std::time::Duration;
 
+    struct TestUseCase {
+        id: &'static str,
+    }
+
+    impl TestUseCase {
+        const fn new(id: &'static str) -> Self {
+            Self { id }
+        }
+    }
+
+    impl UseCase for TestUseCase {
+        fn id(&self) -> &str {
+            self.id
+        }
+    }
+
     fn succeeding_trial(_input: &str) -> TrialOutcome {
         TrialOutcome::success(Duration::from_millis(1))
     }
 
     #[test]
     fn produces_baseline_spec() {
+        let uc = TestUseCase::new("test-service");
         let inputs = vec!["input".to_string()];
-        let result = MeasureExperiment::new("test-service", 100, &inputs, succeeding_trial)
+        let result = MeasureExperiment::new(&uc, 100, &inputs, succeeding_trial)
             .with_experiment_id("baseline-v1")
             .run();
 
@@ -304,11 +311,11 @@ mod tests {
     #[test]
     fn writes_spec_to_disk() {
         let dir = tempfile::tempdir().unwrap();
-        let resolver = SpecResolver::with_dir(dir.path());
+        let uc = TestUseCase::new("disk-test");
         let inputs = vec!["input".to_string()];
 
-        let result = MeasureExperiment::new("disk-test", 50, &inputs, succeeding_trial)
-            .with_spec_resolver(resolver)
+        let result = MeasureExperiment::new(&uc, 50, &inputs, succeeding_trial)
+            .with_spec_resolver(SpecResolver::with_dir(dir.path()))
             .run();
 
         assert!(result.spec_path().is_some());
@@ -317,9 +324,10 @@ mod tests {
 
     #[test]
     fn tracks_failure_distribution() {
+        let uc = TestUseCase::new("mixed-service");
         let inputs = vec!["input".to_string()];
         let mut call_count = 0u32;
-        let result = MeasureExperiment::new("mixed-service", 10, &inputs, |_input| {
+        let result = MeasureExperiment::new(&uc, 10, &inputs, |_input| {
             call_count += 1;
             if call_count % 3 == 0 {
                 TrialOutcome::failure(
