@@ -1,5 +1,7 @@
 //! Baseline spec: the YAML-serializable measurement result.
 
+use std::collections::BTreeMap;
+
 use serde::{Deserialize, Serialize};
 
 /// A baseline specification produced by a measure experiment.
@@ -23,6 +25,16 @@ pub struct BaselineSpec {
     /// The experiment that produced this spec.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub experiment_id: Option<String>,
+
+    /// Invocation footprint: 8-char hex hash of use case ID + covariate
+    /// declarations. Identifies *what* covariates are declared.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub footprint: Option<String>,
+
+    /// Resolved covariate values at experiment time.
+    /// Keys in declaration order, values as canonical strings.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub covariates: BTreeMap<String, String>,
 
     /// Execution details.
     pub execution: ExecutionBlock,
@@ -134,6 +146,8 @@ impl BaselineSpec {
             use_case_id: use_case_id.into(),
             generated_at: generated_at.into(),
             experiment_id: None,
+            footprint: None,
+            covariates: BTreeMap::new(),
             execution,
             requirements,
             statistics,

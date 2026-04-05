@@ -5,6 +5,8 @@ use crate::experiment::engine::{ExecutionEngine, ExecutionResult};
 use crate::model::TrialOutcome;
 use crate::spec::SpecResolver;
 use crate::spec::baseline::{BaselineSpec, RequirementsBlock, StatisticsBlock, SuccessRateBlock};
+use crate::spec::namer::CovariateProfile;
+use crate::usecase::UseCase;
 use crate::spec::common::{
     build_cost_block, build_execution_block, build_failure_distribution, now_iso8601, round4,
     standard_error, wilson_interval, wilson_lower_bound,
@@ -38,6 +40,8 @@ pub struct MeasureExperiment<'a, F> {
     trial: F,
     experiment_id: Option<String>,
     spec_resolver: Option<SpecResolver>,
+    covariate_keys: Vec<String>,
+    covariate_profile: CovariateProfile,
 }
 
 impl<'a, F> MeasureExperiment<'a, F>
@@ -58,6 +62,42 @@ where
             trial,
             experiment_id: None,
             spec_resolver: None,
+            covariate_keys: Vec::new(),
+            covariate_profile: CovariateProfile::empty(),
+        }
+    }
+
+    /// Creates a measure experiment from a use case, extracting identity
+    /// and covariate information automatically.
+    ///
+    /// The use case provides:
+    /// - The use case ID (for the spec filename and YAML body)
+    /// - Covariate declarations (for the filename hash segments)
+    /// - Resolved covariate values (for the YAML `covariates` block)
+    ///
+    /// The caller provides the trial function and inputs as usual.
+    pub fn for_use_case(
+        use_case: &dyn UseCase,
+        samples: u32,
+        inputs: &'a [String],
+        trial: F,
+    ) -> Self {
+        let covariate_keys: Vec<String> = use_case
+            .covariates()
+            .iter()
+            .map(|c| c.key().to_owned())
+            .collect();
+        let covariate_profile = use_case.resolve_covariates();
+
+        Self {
+            use_case_id: use_case.id().to_owned(),
+            config: ExecutionConfig::new(samples),
+            inputs,
+            trial,
+            experiment_id: None,
+            spec_resolver: Some(SpecResolver::new("tests/baselines")),
+            covariate_keys,
+            covariate_profile,
         }
     }
 
@@ -133,6 +173,18 @@ where
         self
     }
 
+    /// Sets the covariate profile for the baseline filename.
+    ///
+    /// The covariate keys (declaration) and resolved values are encoded
+    /// into the baseline filename, enabling the spec resolver to select
+    /// the most appropriate baseline for the current test context.
+    #[must_use]
+    pub fn covariates(mut self, keys: Vec<String>, profile: CovariateProfile) -> Self {
+        self.covariate_keys = keys;
+        self.covariate_profile = profile;
+        self
+    }
+
     /// Runs the measure experiment and returns the result.
     pub fn run(mut self) -> MeasureResult {
         let token_recorder = TokenRecorder::new();
@@ -142,10 +194,15 @@ where
         let spec = self.build_spec(&result);
 
         // Write spec to disk if resolver is configured
+        let cov_keys: Vec<&str> = self.covariate_keys.iter().map(String::as_str).collect();
         let spec_path = self
             .spec_resolver
             .as_ref()
-            .and_then(|resolver| resolver.write(&spec).ok());
+            .and_then(|resolver| {
+                resolver
+                    .write(&spec, &cov_keys, &self.covariate_profile)
+                    .ok()
+            });
 
         MeasureResult {
             execution: result,

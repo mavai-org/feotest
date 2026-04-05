@@ -11,8 +11,10 @@
 pub mod baseline;
 pub mod common;
 pub mod explore;
+pub mod namer;
 pub mod projection;
 mod resolver;
 
 pub use baseline::BaselineSpec;
+pub use namer::{CovariateProfile, baseline_filename, compute_footprint};
 pub use resolver::SpecResolver;

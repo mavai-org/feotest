@@ -56,8 +56,8 @@ fn explore_writes_per_config_yaml_files() {
         );
     }
 
-    // Directory structure: {output_dir}/explorations/{use_case_id}/
-    let explore_dir = dir.path().join("explorations").join("test-uc");
+    // Directory structure: {output_dir}/{use_case_id}/
+    let explore_dir = dir.path().join("test-uc");
     assert!(explore_dir.exists());
     assert!(explore_dir.join("config-a.yaml").exists());
     assert!(explore_dir.join("config-b.yaml").exists());

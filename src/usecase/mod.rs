@@ -7,6 +7,8 @@
 
 use std::fmt;
 
+use crate::spec::namer::CovariateProfile;
+
 /// A named, repeatable service invocation.
 ///
 /// Implementations define the identity and metadata of a use case.
@@ -36,6 +38,15 @@ pub trait UseCase: Send + Sync {
     /// Covariate declarations for this use case.
     fn covariates(&self) -> Vec<CovariateDeclaration> {
         vec![]
+    }
+
+    /// Resolves covariate values at the current point in time.
+    ///
+    /// Returns a profile with resolved values for all declared covariates.
+    /// The default implementation returns an empty profile. Use cases that
+    /// declare covariates should override this to provide resolved values.
+    fn resolve_covariates(&self) -> CovariateProfile {
+        CovariateProfile::empty()
     }
 }
 

@@ -1,8 +1,12 @@
 //! Spec resolution: finding the right baseline for a use case.
 
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
+use sha2::{Digest, Sha256};
+
 use crate::spec::BaselineSpec;
+use crate::spec::namer::{CovariateProfile, baseline_filename, compute_footprint};
 
 /// Resolves baseline specs from the filesystem.
 ///
@@ -40,21 +44,59 @@ impl SpecResolver {
 
     /// Resolves a baseline spec for the given use case ID.
     ///
-    /// Looks for `{use_case_id}.yaml` in the spec directory.
+    /// Scans the spec directory for YAML files whose name starts with
+    /// the sanitized use case ID followed by `-`. If multiple candidates
+    /// exist, the first match is returned (future: covariate-aware
+    /// selection).
     ///
     /// # Errors
     ///
-    /// Returns an error if the file is not found or cannot be parsed.
+    /// Returns an error if no matching file is found or parsing fails.
     pub fn resolve(&self, use_case_id: &str) -> Result<BaselineSpec, SpecResolveError> {
-        let path = self.spec_dir.join(format!("{use_case_id}.yaml"));
-        let content = std::fs::read_to_string(&path).map_err(|e| SpecResolveError::NotFound {
-            use_case_id: use_case_id.to_string(),
-            path: path.clone(),
-            source: e,
+        let sanitized = use_case_id
+            .chars()
+            .map(|c| {
+                if c.is_ascii_alphanumeric() || c == '_' || c == '-' {
+                    c
+                } else {
+                    '_'
+                }
+            })
+            .collect::<String>();
+        let prefix = format!("{sanitized}-");
+
+        let entries = std::fs::read_dir(&self.spec_dir).map_err(|e| {
+            SpecResolveError::NotFound {
+                use_case_id: use_case_id.to_string(),
+                path: self.spec_dir.clone(),
+                source: e,
+            }
         })?;
 
-        BaselineSpec::from_yaml(&content)
-            .map_err(|e| SpecResolveError::ParseError { path, source: e })
+        for entry in entries.flatten() {
+            let name = entry.file_name();
+            let name_str = name.to_string_lossy();
+            if name_str.starts_with(&prefix) && name_str.ends_with(".yaml") {
+                let path = entry.path();
+                let content =
+                    std::fs::read_to_string(&path).map_err(|e| SpecResolveError::NotFound {
+                        use_case_id: use_case_id.to_string(),
+                        path: path.clone(),
+                        source: e,
+                    })?;
+                return BaselineSpec::from_yaml(&content)
+                    .map_err(|e| SpecResolveError::ParseError { path, source: e });
+            }
+        }
+
+        Err(SpecResolveError::NotFound {
+            use_case_id: use_case_id.to_string(),
+            path: self.spec_dir.join(format!("{prefix}*.yaml")),
+            source: std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                format!("no baseline file matching '{prefix}*.yaml'"),
+            ),
+        })
     }
 
     /// Reads a baseline spec directly from a file path.
@@ -80,16 +122,40 @@ impl SpecResolver {
 
     /// Writes a baseline spec to the spec directory.
     ///
-    /// Creates the directory if it does not exist.
+    /// The filename encodes the use case ID, footprint hash, and covariate
+    /// value hashes. See [`crate::spec::namer`] for the filename format.
     ///
     /// # Errors
     ///
     /// Returns an error if the directory cannot be created or the file
     /// cannot be written.
-    pub fn write(&self, spec: &BaselineSpec) -> Result<PathBuf, std::io::Error> {
+    pub fn write(
+        &self,
+        spec: &BaselineSpec,
+        covariate_keys: &[&str],
+        covariate_profile: &CovariateProfile,
+    ) -> Result<PathBuf, std::io::Error> {
         std::fs::create_dir_all(&self.spec_dir)?;
-        let path = self.spec_dir.join(format!("{}.yaml", spec.use_case_id));
-        let yaml = spec.to_yaml().map_err(std::io::Error::other)?;
+        let footprint = compute_footprint(&spec.use_case_id, covariate_keys);
+        let filename = baseline_filename(&spec.use_case_id, &footprint, covariate_profile);
+        let path = self.spec_dir.join(filename);
+
+        // Enrich the spec with footprint, covariates, and content fingerprint
+        let mut enriched = spec.clone();
+        enriched.footprint = Some(footprint);
+        enriched.covariates = covariate_profile
+            .entries()
+            .iter()
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect::<BTreeMap<_, _>>();
+
+        // Serialize without fingerprint, compute SHA-256, then set it
+        enriched.content_fingerprint = None;
+        let yaml_without_fp = enriched.to_yaml().map_err(std::io::Error::other)?;
+        let digest = Sha256::digest(yaml_without_fp.as_bytes());
+        enriched.content_fingerprint = Some(format!("{digest:x}"));
+
+        let yaml = enriched.to_yaml().map_err(std::io::Error::other)?;
         std::fs::write(&path, yaml)?;
         Ok(path)
     }
@@ -181,8 +247,10 @@ mod tests {
         let resolver = SpecResolver::with_dir(dir.path());
 
         let spec = sample_spec();
-        let path = resolver.write(&spec).unwrap();
+        let profile = CovariateProfile::empty();
+        let path = resolver.write(&spec, &[], &profile).unwrap();
         assert!(path.exists());
+        assert!(path.file_name().unwrap().to_str().unwrap().starts_with("test-use-case-"));
 
         let resolved = resolver.resolve("test-use-case").unwrap();
         assert_eq!(resolved.use_case_id, "test-use-case");
