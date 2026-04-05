@@ -169,6 +169,12 @@ where
 }
 
 /// Resolves a baseline spec, using covariate-aware selection when context is available.
+///
+/// # Panics
+///
+/// Panics if a baseline spec fails integrity verification. A tampered or
+/// unsigned spec is an environment configuration error — the test must not
+/// proceed with compromised data.
 fn resolve_baseline(
     resolver: &SpecResolver,
     use_case_id: &str,
@@ -176,7 +182,14 @@ fn resolve_baseline(
     warnings: &mut Vec<Warning>,
 ) -> Option<crate::spec::BaselineSpec> {
     let Some(ctx) = covariate_context else {
-        return resolver.resolve(use_case_id).ok();
+        return match resolver.resolve(use_case_id) {
+            Ok(spec) => Some(spec),
+            Err(e) => {
+                panic_on_integrity_error(&e);
+                warnings.push(Warning::new("BASELINE_SELECTION_FAILED", e.to_string()));
+                None
+            }
+        };
     };
 
     match resolver.resolve_with_covariates(use_case_id, ctx.profile(), ctx.declarations()) {
@@ -204,10 +217,38 @@ fn resolve_baseline(
             Some(result.into_selected())
         }
         Err(e) => {
+            panic_on_integrity_error_resolve(&e);
             warnings.push(Warning::new("BASELINE_SELECTION_FAILED", e.to_string()));
             None
         }
     }
+}
+
+/// Panics if the error represents an integrity failure.
+///
+/// Non-integrity errors (spec not found, selection mismatch) are legitimate
+/// runtime conditions that the caller can handle. An integrity failure means
+/// a spec file has been tampered with — the test must not proceed.
+fn panic_on_integrity_error_resolve(e: &crate::spec::SpecResolveError) {
+    if let crate::spec::SpecResolveError::Integrity { path, source } = e {
+        if matches!(
+            source,
+            crate::spec::SpecLoadError::MissingFingerprint { .. }
+                | crate::spec::SpecLoadError::IntegrityFailure { .. }
+        ) {
+            panic!(
+                "\n\nBaseline spec integrity check failed.\n\n\
+                 File: {}\n\
+                 {source}\n",
+                path.display()
+            );
+        }
+    }
+}
+
+/// Panics if the error represents an integrity failure (non-covariate path).
+fn panic_on_integrity_error(e: &crate::spec::SpecResolveError) {
+    panic_on_integrity_error_resolve(e);
 }
 
 /// Builds the statistical analysis component of a verdict.
@@ -550,5 +591,104 @@ mod tests {
     fn panics_without_approach() {
         let inputs = vec!["input".to_string()];
         ProbabilisticTestBuilder::new("test-uc", &inputs, always_succeeds).run();
+    }
+
+    #[test]
+    #[should_panic(expected = "integrity check failed")]
+    fn threshold_first_with_covariates_panics_on_tampered_baseline() {
+        use crate::spec::namer::CovariateProfile;
+        use crate::usecase::{CovariateCategory, CovariateDeclaration, UseCase};
+
+        // Write a valid baseline with covariates
+        let dir = tempfile::tempdir().unwrap();
+
+        struct CovUc;
+        impl UseCase for CovUc {
+            fn id(&self) -> &str {
+                "cov-integrity"
+            }
+            fn covariates(&self) -> Vec<CovariateDeclaration> {
+                vec![CovariateDeclaration::new(
+                    "model",
+                    CovariateCategory::ExternalDependency,
+                )]
+            }
+            fn resolve_covariates(&self) -> CovariateProfile {
+                CovariateProfile::builder().put("model", "gpt-4o").build()
+            }
+        }
+
+        let uc = CovUc;
+        let inputs = vec!["input".to_string()];
+        let profile = CovariateProfile::builder().put("model", "gpt-4o").build();
+
+        crate::experiment::MeasureExperiment::new(&uc, 100, &inputs, always_succeeds)
+            .with_spec_resolver(crate::spec::SpecResolver::with_dir(dir.path()))
+            .covariates(vec!["model".to_string()], profile)
+            .run();
+
+        // Tamper with the written baseline
+        for entry in std::fs::read_dir(dir.path()).unwrap().flatten() {
+            let path = entry.path();
+            if path.extension().is_some_and(|e| e == "yaml") {
+                let content = std::fs::read_to_string(&path).unwrap();
+                let tampered = content.replace("minPassRate: ", "minPassRate: 0.1\n# was: ");
+                std::fs::write(&path, tampered).unwrap();
+            }
+        }
+
+        // Threshold-first with covariates: the resolver must still be
+        // constructed, the baseline must still be loaded and verified,
+        // and the integrity failure must panic — not silently succeed.
+        let resolver = crate::spec::SpecResolver::with_dir(dir.path());
+        ProbabilisticTestBuilder::new("cov-integrity", &inputs, always_succeeds)
+            .approach(ThresholdApproach::ThresholdFirst {
+                samples: 50,
+                min_pass_rate: 0.80,
+            })
+            .spec_resolver(resolver)
+            .use_case(&uc)
+            .run();
+    }
+
+    #[test]
+    #[should_panic(expected = "integrity check failed")]
+    fn resolve_panics_on_tampered_baseline_without_covariates() {
+        // Write a valid baseline, tamper with it, then resolve via the
+        // non-covariate path. The integrity error must still panic.
+        let dir = tempfile::tempdir().unwrap();
+
+        struct SimpleUc;
+        impl crate::usecase::UseCase for SimpleUc {
+            fn id(&self) -> &str {
+                "integrity-simple"
+            }
+        }
+
+        let uc = SimpleUc;
+        let inputs = vec!["input".to_string()];
+        crate::experiment::MeasureExperiment::new(&uc, 100, &inputs, always_succeeds)
+            .with_spec_resolver(crate::spec::SpecResolver::with_dir(dir.path()))
+            .run();
+
+        // Tamper with the baseline
+        for entry in std::fs::read_dir(dir.path()).unwrap().flatten() {
+            let path = entry.path();
+            if path.extension().is_some_and(|e| e == "yaml") {
+                let content = std::fs::read_to_string(&path).unwrap();
+                let tampered = content.replace("minPassRate: ", "minPassRate: 0.1\n# was: ");
+                std::fs::write(&path, tampered).unwrap();
+            }
+        }
+
+        let resolver = crate::spec::SpecResolver::with_dir(dir.path());
+        // Sample-size-first needs a baseline — this path must also panic
+        ProbabilisticTestBuilder::new("integrity-simple", &inputs, always_succeeds)
+            .approach(ThresholdApproach::SampleSizeFirst {
+                samples: 50,
+                confidence: 0.95,
+            })
+            .spec_resolver(resolver)
+            .run();
     }
 }

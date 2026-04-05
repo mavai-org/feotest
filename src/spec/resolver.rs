@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 
 use sha2::{Digest, Sha256};
 
+use crate::spec::baseline::SpecLoadError;
 use crate::spec::BaselineSpec;
 use crate::spec::namer::{CovariateProfile, baseline_filename, compute_footprint};
 use crate::spec::selector::{BaselineCandidate, SelectionError, SelectionResult};
@@ -144,8 +145,11 @@ impl SpecResolver {
                         path: path.clone(),
                         source: e,
                     })?;
-                let spec = BaselineSpec::from_yaml(&content)
-                    .map_err(|e| SpecResolveError::ParseError { path, source: e })?;
+                let spec =
+                    BaselineSpec::from_yaml(&content).map_err(|e| SpecResolveError::Integrity {
+                        path: path.clone(),
+                        source: e,
+                    })?;
                 candidates.push(BaselineCandidate {
                     filename: name_str.into_owned(),
                     spec,
@@ -170,7 +174,7 @@ impl SpecResolver {
             path: path.to_path_buf(),
             source: e,
         })?;
-        BaselineSpec::from_yaml(&content).map_err(|e| SpecResolveError::ParseError {
+        BaselineSpec::from_yaml(&content).map_err(|e| SpecResolveError::Integrity {
             path: path.to_path_buf(),
             source: e,
         })
@@ -229,12 +233,13 @@ pub enum SpecResolveError {
         /// The underlying IO error.
         source: std::io::Error,
     },
-    /// The spec file could not be parsed.
-    ParseError {
+    /// The spec file could not be loaded (parse failure, missing fingerprint,
+    /// or integrity mismatch).
+    Integrity {
         /// The path that was read.
         path: PathBuf,
-        /// The underlying parse error.
-        source: serde_yaml::Error,
+        /// The underlying load error.
+        source: SpecLoadError,
     },
     /// Covariate-aware selection failed (e.g., configuration mismatch).
     Selection {
@@ -255,8 +260,8 @@ impl std::fmt::Display for SpecResolveError {
                 "no spec found for use case '{use_case_id}' at {}",
                 path.display()
             ),
-            Self::ParseError { path, source } => {
-                write!(f, "failed to parse spec at {}: {source}", path.display())
+            Self::Integrity { path, source } => {
+                write!(f, "spec at {}: {source}", path.display())
             }
             Self::Selection {
                 use_case_id,
@@ -273,7 +278,7 @@ impl std::error::Error for SpecResolveError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             Self::NotFound { source, .. } => Some(source),
-            Self::ParseError { source, .. } => Some(source),
+            Self::Integrity { source, .. } => Some(source),
             Self::Selection { source, .. } => Some(source),
         }
     }
@@ -340,14 +345,18 @@ mod tests {
     }
 
     #[test]
-    fn resolve_malformed_yaml_returns_parse_error() {
+    fn resolve_malformed_yaml_returns_integrity_error() {
         let dir = tempfile::tempdir().unwrap();
-        let spec_path = dir.path().join("bad-spec.yaml");
+        let spec_path = dir.path().join("bad-spec-broken.yaml");
         fs::write(&spec_path, "not: valid: yaml: [[[").unwrap();
 
         let resolver = SpecResolver::with_dir(dir.path());
         let result = resolver.resolve("bad-spec");
         assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            SpecResolveError::Integrity { .. }
+        ));
     }
 
     #[test]
@@ -388,5 +397,68 @@ mod tests {
             .unwrap();
         assert_eq!(result.selected().covariates.get("region").unwrap(), "US");
         assert_eq!(result.candidate_count(), 2);
+    }
+
+    #[test]
+    fn resolve_rejects_tampered_spec() {
+        let dir = tempfile::tempdir().unwrap();
+        let resolver = SpecResolver::with_dir(dir.path());
+
+        // Write a valid spec
+        let spec = sample_spec();
+        let profile = CovariateProfile::empty();
+        let path = resolver.write(&spec, &[], &profile).unwrap();
+
+        // Tamper with it
+        let content = fs::read_to_string(&path).unwrap();
+        let tampered = content.replace("minPassRate: 0.85", "minPassRate: 0.50");
+        fs::write(&path, tampered).unwrap();
+
+        let result = resolver.resolve("test-use-case");
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            SpecResolveError::Integrity { .. }
+        ));
+    }
+
+    #[test]
+    fn resolve_file_rejects_tampered_spec() {
+        let dir = tempfile::tempdir().unwrap();
+        let resolver = SpecResolver::with_dir(dir.path());
+
+        let spec = sample_spec();
+        let profile = CovariateProfile::empty();
+        let path = resolver.write(&spec, &[], &profile).unwrap();
+
+        // Tamper with it
+        let content = fs::read_to_string(&path).unwrap();
+        let tampered = content.replace("observed: 0.9", "observed: 0.5");
+        fs::write(&path, tampered).unwrap();
+
+        let result = SpecResolver::resolve_file(&path);
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            SpecResolveError::Integrity { .. }
+        ));
+    }
+
+    #[test]
+    fn resolve_file_rejects_missing_fingerprint() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("no-fp-test.yaml");
+
+        // Write a valid YAML spec without a fingerprint
+        let spec = sample_spec();
+        let yaml = spec.to_yaml().unwrap();
+        fs::write(&path, yaml).unwrap();
+
+        let result = SpecResolver::resolve_file(&path);
+        assert!(result.is_err());
+        assert!(
+            result.unwrap_err().to_string().contains("no contentFingerprint"),
+            "error should mention missing fingerprint"
+        );
     }
 }

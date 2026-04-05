@@ -425,9 +425,12 @@ where
     /// uses the default `tests/baselines` directory resolved from
     /// `CARGO_MANIFEST_DIR`.
     fn build_spec_resolver(&self) -> Option<SpecResolver> {
-        // Only needed when there is no explicit threshold
+        // A resolver is needed when:
+        // - there is no explicit threshold (baseline required for derivation), OR
+        // - covariates are declared (baseline must be loaded for integrity verification)
         let needs_baseline = self.threshold.is_none();
-        if !needs_baseline && self.baseline_path.is_none() {
+        let has_covariates = self.covariate_context.is_some();
+        if !needs_baseline && !has_covariates && self.baseline_path.is_none() {
             return None;
         }
 

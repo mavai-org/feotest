@@ -17,7 +17,7 @@ pub mod projection;
 mod resolver;
 pub(crate) mod selector;
 
-pub use baseline::BaselineSpec;
+pub use baseline::{BaselineSpec, SpecLoadError};
 pub use matching::{ConformanceDetail, MatchResult};
 pub use namer::{CovariateProfile, baseline_filename, compute_footprint};
 pub use resolver::{SpecResolveError, SpecResolver};
