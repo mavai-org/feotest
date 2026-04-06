@@ -444,11 +444,20 @@ mod tests {
 
     #[test]
     fn covariate_category_display() {
-        assert_eq!(CovariateCategory::Configuration.to_string(), "Configuration");
+        assert_eq!(
+            CovariateCategory::Configuration.to_string(),
+            "Configuration"
+        );
         assert_eq!(CovariateCategory::Temporal.to_string(), "Temporal");
-        assert_eq!(CovariateCategory::Infrastructure.to_string(), "Infrastructure");
+        assert_eq!(
+            CovariateCategory::Infrastructure.to_string(),
+            "Infrastructure"
+        );
         assert_eq!(CovariateCategory::Operational.to_string(), "Operational");
-        assert_eq!(CovariateCategory::ExternalDependency.to_string(), "ExternalDependency");
+        assert_eq!(
+            CovariateCategory::ExternalDependency.to_string(),
+            "ExternalDependency"
+        );
         assert_eq!(CovariateCategory::DataState.to_string(), "DataState");
     }
 
@@ -526,7 +535,9 @@ mod tests {
     fn covariate_context_from_use_case_with_covariates() {
         struct WithCovs;
         impl UseCase for WithCovs {
-            fn id(&self) -> &str { "ctx-test" }
+            fn id(&self) -> &str {
+                "ctx-test"
+            }
             fn covariates(&self) -> Vec<CovariateDeclaration> {
                 vec![CovariateDeclaration::region()]
             }

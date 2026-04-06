@@ -248,11 +248,12 @@ impl BaselineSpec {
 
 /// Verifies the integrity of a baseline spec against its content fingerprint.
 fn verify_integrity(yaml: &str, spec: &BaselineSpec) -> Result<(), SpecLoadError> {
-    let stored = spec.content_fingerprint.as_ref().ok_or_else(|| {
-        SpecLoadError::MissingFingerprint {
-            use_case_id: spec.use_case_id.clone(),
-        }
-    })?;
+    let stored =
+        spec.content_fingerprint
+            .as_ref()
+            .ok_or_else(|| SpecLoadError::MissingFingerprint {
+                use_case_id: spec.use_case_id.clone(),
+            })?;
 
     let hashable = content_before_fingerprint(yaml);
     let digest = Sha256::digest(hashable.as_bytes());

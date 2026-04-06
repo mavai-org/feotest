@@ -221,8 +221,9 @@ where
         let approach = self
             .approach
             .expect("threshold approach must be set before running");
+        let transparent_stats = self.transparent_stats;
 
-        runner::execute(
+        let result = runner::execute(
             &self.use_case_id,
             self.inputs,
             self.trial,
@@ -234,6 +235,25 @@ where
             self.baseline_spec,
             self.config_overrides.as_ref(),
             self.covariate_context.as_ref(),
-        )
+        );
+
+        // Always print the brief verdict line
+        let mut line = String::new();
+        crate::reporting::transparent::render_verdict_line(result.verdict_record(), &mut line)
+            .expect("formatting should not fail");
+        eprintln!("{line}");
+
+        if transparent_stats {
+            let mut buf = String::new();
+            crate::reporting::transparent::render(
+                result.verdict_record(),
+                result.approach(),
+                &mut buf,
+            )
+            .expect("formatting should not fail");
+            eprint!("{buf}");
+        }
+
+        result
     }
 }

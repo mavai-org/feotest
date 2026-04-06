@@ -44,6 +44,7 @@ use crate::verdict::{
 #[derive(Debug)]
 pub struct ProbabilisticTestResult {
     verdict_record: VerdictRecord,
+    approach: ThresholdApproach,
 }
 
 impl ProbabilisticTestResult {
@@ -51,6 +52,12 @@ impl ProbabilisticTestResult {
     #[must_use]
     pub const fn verdict_record(&self) -> &VerdictRecord {
         &self.verdict_record
+    }
+
+    /// The threshold approach used for this test.
+    #[must_use]
+    pub const fn approach(&self) -> &ThresholdApproach {
+        &self.approach
     }
 
     /// Whether the test passed.
@@ -165,6 +172,7 @@ where
 
     ProbabilisticTestResult {
         verdict_record: builder.build(),
+        approach: approach.clone(),
     }
 }
 
@@ -531,7 +539,9 @@ mod tests {
         // Create a baseline via measure experiment
         struct SpecTestUc;
         impl crate::usecase::UseCase for SpecTestUc {
-            fn id(&self) -> &str { "spec-test" }
+            fn id(&self) -> &str {
+                "spec-test"
+            }
         }
         let uc = SpecTestUc;
         let inputs = vec!["input".to_string()];
@@ -563,7 +573,9 @@ mod tests {
 
         struct ConfTestUc;
         impl crate::usecase::UseCase for ConfTestUc {
-            fn id(&self) -> &str { "conf-test" }
+            fn id(&self) -> &str {
+                "conf-test"
+            }
         }
         let uc = ConfTestUc;
         let inputs = vec!["input".to_string()];

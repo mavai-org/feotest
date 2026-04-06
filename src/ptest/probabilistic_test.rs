@@ -259,6 +259,7 @@ where
     pub fn run(self) -> VerdictRecord {
         let approach = self.detect_approach();
         let spec_resolver = self.build_spec_resolver();
+        let transparent_stats = self.transparent_stats;
 
         let config_overrides = self.build_execution_config(&approach);
 
@@ -275,6 +276,23 @@ where
             config_overrides.as_ref(),
             self.covariate_context.as_ref(),
         );
+
+        // Always print the brief verdict line
+        let mut line = String::new();
+        crate::reporting::transparent::render_verdict_line(result.verdict_record(), &mut line)
+            .expect("formatting should not fail");
+        eprintln!("{line}");
+
+        if transparent_stats {
+            let mut buf = String::new();
+            crate::reporting::transparent::render(
+                result.verdict_record(),
+                result.approach(),
+                &mut buf,
+            )
+            .expect("formatting should not fail");
+            eprint!("{buf}");
+        }
 
         let record = result.verdict_record();
         assert!(

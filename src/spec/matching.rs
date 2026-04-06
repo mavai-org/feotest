@@ -117,14 +117,8 @@ mod tests {
 
     #[test]
     fn region_is_case_insensitive() {
-        assert_eq!(
-            match_covariate("region", "eu", "EU"),
-            MatchResult::Conforms,
-        );
-        assert_eq!(
-            match_covariate("region", "US", "us"),
-            MatchResult::Conforms,
-        );
+        assert_eq!(match_covariate("region", "eu", "EU"), MatchResult::Conforms,);
+        assert_eq!(match_covariate("region", "US", "us"), MatchResult::Conforms,);
     }
 
     #[test]
@@ -137,10 +131,7 @@ mod tests {
 
     #[test]
     fn empty_strings_conform() {
-        assert_eq!(
-            match_covariate("key", "", ""),
-            MatchResult::Conforms,
-        );
+        assert_eq!(match_covariate("key", "", ""), MatchResult::Conforms,);
     }
 
     #[test]

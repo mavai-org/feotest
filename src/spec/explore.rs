@@ -136,9 +136,7 @@ impl ExploreSpecWriter {
         result: &ExploreResult,
         factor_values: &BTreeMap<String, BTreeMap<String, FactorYamlValue>>,
     ) -> Result<Vec<PathBuf>, std::io::Error> {
-        let dir = self
-            .output_dir
-            .join(result.use_case_id());
+        let dir = self.output_dir.join(result.use_case_id());
 
         std::fs::create_dir_all(&dir)?;
         let dir = dir.canonicalize()?;

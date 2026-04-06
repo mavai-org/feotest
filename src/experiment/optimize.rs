@@ -373,7 +373,9 @@ mod tests {
 
     struct TestUc(&'static str);
     impl UseCase for TestUc {
-        fn id(&self) -> &str { self.0 }
+        fn id(&self) -> &str {
+            self.0
+        }
     }
 
     #[test]

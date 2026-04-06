@@ -5,12 +5,12 @@ use crate::experiment::engine::{ExecutionEngine, ExecutionResult};
 use crate::model::TrialOutcome;
 use crate::spec::SpecResolver;
 use crate::spec::baseline::{BaselineSpec, RequirementsBlock, StatisticsBlock, SuccessRateBlock};
-use crate::spec::namer::CovariateProfile;
-use crate::usecase::UseCase;
 use crate::spec::common::{
     build_cost_block, build_execution_block, build_failure_distribution, now_iso8601, round4,
     standard_error, wilson_interval, wilson_lower_bound,
 };
+use crate::spec::namer::CovariateProfile;
+use crate::usecase::UseCase;
 
 /// A measure experiment that runs many samples to establish a precise baseline.
 ///
@@ -66,12 +66,7 @@ where
     ///
     /// The baseline spec is written to `tests/baselines/` by default.
     /// Override with [`.baseline_dir()`](Self::baseline_dir).
-    pub fn new(
-        use_case: &dyn UseCase,
-        samples: u32,
-        inputs: &'a [String],
-        trial: F,
-    ) -> Self {
+    pub fn new(use_case: &dyn UseCase, samples: u32, inputs: &'a [String], trial: F) -> Self {
         let covariate_keys: Vec<String> = use_case
             .covariates()
             .iter()
@@ -185,14 +180,11 @@ where
 
         // Write spec to disk if resolver is configured
         let cov_keys: Vec<&str> = self.covariate_keys.iter().map(String::as_str).collect();
-        let spec_path = self
-            .spec_resolver
-            .as_ref()
-            .and_then(|resolver| {
-                resolver
-                    .write(&spec, &cov_keys, &self.covariate_profile)
-                    .ok()
-            });
+        let spec_path = self.spec_resolver.as_ref().and_then(|resolver| {
+            resolver
+                .write(&spec, &cov_keys, &self.covariate_profile)
+                .ok()
+        });
 
         MeasureResult {
             execution: result,

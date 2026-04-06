@@ -16,11 +16,11 @@ use std::path::PathBuf;
 use crate::controls::{ExecutionConfig, TokenRecorder};
 use crate::experiment::engine::{ExecutionEngine, ExecutionResult};
 use crate::model::TrialOutcome;
+use crate::spec::baseline::ExecutionBlock;
+use crate::spec::common::{build_cost_block, build_failure_distribution, now_iso8601, round4};
 use crate::spec::explore::{
     ExplorationSpec, ExplorationStatisticsBlock, ExploreSpecWriter, FactorYamlValue,
 };
-use crate::spec::baseline::ExecutionBlock;
-use crate::spec::common::{build_cost_block, build_failure_distribution, now_iso8601, round4};
 use crate::spec::projection::{SampleProjection, build_projection, format_projections};
 use crate::usecase::UseCase;
 

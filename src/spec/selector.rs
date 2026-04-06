@@ -96,7 +96,10 @@ impl fmt::Display for SelectionError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::NoCandidates { use_case_id } => {
-                write!(f, "no baseline candidates found for use case '{use_case_id}'")
+                write!(
+                    f,
+                    "no baseline candidates found for use case '{use_case_id}'"
+                )
             }
             Self::ConfigurationMismatch {
                 use_case_id,
@@ -206,11 +209,7 @@ pub fn select(
                     .map(|k| {
                         (
                             (*k).to_string(),
-                            c.spec
-                                .covariates
-                                .get(*k)
-                                .cloned()
-                                .unwrap_or_default(),
+                            c.spec.covariates.get(*k).cloned().unwrap_or_default(),
                         )
                     })
                     .collect()
@@ -302,10 +301,8 @@ fn select_best<'a>(
                         .covariates
                         .get(*key)
                         .map_or("", String::as_str);
-                    let a_matches =
-                        match_covariate(key, a_val, test_val) == MatchResult::Conforms;
-                    let b_matches =
-                        match_covariate(key, b_val, test_val) == MatchResult::Conforms;
+                    let a_matches = match_covariate(key, a_val, test_val) == MatchResult::Conforms;
+                    let b_matches = match_covariate(key, b_val, test_val) == MatchResult::Conforms;
                     match (a_matches, b_matches) {
                         (true, false) => return std::cmp::Ordering::Greater,
                         (false, true) => return std::cmp::Ordering::Less,
@@ -362,7 +359,11 @@ mod tests {
     use crate::usecase::CovariateCategory;
     use std::collections::BTreeMap;
 
-    fn make_spec(use_case_id: &str, generated_at: &str, covariates: &[(&str, &str)]) -> BaselineSpec {
+    fn make_spec(
+        use_case_id: &str,
+        generated_at: &str,
+        covariates: &[(&str, &str)],
+    ) -> BaselineSpec {
         let mut spec = BaselineSpec::new(
             use_case_id,
             generated_at,
@@ -423,8 +424,13 @@ mod tests {
         let spec_b = make_spec("uc", "2026-01-01T00:00:00Z", &[("model", "claude-sonnet")]);
         let candidates = vec![make_candidate(spec_a), make_candidate(spec_b)];
 
-        let profile = CovariateProfile::builder().put("model", "claude-sonnet").build();
-        let declarations = vec![CovariateDeclaration::new("model", CovariateCategory::Configuration)];
+        let profile = CovariateProfile::builder()
+            .put("model", "claude-sonnet")
+            .build();
+        let declarations = vec![CovariateDeclaration::new(
+            "model",
+            CovariateCategory::Configuration,
+        )];
 
         let result = select(&candidates, &profile, &declarations).unwrap();
         assert_eq!(
@@ -438,8 +444,13 @@ mod tests {
         let spec = make_spec("uc", "2026-01-01T00:00:00Z", &[("model", "gpt-4o")]);
         let candidates = vec![make_candidate(spec)];
 
-        let profile = CovariateProfile::builder().put("model", "claude-sonnet").build();
-        let declarations = vec![CovariateDeclaration::new("model", CovariateCategory::Configuration)];
+        let profile = CovariateProfile::builder()
+            .put("model", "claude-sonnet")
+            .build();
+        let declarations = vec![CovariateDeclaration::new(
+            "model",
+            CovariateCategory::Configuration,
+        )];
 
         let result = select(&candidates, &profile, &declarations);
         assert!(result.is_err());
@@ -515,16 +526,8 @@ mod tests {
 
     #[test]
     fn tie_broken_by_recency() {
-        let spec_old = make_spec(
-            "uc",
-            "2026-01-01T00:00:00Z",
-            &[("day-of-week", "WEEKDAY")],
-        );
-        let spec_new = make_spec(
-            "uc",
-            "2026-06-15T00:00:00Z",
-            &[("day-of-week", "WEEKDAY")],
-        );
+        let spec_old = make_spec("uc", "2026-01-01T00:00:00Z", &[("day-of-week", "WEEKDAY")]);
+        let spec_new = make_spec("uc", "2026-06-15T00:00:00Z", &[("day-of-week", "WEEKDAY")]);
         let candidates = vec![make_candidate(spec_old), make_candidate(spec_new)];
 
         let profile = CovariateProfile::builder()
@@ -542,16 +545,8 @@ mod tests {
     #[test]
     fn ambiguous_flag_set_on_tie() {
         // Two identical candidates
-        let spec_a = make_spec(
-            "uc",
-            "2026-01-01T00:00:00Z",
-            &[("day-of-week", "WEEKDAY")],
-        );
-        let spec_b = make_spec(
-            "uc",
-            "2026-01-01T00:00:00Z",
-            &[("day-of-week", "WEEKDAY")],
-        );
+        let spec_a = make_spec("uc", "2026-01-01T00:00:00Z", &[("day-of-week", "WEEKDAY")]);
+        let spec_b = make_spec("uc", "2026-01-01T00:00:00Z", &[("day-of-week", "WEEKDAY")]);
         let candidates = vec![make_candidate(spec_a), make_candidate(spec_b)];
 
         let profile = CovariateProfile::builder()

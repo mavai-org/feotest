@@ -7,5 +7,8 @@
 //! statistics mode.
 
 mod junit;
+pub mod transparent;
 
 pub use junit::JunitXmlWriter;
+pub use transparent::render as render_transparent_stats;
+pub use transparent::render_verdict_line;

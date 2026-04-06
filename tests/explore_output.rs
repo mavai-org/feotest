@@ -75,12 +75,11 @@ fn explore_yaml_contains_correct_content() {
 
     let svc = MockService::new("content-test", "all-pass");
 
-    let result =
-        ExploreExperiment::new(&svc, 10, &inputs, |_svc: &MockService, _input| {
-            TrialOutcome::success(Duration::from_millis(5))
-        })
-        .output_dir(dir.path())
-        .run();
+    let result = ExploreExperiment::new(&svc, 10, &inputs, |_svc: &MockService, _input| {
+        TrialOutcome::success(Duration::from_millis(5))
+    })
+    .output_dir(dir.path())
+    .run();
 
     let paths = result.spec_paths().unwrap();
     let yaml_content = std::fs::read_to_string(&paths[0]).unwrap();

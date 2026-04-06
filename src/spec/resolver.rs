@@ -5,8 +5,8 @@ use std::path::{Path, PathBuf};
 
 use sha2::{Digest, Sha256};
 
-use crate::spec::baseline::SpecLoadError;
 use crate::spec::BaselineSpec;
+use crate::spec::baseline::SpecLoadError;
 use crate::spec::namer::{CovariateProfile, baseline_filename, compute_footprint};
 use crate::spec::selector::{BaselineCandidate, SelectionError, SelectionResult};
 use crate::usecase::CovariateDeclaration;
@@ -98,11 +98,12 @@ impl SpecResolver {
                 ),
             });
         }
-        crate::spec::selector::select(&candidates, profile, declarations)
-            .map_err(|e| SpecResolveError::Selection {
+        crate::spec::selector::select(&candidates, profile, declarations).map_err(|e| {
+            SpecResolveError::Selection {
                 use_case_id: use_case_id.to_string(),
                 source: e,
-            })
+            }
+        })
     }
 
     /// Discovers all baseline spec candidates for a use case.
@@ -125,13 +126,12 @@ impl SpecResolver {
             .collect::<String>();
         let prefix = format!("{sanitized}-");
 
-        let entries = std::fs::read_dir(&self.spec_dir).map_err(|e| {
-            SpecResolveError::NotFound {
+        let entries =
+            std::fs::read_dir(&self.spec_dir).map_err(|e| SpecResolveError::NotFound {
                 use_case_id: use_case_id.to_string(),
                 path: self.spec_dir.clone(),
                 source: e,
-            }
-        })?;
+            })?;
 
         let mut candidates = Vec::new();
         for entry in entries.flatten() {
@@ -326,7 +326,13 @@ mod tests {
         let profile = CovariateProfile::empty();
         let path = resolver.write(&spec, &[], &profile).unwrap();
         assert!(path.exists());
-        assert!(path.file_name().unwrap().to_str().unwrap().starts_with("test-use-case-"));
+        assert!(
+            path.file_name()
+                .unwrap()
+                .to_str()
+                .unwrap()
+                .starts_with("test-use-case-")
+        );
 
         let resolved = resolver.resolve("test-use-case").unwrap();
         assert_eq!(resolved.use_case_id, "test-use-case");
@@ -389,8 +395,10 @@ mod tests {
         resolver.write(&spec, &["region"], &profile_us).unwrap();
 
         let test_profile = CovariateProfile::builder().put("region", "US").build();
-        let declarations =
-            vec![CovariateDeclaration::new("region", CovariateCategory::Infrastructure)];
+        let declarations = vec![CovariateDeclaration::new(
+            "region",
+            CovariateCategory::Infrastructure,
+        )];
 
         let result = resolver
             .resolve_with_covariates("test-use-case", &test_profile, &declarations)
@@ -457,7 +465,10 @@ mod tests {
         let result = SpecResolver::resolve_file(&path);
         assert!(result.is_err());
         assert!(
-            result.unwrap_err().to_string().contains("no contentFingerprint"),
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("no contentFingerprint"),
             "error should mention missing fingerprint"
         );
     }

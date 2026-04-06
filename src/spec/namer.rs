@@ -337,11 +337,7 @@ mod tests {
 
     #[test]
     fn sanitize_replaces_unsafe_characters() {
-        let name = baseline_filename(
-            "my.use/case",
-            "abcd1234",
-            &CovariateProfile::empty(),
-        );
+        let name = baseline_filename("my.use/case", "abcd1234", &CovariateProfile::empty());
         assert!(name.starts_with("my_use_case-"));
     }
 }
