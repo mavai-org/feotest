@@ -3,10 +3,11 @@
 use crate::controls::{ExecutionConfig, TokenRecorder};
 use crate::experiment::ExecutionEngine;
 use crate::model::{TestIdentity, TestIntent, ThresholdOrigin, TrialOutcome, Warning};
+use crate::ptest::approach;
 use crate::ptest::builder::ThresholdApproach;
+use crate::ptest::diagnostics;
 use crate::spec::SpecResolver;
-use crate::statistics::types::ConfidenceLevel;
-use crate::statistics::{defaults, evaluator, feasibility, proportion, sample_size, threshold};
+use crate::statistics::{evaluator, feasibility, proportion};
 use crate::usecase::CovariateContext;
 use crate::verdict::{
     FunctionalDimension, SpecProvenance, StatisticalAnalysis, Verdict, VerdictRecord,
@@ -91,29 +92,40 @@ where
     // (with covariate-aware selection when context is available)
     let baseline_spec = pre_resolved_spec.or_else(|| {
         spec_resolver.and_then(|resolver| {
-            resolve_baseline(resolver, use_case_id, covariate_context, &mut warnings)
+            crate::ptest::baseline::resolve(resolver, use_case_id, covariate_context, &mut warnings)
         })
     });
 
     // Determine samples and threshold based on the approach
-    let (samples, derived_threshold) = resolve_threshold(
+    let (samples, derived_threshold) = approach::resolve_threshold(
         approach,
         baseline_spec.as_ref().map(|s| &s.statistics),
         baseline_spec.as_ref().map(|s| &s.execution),
     );
 
-    // Pre-flight feasibility check for normative + verification
-    if intent == TestIntent::Verification && threshold_origin.is_normative() {
-        let target = derived_threshold.value();
-        let alpha = defaults::DEFAULT_ALPHA;
-        if feasibility::is_undersized(samples, target, alpha) {
-            warnings.push(Warning::new(
-                "UNDERSIZED",
-                format!(
-                    "Sample size {samples} is insufficient for verification-grade \
-                     evidence at threshold {target:.4}"
-                ),
-            ));
+    // Pre-flight feasibility check — runs for all intents and origins.
+    // Uses the resolved confidence (user-supplied when available, default otherwise).
+    let resolved_confidence = approach::resolved_confidence(approach);
+    let feas = feasibility::feasibility_check(
+        samples,
+        derived_threshold.value(),
+        resolved_confidence,
+    );
+
+    if !feas.feasible() {
+        match intent {
+            TestIntent::Verification => {
+                panic!(
+                    "\n\n{}\n",
+                    diagnostics::infeasibility_message(use_case_id, &feas, false),
+                );
+            }
+            TestIntent::Smoke => {
+                warnings.push(Warning::new(
+                    "UNDERSIZED",
+                    diagnostics::infeasibility_message(use_case_id, &feas, false),
+                ));
+            }
         }
     }
 
@@ -176,89 +188,6 @@ where
     }
 }
 
-/// Resolves a baseline spec, using covariate-aware selection when context is available.
-///
-/// # Panics
-///
-/// Panics if a baseline spec fails integrity verification. A tampered or
-/// unsigned spec is an environment configuration error — the test must not
-/// proceed with compromised data.
-fn resolve_baseline(
-    resolver: &SpecResolver,
-    use_case_id: &str,
-    covariate_context: Option<&CovariateContext>,
-    warnings: &mut Vec<Warning>,
-) -> Option<crate::spec::BaselineSpec> {
-    let Some(ctx) = covariate_context else {
-        return match resolver.resolve(use_case_id) {
-            Ok(spec) => Some(spec),
-            Err(e) => {
-                panic_on_integrity_error(&e);
-                warnings.push(Warning::new("BASELINE_SELECTION_FAILED", e.to_string()));
-                None
-            }
-        };
-    };
-
-    match resolver.resolve_with_covariates(use_case_id, ctx.profile(), ctx.declarations()) {
-        Ok(result) => {
-            for detail in result.non_conforming() {
-                warnings.push(Warning::new(
-                    "COVARIATE_MISMATCH",
-                    format!(
-                        "covariate '{}': baseline='{}', test='{}'",
-                        detail.key(),
-                        detail.baseline_value(),
-                        detail.test_value(),
-                    ),
-                ));
-            }
-            if result.ambiguous() {
-                warnings.push(Warning::new(
-                    "AMBIGUOUS_BASELINE",
-                    format!(
-                        "multiple equally-scored baselines ({} candidates)",
-                        result.candidate_count(),
-                    ),
-                ));
-            }
-            Some(result.into_selected())
-        }
-        Err(e) => {
-            panic_on_integrity_error_resolve(&e);
-            warnings.push(Warning::new("BASELINE_SELECTION_FAILED", e.to_string()));
-            None
-        }
-    }
-}
-
-/// Panics if the error represents an integrity failure.
-///
-/// Non-integrity errors (spec not found, selection mismatch) are legitimate
-/// runtime conditions that the caller can handle. An integrity failure means
-/// a spec file has been tampered with — the test must not proceed.
-fn panic_on_integrity_error_resolve(e: &crate::spec::SpecResolveError) {
-    if let crate::spec::SpecResolveError::Integrity { path, source } = e {
-        if matches!(
-            source,
-            crate::spec::SpecLoadError::MissingFingerprint { .. }
-                | crate::spec::SpecLoadError::IntegrityFailure { .. }
-        ) {
-            panic!(
-                "\n\nBaseline spec integrity check failed.\n\n\
-                 File: {}\n\
-                 {source}\n",
-                path.display()
-            );
-        }
-    }
-}
-
-/// Panics if the error represents an integrity failure (non-covariate path).
-fn panic_on_integrity_error(e: &crate::spec::SpecResolveError) {
-    panic_on_integrity_error_resolve(e);
-}
-
 /// Builds the statistical analysis component of a verdict.
 fn build_analysis(
     summary: &crate::model::ExecutionSummary,
@@ -317,110 +246,6 @@ fn build_provenance(
     provenance
 }
 
-/// Resolves the sample count and derived threshold from the approach.
-fn resolve_threshold(
-    approach: &ThresholdApproach,
-    stats: Option<&crate::spec::baseline::StatisticsBlock>,
-    execution: Option<&crate::spec::baseline::ExecutionBlock>,
-) -> (u32, crate::statistics::types::DerivedThreshold) {
-    match approach {
-        ThresholdApproach::SampleSizeFirst {
-            samples,
-            confidence,
-        } => {
-            let conf = ConfidenceLevel::new(*confidence);
-            // Need baseline data from spec
-            let (baseline_successes, baseline_samples) = extract_baseline(stats, execution);
-            let derived = threshold::derive_sample_size_first(
-                baseline_successes,
-                baseline_samples,
-                *samples,
-                conf,
-            );
-            (*samples, derived)
-        }
-
-        ThresholdApproach::ConfidenceFirst {
-            confidence,
-            min_detectable_effect,
-            power,
-        } => {
-            let conf = ConfidenceLevel::new(*confidence);
-            let (baseline_successes, baseline_samples) = extract_baseline(stats, execution);
-            let baseline_rate = f64::from(baseline_successes) / f64::from(baseline_samples);
-
-            // Compute required sample size
-            let requirement = sample_size::calculate_for_power(
-                baseline_rate,
-                *min_detectable_effect,
-                conf,
-                *power,
-            );
-
-            let samples = requirement.required_samples();
-            let derived = threshold::derive_sample_size_first(
-                baseline_successes,
-                baseline_samples,
-                samples,
-                conf,
-            );
-            (samples, derived)
-        }
-
-        ThresholdApproach::ThresholdFirst {
-            samples,
-            min_pass_rate,
-        } => {
-            // If we have baseline data, use it for threshold-first derivation
-            if let (Some(s), Some(e)) = (stats, execution) {
-                let baseline_successes = s.successes;
-                let baseline_samples = e.samples_executed;
-                let derived = threshold::derive_threshold_first(
-                    baseline_successes,
-                    baseline_samples,
-                    *samples,
-                    *min_pass_rate,
-                );
-                (*samples, derived)
-            } else {
-                // No baseline — use explicit threshold with default confidence.
-                // We use the threshold as the synthetic baseline rate and
-                // set baseline_samples = test_samples as a placeholder,
-                // since there is no real baseline to reference.
-                let conf = ConfidenceLevel::new(defaults::DEFAULT_CONFIDENCE);
-                let context = crate::statistics::types::DerivationContext::new(
-                    *min_pass_rate,
-                    *samples,
-                    *samples,
-                    conf,
-                );
-                let derived = crate::statistics::types::DerivedThreshold::new(
-                    *min_pass_rate,
-                    crate::statistics::types::OperationalApproach::ThresholdFirst,
-                    context,
-                    false,
-                );
-                (*samples, derived)
-            }
-        }
-    }
-}
-
-/// Extracts baseline successes and sample count from spec blocks.
-///
-/// # Panics
-///
-/// Panics if no baseline data is available (spec is required for
-/// sample-size-first and confidence-first approaches).
-const fn extract_baseline(
-    stats: Option<&crate::spec::baseline::StatisticsBlock>,
-    execution: Option<&crate::spec::baseline::ExecutionBlock>,
-) -> (u32, u32) {
-    let stats = stats.expect("baseline spec required for this threshold approach");
-    let execution = execution.expect("baseline spec required for this threshold approach");
-    (stats.successes, execution.samples_executed)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -459,7 +284,8 @@ mod tests {
 
     #[test]
     fn threshold_first_below_threshold() {
-        // 8 out of 10 inputs are "ok", 2 are "fail" — cycling 50 samples gives 80% pass rate
+        // 8 out of 10 inputs are "ok", 2 are "fail" — cycling 100 samples gives 80% pass rate.
+        // Threshold 0.90 is feasible at 100 samples; observed 80% fails the test.
         let inputs: Vec<String> = (0..10)
             .map(|i| {
                 if i < 2 {
@@ -472,8 +298,8 @@ mod tests {
 
         let result = ProbabilisticTestBuilder::new("test-uc", &inputs, mostly_succeeds)
             .approach(ThresholdApproach::ThresholdFirst {
-                samples: 50,
-                min_pass_rate: 0.95,
+                samples: 100,
+                min_pass_rate: 0.90,
             })
             .run();
 
@@ -518,7 +344,7 @@ mod tests {
         let inputs = vec!["input".to_string()];
         let result = ProbabilisticTestBuilder::new("test-uc", &inputs, always_succeeds)
             .approach(ThresholdApproach::ThresholdFirst {
-                samples: 20,
+                samples: 30,
                 min_pass_rate: 0.90,
             })
             .threshold_origin(ThresholdOrigin::Sla)
@@ -555,7 +381,7 @@ mod tests {
         // Now run a probabilistic test using the spec
         let result = ProbabilisticTestBuilder::new("spec-test", &inputs, always_succeeds)
             .approach(ThresholdApproach::SampleSizeFirst {
-                samples: 50,
+                samples: 200,
                 confidence: 0.95,
             })
             .spec_resolver(resolver)
@@ -587,7 +413,7 @@ mod tests {
         let result = ProbabilisticTestBuilder::new("conf-test", &inputs, always_succeeds)
             .approach(ThresholdApproach::ConfidenceFirst {
                 confidence: 0.95,
-                min_detectable_effect: 0.05,
+                min_detectable_effect: 0.003,
                 power: 0.80,
             })
             .spec_resolver(resolver)
@@ -659,6 +485,7 @@ mod tests {
                 min_pass_rate: 0.80,
             })
             .spec_resolver(resolver)
+            .threshold_origin(ThresholdOrigin::Sla)
             .use_case(&uc)
             .run();
     }
@@ -702,5 +529,118 @@ mod tests {
             })
             .spec_resolver(resolver)
             .run();
+    }
+
+    // --- Feasibility scope (Change 1) ---
+
+    #[test]
+    #[should_panic(expected = "Infeasible")]
+    fn verification_empirical_panics_on_infeasible() {
+        let inputs = vec!["input".to_string()];
+        ProbabilisticTestBuilder::new("test", &inputs, always_succeeds)
+            .approach(ThresholdApproach::ThresholdFirst {
+                samples: 5,
+                min_pass_rate: 0.95,
+            })
+            .intent(TestIntent::Verification)
+            .threshold_origin(ThresholdOrigin::Empirical)
+            .run();
+    }
+
+    #[test]
+    #[should_panic(expected = "Infeasible")]
+    fn verification_unspecified_panics_on_infeasible() {
+        let inputs = vec!["input".to_string()];
+        ProbabilisticTestBuilder::new("test", &inputs, always_succeeds)
+            .approach(ThresholdApproach::ThresholdFirst {
+                samples: 5,
+                min_pass_rate: 0.95,
+            })
+            .intent(TestIntent::Verification)
+            .threshold_origin(ThresholdOrigin::Unspecified)
+            .run();
+    }
+
+    #[test]
+    fn smoke_empirical_warns_on_infeasible() {
+        let inputs = vec!["input".to_string()];
+        let result = ProbabilisticTestBuilder::new("test", &inputs, always_succeeds)
+            .approach(ThresholdApproach::ThresholdFirst {
+                samples: 5,
+                min_pass_rate: 0.95,
+            })
+            .intent(TestIntent::Smoke)
+            .threshold_origin(ThresholdOrigin::Empirical)
+            .run();
+
+        let warnings = result.verdict_record().warnings();
+        assert!(warnings.iter().any(|w| w.code() == "UNDERSIZED"));
+    }
+
+    #[test]
+    fn smoke_normative_warns_on_infeasible() {
+        let inputs = vec!["input".to_string()];
+        let result = ProbabilisticTestBuilder::new("test", &inputs, always_succeeds)
+            .approach(ThresholdApproach::ThresholdFirst {
+                samples: 5,
+                min_pass_rate: 0.95,
+            })
+            .intent(TestIntent::Smoke)
+            .threshold_origin(ThresholdOrigin::Sla)
+            .run();
+
+        let warnings = result.verdict_record().warnings();
+        assert!(warnings.iter().any(|w| w.code() == "UNDERSIZED"));
+    }
+
+    #[test]
+    fn feasible_config_no_undersized_warning() {
+        let inputs = vec!["input".to_string()];
+        let result = ProbabilisticTestBuilder::new("test", &inputs, always_succeeds)
+            .approach(ThresholdApproach::ThresholdFirst {
+                samples: 100,
+                min_pass_rate: 0.90,
+            })
+            .run();
+
+        let warnings = result.verdict_record().warnings();
+        assert!(
+            !warnings.iter().any(|w| w.code() == "UNDERSIZED"),
+            "should not have UNDERSIZED warning: {warnings:?}"
+        );
+    }
+
+    // --- Verdict edge cases ---
+
+    #[test]
+    fn all_failures_produces_fail() {
+        let inputs = vec!["input".to_string()];
+        let result = ProbabilisticTestBuilder::new("test", &inputs, |_| {
+            TrialOutcome::failure(
+                crate::model::ContractViolation::new("check", "forced"),
+                Duration::from_millis(1),
+            )
+        })
+        .approach(ThresholdApproach::ThresholdFirst {
+            samples: 50,
+            min_pass_rate: 0.50,
+        })
+        .run();
+
+        assert_eq!(result.verdict_record().verdict(), Verdict::Fail);
+    }
+
+    #[test]
+    fn verdict_record_has_warnings() {
+        let inputs = vec!["input".to_string()];
+        let result = ProbabilisticTestBuilder::new("test", &inputs, always_succeeds)
+            .approach(ThresholdApproach::ThresholdFirst {
+                samples: 5,
+                min_pass_rate: 0.95,
+            })
+            .intent(TestIntent::Smoke)
+            .run();
+
+        assert!(!result.verdict_record().warnings().is_empty());
     }
 }

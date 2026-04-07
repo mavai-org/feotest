@@ -3,6 +3,7 @@
 use crate::controls::ExecutionConfig;
 use crate::model::{TestIntent, ThresholdOrigin, TrialOutcome};
 use crate::ptest::runner::{self, ProbabilisticTestResult};
+use crate::ptest::validation::{self, MacroConfig};
 use crate::spec::{BaselineSpec, SpecResolver};
 use crate::usecase::{CovariateContext, UseCase};
 
@@ -216,11 +217,24 @@ where
     ///
     /// # Panics
     ///
-    /// Panics if no threshold approach has been set.
+    /// Panics if no threshold approach has been set, or if parameter bounds
+    /// are violated (samples = 0, `min_pass_rate` outside [0, 1]).
     pub fn run(self) -> ProbabilisticTestResult {
         let approach = self
             .approach
             .expect("threshold approach must be set before running");
+
+        validate_approach_bounds(&approach);
+
+        // Coherence validation (PT13) — same rules as the macro path
+        let config = macro_config_from_approach(
+            &self.use_case_id,
+            &approach,
+            self.threshold_origin,
+            self.baseline_spec.is_some() || self.spec_resolver.is_some(),
+        );
+        validation::validate(&config);
+
         let transparent_stats = self.transparent_stats;
 
         let result = runner::execute(
@@ -255,5 +269,351 @@ where
         }
 
         result
+    }
+}
+
+/// Constructs a `MacroConfig` from a `ThresholdApproach` for coherence validation.
+pub(crate) fn macro_config_from_approach(
+    test_name: &str,
+    approach: &ThresholdApproach,
+    threshold_origin: ThresholdOrigin,
+    has_baseline: bool,
+) -> MacroConfig {
+    match approach {
+        ThresholdApproach::ThresholdFirst {
+            samples,
+            min_pass_rate,
+        } => MacroConfig {
+            test_name: test_name.to_string(),
+            samples: Some(*samples),
+            threshold: Some(*min_pass_rate),
+            confidence: None,
+            min_detectable_effect: None,
+            power: None,
+            threshold_origin,
+            has_baseline,
+            baseline_rate: None,
+        },
+        ThresholdApproach::SampleSizeFirst {
+            samples,
+            confidence,
+        } => MacroConfig {
+            test_name: test_name.to_string(),
+            samples: Some(*samples),
+            threshold: None,
+            confidence: Some(*confidence),
+            min_detectable_effect: None,
+            power: None,
+            threshold_origin,
+            has_baseline,
+            baseline_rate: None,
+        },
+        ThresholdApproach::ConfidenceFirst {
+            confidence,
+            min_detectable_effect,
+            power,
+        } => MacroConfig {
+            test_name: test_name.to_string(),
+            samples: None,
+            threshold: None,
+            confidence: Some(*confidence),
+            min_detectable_effect: Some(*min_detectable_effect),
+            power: Some(*power),
+            threshold_origin,
+            has_baseline,
+            baseline_rate: None,
+        },
+    }
+}
+
+/// Validates parameter bounds on a threshold approach before execution.
+///
+/// # Panics
+///
+/// Panics if samples is zero or `min_pass_rate` is outside [0, 1].
+pub(crate) fn validate_approach_bounds(approach: &ThresholdApproach) {
+    match approach {
+        ThresholdApproach::ThresholdFirst {
+            samples,
+            min_pass_rate,
+        } => {
+            assert!(
+                *samples > 0,
+                "samples must be greater than 0, got {samples}"
+            );
+            assert!(
+                (0.0..=1.0).contains(min_pass_rate),
+                "min_pass_rate must be in [0, 1], got {min_pass_rate}"
+            );
+        }
+        ThresholdApproach::SampleSizeFirst {
+            samples,
+            confidence: _,
+        } => {
+            assert!(
+                *samples > 0,
+                "samples must be greater than 0, got {samples}"
+            );
+        }
+        ThresholdApproach::ConfidenceFirst { .. } => {
+            // Confidence-first derives samples; no samples to validate here.
+            // confidence, MDE, and power are validated downstream.
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::model::{TestIntent, ThresholdOrigin, TrialOutcome};
+    use crate::verdict::Verdict;
+    use std::time::Duration;
+
+    fn always_succeeds(_input: &str) -> TrialOutcome {
+        TrialOutcome::success(Duration::from_millis(1))
+    }
+
+    // --- Builder construction and configuration ---
+
+    #[test]
+    #[should_panic(expected = "threshold approach must be set")]
+    fn panics_without_approach() {
+        let inputs = vec!["input".to_string()];
+        ProbabilisticTestBuilder::new("test", &inputs, always_succeeds).run();
+    }
+
+    #[test]
+    #[should_panic(expected = "inputs must not be empty")]
+    fn panics_on_empty_inputs() {
+        let inputs: Vec<String> = vec![];
+        ProbabilisticTestBuilder::new("test", &inputs, always_succeeds)
+            .approach(ThresholdApproach::ThresholdFirst {
+                samples: 50,
+                min_pass_rate: 0.90,
+            })
+            .run();
+    }
+
+    #[test]
+    fn threshold_first_produces_pass() {
+        let inputs = vec!["input".to_string()];
+        let result = ProbabilisticTestBuilder::new("test", &inputs, always_succeeds)
+            .approach(ThresholdApproach::ThresholdFirst {
+                samples: 50,
+                min_pass_rate: 0.90,
+            })
+            .run();
+        assert_eq!(result.verdict_record().verdict(), Verdict::Pass);
+    }
+
+    #[test]
+    fn sample_size_first_produces_pass() {
+        let dir = tempfile::tempdir().unwrap();
+        struct Uc;
+        impl crate::usecase::UseCase for Uc {
+            fn id(&self) -> &str {
+                "ssf-pass"
+            }
+        }
+        let uc = Uc;
+        let inputs = vec!["input".to_string()];
+        crate::experiment::MeasureExperiment::new(&uc, 200, &inputs, always_succeeds)
+            .with_spec_resolver(crate::spec::SpecResolver::with_dir(dir.path()))
+            .run();
+
+        let resolver = crate::spec::SpecResolver::with_dir(dir.path());
+        let result = ProbabilisticTestBuilder::new("ssf-pass", &inputs, always_succeeds)
+            .approach(ThresholdApproach::SampleSizeFirst {
+                samples: 200,
+                confidence: 0.95,
+            })
+            .spec_resolver(resolver)
+            .threshold_origin(ThresholdOrigin::Empirical)
+            .run();
+        assert_eq!(result.verdict_record().verdict(), Verdict::Pass);
+    }
+
+    // --- Intent and provenance propagation ---
+
+    #[test]
+    fn intent_propagates_to_verdict() {
+        let inputs = vec!["input".to_string()];
+        let result = ProbabilisticTestBuilder::new("test", &inputs, always_succeeds)
+            .approach(ThresholdApproach::ThresholdFirst {
+                samples: 50,
+                min_pass_rate: 0.90,
+            })
+            .intent(TestIntent::Smoke)
+            .run();
+        assert_eq!(result.verdict_record().intent(), TestIntent::Smoke);
+    }
+
+    #[test]
+    fn threshold_origin_propagates() {
+        let inputs = vec!["input".to_string()];
+        let result = ProbabilisticTestBuilder::new("test", &inputs, always_succeeds)
+            .approach(ThresholdApproach::ThresholdFirst {
+                samples: 50,
+                min_pass_rate: 0.90,
+            })
+            .threshold_origin(ThresholdOrigin::Sla)
+            .run();
+        let prov = result.verdict_record().spec_provenance().unwrap();
+        assert_eq!(prov.threshold_origin(), ThresholdOrigin::Sla);
+    }
+
+    #[test]
+    fn contract_ref_propagates() {
+        let inputs = vec!["input".to_string()];
+        let result = ProbabilisticTestBuilder::new("test", &inputs, always_succeeds)
+            .approach(ThresholdApproach::ThresholdFirst {
+                samples: 50,
+                min_pass_rate: 0.90,
+            })
+            .threshold_origin(ThresholdOrigin::Sla)
+            .contract_ref("SLA v2")
+            .run();
+        let prov = result.verdict_record().spec_provenance().unwrap();
+        assert_eq!(prov.contract_ref(), Some("SLA v2"));
+    }
+
+    #[test]
+    fn approach_stored_on_result() {
+        let inputs = vec!["input".to_string()];
+        let result = ProbabilisticTestBuilder::new("test", &inputs, always_succeeds)
+            .approach(ThresholdApproach::ThresholdFirst {
+                samples: 50,
+                min_pass_rate: 0.90,
+            })
+            .run();
+        assert!(matches!(
+            result.approach(),
+            ThresholdApproach::ThresholdFirst { .. }
+        ));
+    }
+
+    // --- Validation: PT12 parameter bounds ---
+
+    #[test]
+    #[should_panic(expected = "min_pass_rate must be in [0, 1]")]
+    fn panics_on_min_pass_rate_above_one() {
+        let inputs = vec!["input".to_string()];
+        ProbabilisticTestBuilder::new("test", &inputs, always_succeeds)
+            .approach(ThresholdApproach::ThresholdFirst {
+                samples: 10,
+                min_pass_rate: 1.5,
+            })
+            .run();
+    }
+
+    #[test]
+    #[should_panic(expected = "samples must be greater than 0")]
+    fn panics_on_zero_samples_threshold_first() {
+        let inputs = vec!["input".to_string()];
+        ProbabilisticTestBuilder::new("test", &inputs, always_succeeds)
+            .approach(ThresholdApproach::ThresholdFirst {
+                samples: 0,
+                min_pass_rate: 0.90,
+            })
+            .run();
+    }
+
+    #[test]
+    #[should_panic(expected = "samples must be greater than 0")]
+    fn panics_on_zero_samples_sample_size_first() {
+        let inputs = vec!["input".to_string()];
+        ProbabilisticTestBuilder::new("test", &inputs, always_succeeds)
+            .approach(ThresholdApproach::SampleSizeFirst {
+                samples: 0,
+                confidence: 0.95,
+            })
+            .run();
+    }
+
+    #[test]
+    fn accepts_min_pass_rate_zero() {
+        let inputs = vec!["input".to_string()];
+        let result = ProbabilisticTestBuilder::new("test", &inputs, always_succeeds)
+            .approach(ThresholdApproach::ThresholdFirst {
+                samples: 50,
+                min_pass_rate: 0.0,
+            })
+            .run();
+        assert_eq!(result.verdict_record().verdict(), Verdict::Pass);
+    }
+
+    // --- Validation: PT13 coherence via builder API ---
+
+    #[test]
+    #[should_panic(expected = "REQUIRES_BASELINE")]
+    fn panics_sample_size_first_without_baseline() {
+        let inputs = vec!["input".to_string()];
+        ProbabilisticTestBuilder::new("test", &inputs, always_succeeds)
+            .approach(ThresholdApproach::SampleSizeFirst {
+                samples: 100,
+                confidence: 0.95,
+            })
+            // No spec_resolver or baseline_spec
+            .run();
+    }
+
+    #[test]
+    #[should_panic(expected = "REQUIRES_BASELINE_RATE")]
+    fn panics_confidence_first_without_baseline() {
+        let inputs = vec!["input".to_string()];
+        ProbabilisticTestBuilder::new("test", &inputs, always_succeeds)
+            .approach(ThresholdApproach::ConfidenceFirst {
+                confidence: 0.95,
+                min_detectable_effect: 0.05,
+                power: 0.80,
+            })
+            // No spec_resolver or baseline_spec
+            .run();
+    }
+
+    // --- Feasibility: PT08 via builder API ---
+
+    #[test]
+    #[should_panic(expected = "Infeasible")]
+    fn panics_infeasible_verification() {
+        let inputs = vec!["input".to_string()];
+        ProbabilisticTestBuilder::new("test", &inputs, always_succeeds)
+            .approach(ThresholdApproach::ThresholdFirst {
+                samples: 5,
+                min_pass_rate: 0.95,
+            })
+            .intent(TestIntent::Verification)
+            .run();
+    }
+
+    #[test]
+    fn warns_infeasible_smoke() {
+        let inputs = vec!["input".to_string()];
+        let result = ProbabilisticTestBuilder::new("test", &inputs, always_succeeds)
+            .approach(ThresholdApproach::ThresholdFirst {
+                samples: 5,
+                min_pass_rate: 0.95,
+            })
+            .intent(TestIntent::Smoke)
+            .run();
+
+        let warnings = result.verdict_record().warnings();
+        assert!(
+            warnings.iter().any(|w| w.code() == "UNDERSIZED"),
+            "expected UNDERSIZED warning, got: {warnings:?}"
+        );
+    }
+
+    #[test]
+    fn feasible_verification_runs() {
+        let inputs = vec!["input".to_string()];
+        let result = ProbabilisticTestBuilder::new("test", &inputs, always_succeeds)
+            .approach(ThresholdApproach::ThresholdFirst {
+                samples: 100,
+                min_pass_rate: 0.90,
+            })
+            .intent(TestIntent::Verification)
+            .run();
+        assert_eq!(result.verdict_record().verdict(), Verdict::Pass);
     }
 }

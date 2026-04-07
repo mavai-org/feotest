@@ -258,6 +258,20 @@ where
     /// - If the verdict is `Fail`.
     pub fn run(self) -> VerdictRecord {
         let approach = self.detect_approach();
+        crate::ptest::builder::validate_approach_bounds(&approach);
+
+        // Coherence validation (PT13) — covers rules that detect_approach() does not
+        let has_baseline = self.baseline_path.is_some()
+            || self.baseline_dir.is_some()
+            || self.threshold.is_none(); // threshold-less approaches auto-resolve a baseline
+        let config = crate::ptest::builder::macro_config_from_approach(
+            &self.use_case_id,
+            &approach,
+            self.threshold_origin,
+            has_baseline,
+        );
+        crate::ptest::validation::validate(&config);
+
         let spec_resolver = self.build_spec_resolver();
         let transparent_stats = self.transparent_stats;
 
@@ -498,5 +512,147 @@ where
             config = config.with_pacing(pacing.clone());
         }
         Some(config)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::model::TrialOutcome;
+    use std::time::Duration;
+
+    fn always_succeeds(_input: &str) -> TrialOutcome {
+        TrialOutcome::success(Duration::from_millis(1))
+    }
+
+    // --- Valid approach detection ---
+
+    #[test]
+    fn detects_threshold_first() {
+        let inputs = vec!["input".to_string()];
+        let pt = ProbabilisticTest::new("test", &inputs, always_succeeds)
+            .samples(100)
+            .threshold(0.90);
+        let approach = pt.detect_approach();
+        assert!(matches!(approach, ThresholdApproach::ThresholdFirst { .. }));
+    }
+
+    #[test]
+    fn detects_sample_size_first() {
+        let inputs = vec!["input".to_string()];
+        let pt = ProbabilisticTest::new("test", &inputs, always_succeeds)
+            .samples(100)
+            .confidence(0.95);
+        let approach = pt.detect_approach();
+        assert!(matches!(
+            approach,
+            ThresholdApproach::SampleSizeFirst { .. }
+        ));
+    }
+
+    #[test]
+    fn detects_confidence_first() {
+        let inputs = vec!["input".to_string()];
+        let pt = ProbabilisticTest::new("test", &inputs, always_succeeds)
+            .confidence(0.95)
+            .min_detectable_effect(0.05)
+            .power(0.80);
+        let approach = pt.detect_approach();
+        assert!(matches!(
+            approach,
+            ThresholdApproach::ConfidenceFirst { .. }
+        ));
+    }
+
+    // --- Invalid approach detection ---
+
+    #[test]
+    #[should_panic(expected = "OVER-SPECIFIED")]
+    fn panics_over_specified() {
+        let inputs = vec!["input".to_string()];
+        ProbabilisticTest::new("test", &inputs, always_succeeds)
+            .samples(10)
+            .threshold(0.90)
+            .confidence(0.99)
+            .run();
+    }
+
+    #[test]
+    #[should_panic(expected = "UNDER-SPECIFIED")]
+    fn panics_under_specified_samples_only() {
+        let inputs = vec!["input".to_string()];
+        ProbabilisticTest::new("test", &inputs, always_succeeds)
+            .samples(100)
+            .run();
+    }
+
+    #[test]
+    #[should_panic(expected = "INCOMPLETE")]
+    fn panics_incomplete_confidence_first_missing_mde() {
+        let inputs = vec!["input".to_string()];
+        ProbabilisticTest::new("test", &inputs, always_succeeds)
+            .confidence(0.99)
+            .power(0.80)
+            .run();
+    }
+
+    #[test]
+    #[should_panic(expected = "INCOMPLETE")]
+    fn panics_incomplete_confidence_first_missing_power() {
+        let inputs = vec!["input".to_string()];
+        ProbabilisticTest::new("test", &inputs, always_succeeds)
+            .confidence(0.99)
+            .min_detectable_effect(0.05)
+            .run();
+    }
+
+    #[test]
+    #[should_panic(expected = "INCOMPLETE")]
+    fn panics_incomplete_confidence_first_missing_confidence() {
+        let inputs = vec!["input".to_string()];
+        ProbabilisticTest::new("test", &inputs, always_succeeds)
+            .min_detectable_effect(0.05)
+            .power(0.80)
+            .run();
+    }
+
+    #[test]
+    #[should_panic(expected = "UNDER-SPECIFIED")]
+    fn panics_no_parameters() {
+        let inputs = vec!["input".to_string()];
+        ProbabilisticTest::new("test", &inputs, always_succeeds).run();
+    }
+
+    // --- Run-time behaviour ---
+
+    #[test]
+    fn run_returns_verdict_on_pass() {
+        let inputs = vec!["input".to_string()];
+        let record = ProbabilisticTest::new("test", &inputs, always_succeeds)
+            .samples(50)
+            .threshold(0.80)
+            .run();
+        assert_eq!(record.verdict(), Verdict::Pass);
+    }
+
+    #[test]
+    #[should_panic(expected = "FAILED")]
+    fn run_panics_on_fail_verdict() {
+        let inputs: Vec<String> = (0..10)
+            .map(|i| if i < 8 { "fail".into() } else { "ok".into() })
+            .collect();
+        ProbabilisticTest::new("test", &inputs, |input| {
+            if input == "fail" {
+                TrialOutcome::failure(
+                    crate::model::ContractViolation::new("check", "forced"),
+                    Duration::from_millis(1),
+                )
+            } else {
+                TrialOutcome::success(Duration::from_millis(1))
+            }
+        })
+        .samples(100)
+        .threshold(0.90)
+        .run();
     }
 }

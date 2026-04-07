@@ -18,7 +18,10 @@
 //!
 //! [`VerdictRecord`]: crate::verdict::VerdictRecord
 
+mod approach;
+mod baseline;
 pub mod builder;
+mod diagnostics;
 mod probabilistic_test;
 mod runner;
 pub mod validation;

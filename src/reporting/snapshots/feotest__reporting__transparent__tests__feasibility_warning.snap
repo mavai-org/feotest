@@ -1,0 +1,41 @@
+---
+source: src/reporting/transparent.rs
+assertion_line: 655
+expression: buf
+---
+║═════════════════════════════════════════════════════════════║
+║ TRANSPARENT STATISTICS                                      ║
+║                                                             ║
+║ Test:       tiny-test                                       ║
+║ Approach:   Threshold-first                                 ║
+║ Intent:     VERIFICATION                                    ║
+║ Origin:     SLA                                             ║
+║─────────────────────────────────────────────────────────────║
+║ WARNING                                                     ║
+║                                                             ║
+║ Sample size 10 is insufficient for verification-grade       ║
+║ evidence at threshold 0.9500                                ║
+║─────────────────────────────────────────────────────────────║
+║ HYPOTHESES                                                  ║
+║                                                             ║
+║ H0: p >= 0.950  (service meets threshold)                   ║
+║ H1: p <  0.950  (service is degraded)                       ║
+║─────────────────────────────────────────────────────────────║
+║ OBSERVED DATA AND INFERENCE                                 ║
+║                                                             ║
+║ Successes / Total:    10 / 10                               ║
+║ Observed pass rate:   1.000                                 ║
+║ Threshold:            0.950                                 ║
+║   (implied confidence: 0.950)                               ║
+║ z-statistic:          0.667                                 ║
+║ p-value:              0.252                                 ║
+║ CI [95%]:       [0.753, 1.000]                              ║
+║ Standard error:       0.075                                 ║
+║─────────────────────────────────────────────────────────────║
+║ VERDICT                                                     ║
+║                                                             ║
+║ PASS                                                        ║
+║                                                             ║
+║ The observed success rate of 1.000 is consistent with the   ║
+║ baseline expectation. No evidence of degradation.           ║
+║═════════════════════════════════════════════════════════════║

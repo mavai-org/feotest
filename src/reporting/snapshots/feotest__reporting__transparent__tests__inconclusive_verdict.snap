@@ -1,0 +1,19 @@
+---
+source: src/reporting/transparent.rs
+assertion_line: 542
+expression: buf
+---
+║═════════════════════════════════════════════════════════════║
+║ TRANSPARENT STATISTICS                                      ║
+║                                                             ║
+║ Test:       flaky-service                                   ║
+║ Approach:   Threshold-first                                 ║
+║ Intent:     VERIFICATION                                    ║
+║─────────────────────────────────────────────────────────────║
+║ VERDICT                                                     ║
+║                                                             ║
+║ INCONCLUSIVE                                                ║
+║                                                             ║
+║ Insufficient evidence to reach a conclusion. The            ║
+║ statistical analysis is unreliable at this sample size.     ║
+║═════════════════════════════════════════════════════════════║

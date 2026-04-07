@@ -83,7 +83,7 @@ fn render_with_sample_size_first_approach() {
     let resolver = feotest::spec::SpecResolver::with_dir(dir.path());
     let result = ProbabilisticTestBuilder::new("transparent-ssf", &inputs, always_succeeds)
         .approach(ThresholdApproach::SampleSizeFirst {
-            samples: 50,
+            samples: 200,
             confidence: 0.95,
         })
         .spec_resolver(resolver)
@@ -120,8 +120,8 @@ fn render_fail_verdict_includes_rejection() {
         }
     })
     .approach(ThresholdApproach::ThresholdFirst {
-        samples: 50,
-        min_pass_rate: 0.95,
+        samples: 100,
+        min_pass_rate: 0.90,
     })
     .run();
 

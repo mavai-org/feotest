@@ -15,7 +15,7 @@ fn threshold_first_with_smoke_intent(_input: &str) -> bool {
 }
 
 #[probabilistic_test(
-    samples = 20,
+    samples = 60,
     threshold = 0.95,
     threshold_origin = "sla",
     contract_ref = "API SLA v2.3 §4.1"
@@ -56,7 +56,7 @@ fn sample_size_first_with_spec(_input: &str) -> bool {
 }
 
 #[probabilistic_test(
-    samples = 30,
+    samples = 50,
     confidence = 0.95,
     spec = "tests/fixtures/test-baseline.yaml",
     threshold_origin = "empirical"

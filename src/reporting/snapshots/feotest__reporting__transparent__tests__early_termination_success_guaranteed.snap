@@ -1,0 +1,41 @@
+---
+source: src/reporting/transparent.rs
+assertion_line: 624
+expression: buf
+---
+║═════════════════════════════════════════════════════════════║
+║ TRANSPARENT STATISTICS                                      ║
+║                                                             ║
+║ Test:       solid-service                                   ║
+║ Approach:   Threshold-first                                 ║
+║ Intent:     VERIFICATION                                    ║
+║ Origin:     EMPIRICAL                                       ║
+║─────────────────────────────────────────────────────────────║
+║ HYPOTHESES                                                  ║
+║                                                             ║
+║ H0: p >= 0.900  (service meets threshold)                   ║
+║ H1: p <  0.900  (service is degraded)                       ║
+║─────────────────────────────────────────────────────────────║
+║ OBSERVED DATA AND INFERENCE                                 ║
+║                                                             ║
+║ Successes / Total:    58 / 60                               ║
+║ Observed pass rate:   0.967                                 ║
+║ Threshold:            0.900                                 ║
+║   (implied confidence: 0.950)                               ║
+║ z-statistic:          3.867                                 ║
+║ p-value:              0.000                                 ║
+║ CI [95%]:       [0.918, 0.998]                              ║
+║ Standard error:       0.025                                 ║
+║─────────────────────────────────────────────────────────────║
+║ EARLY TERMINATION                                           ║
+║                                                             ║
+║ Reason:     Success guaranteed                              ║
+║ Executed:   60 of 100 planned samples                       ║
+║─────────────────────────────────────────────────────────────║
+║ VERDICT                                                     ║
+║                                                             ║
+║ PASS                                                        ║
+║                                                             ║
+║ The observed success rate of 0.967 is consistent with the   ║
+║ baseline expectation. No evidence of degradation.           ║
+║═════════════════════════════════════════════════════════════║

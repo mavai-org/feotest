@@ -1,0 +1,41 @@
+---
+source: src/reporting/transparent.rs
+assertion_line: 599
+expression: buf
+---
+║═════════════════════════════════════════════════════════════║
+║ TRANSPARENT STATISTICS                                      ║
+║                                                             ║
+║ Test:       degraded-service                                ║
+║ Approach:   Threshold-first                                 ║
+║ Intent:     VERIFICATION                                    ║
+║ Origin:     EMPIRICAL                                       ║
+║─────────────────────────────────────────────────────────────║
+║ HYPOTHESES                                                  ║
+║                                                             ║
+║ H0: p >= 0.900  (service meets threshold)                   ║
+║ H1: p <  0.900  (service is degraded)                       ║
+║─────────────────────────────────────────────────────────────║
+║ OBSERVED DATA AND INFERENCE                                 ║
+║                                                             ║
+║ Successes / Total:    20 / 42                               ║
+║ Observed pass rate:   0.476                                 ║
+║ Threshold:            0.900                                 ║
+║   (implied confidence: 0.950)                               ║
+║ z-statistic:          -5.195                                ║
+║ p-value:              1.000                                 ║
+║ CI [95%]:       [0.342, 0.658]                              ║
+║ Standard error:       0.077                                 ║
+║─────────────────────────────────────────────────────────────║
+║ EARLY TERMINATION                                           ║
+║                                                             ║
+║ Reason:     Failure inevitable                              ║
+║ Executed:   42 of 100 planned samples                       ║
+║─────────────────────────────────────────────────────────────║
+║ VERDICT                                                     ║
+║                                                             ║
+║ FAIL                                                        ║
+║                                                             ║
+║ The observed success rate of 0.476 is significantly below   ║
+║ the threshold of 0.900. The null hypothesis is rejected.    ║
+║═════════════════════════════════════════════════════════════║
