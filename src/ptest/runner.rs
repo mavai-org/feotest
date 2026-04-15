@@ -2,6 +2,9 @@
 
 use crate::controls::{ExecutionConfig, TokenRecorder};
 use crate::experiment::ExecutionEngine;
+use crate::latency::{
+    LatencyDimension, LatencyEnforcementMode, LatencyThresholds, enforcement, resolver,
+};
 use crate::model::{TestIdentity, TestIntent, ThresholdOrigin, TrialOutcome, Warning};
 use crate::ptest::approach;
 use crate::ptest::builder::ThresholdApproach;
@@ -12,6 +15,17 @@ use crate::usecase::CovariateContext;
 use crate::verdict::{
     FunctionalDimension, SpecProvenance, StatisticalAnalysis, Verdict, VerdictRecord,
 };
+
+/// Latency configuration carried into the runner.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct LatencyConfig {
+    /// Explicit thresholds declared on the builder.
+    pub thresholds: LatencyThresholds,
+    /// Explicit enforcement mode from the builder, if any.
+    pub baseline_mode: Option<LatencyEnforcementMode>,
+    /// Confidence used when deriving baseline thresholds.
+    pub baseline_confidence: f64,
+}
 
 /// The result of a probabilistic test.
 ///
@@ -61,10 +75,13 @@ impl ProbabilisticTestResult {
         &self.approach
     }
 
-    /// Whether the test passed.
+    /// Whether the test passed across all dimensions.
+    ///
+    /// Combines the functional verdict with the latency dimension when
+    /// present. Advisory latency violations do not affect this result.
     #[must_use]
     pub fn passed(&self) -> bool {
-        self.verdict_record.verdict() == Verdict::Pass
+        self.verdict_record.passed()
     }
 }
 
@@ -82,6 +99,7 @@ pub fn execute<F>(
     pre_resolved_spec: Option<crate::spec::BaselineSpec>,
     config_overrides: Option<&ExecutionConfig>,
     covariate_context: Option<&CovariateContext>,
+    latency_config: &LatencyConfig,
 ) -> ProbabilisticTestResult
 where
     F: FnMut(&str) -> TrialOutcome,
@@ -172,12 +190,24 @@ where
         aggregate.failure_distribution().to_vec(),
     );
 
+    // Latency dimension (LT05). Built whenever explicit thresholds were
+    // declared OR the baseline carries a latency block.
+    let latency_dimension = build_latency_dimension(
+        latency_config,
+        aggregate.successful_latencies(),
+        baseline_spec.as_ref(),
+        &mut warnings,
+    );
+
     // Assemble the verdict record
     let identity = TestIdentity::new(use_case_id);
     let mut builder =
         VerdictRecord::builder(identity, verdict, intent, summary.clone(), functional)
             .statistical_analysis(analysis)
             .spec_provenance(provenance);
+    if let Some(dim) = latency_dimension {
+        builder = builder.latency(dim);
+    }
     for w in warnings {
         builder = builder.warning(w);
     }
@@ -186,6 +216,50 @@ where
         verdict_record: builder.build(),
         approach: approach.clone(),
     }
+}
+
+/// Resolves thresholds, computes percentiles, and builds the latency
+/// dimension. Returns `None` when no latency assertions apply.
+fn build_latency_dimension(
+    config: &LatencyConfig,
+    successful_latencies: &[std::time::Duration],
+    baseline_spec: Option<&crate::spec::BaselineSpec>,
+    warnings: &mut Vec<Warning>,
+) -> Option<LatencyDimension> {
+    let baseline_latency = baseline_spec.and_then(|s| s.statistics.latency.as_ref());
+    if config.thresholds.is_empty() && baseline_latency.is_none() {
+        return None;
+    }
+
+    let mode = enforcement::resolved_mode_from_env(config.baseline_mode);
+    let resolved = resolver::resolve(
+        &config.thresholds,
+        baseline_latency,
+        config.baseline_confidence,
+        mode,
+    );
+    if resolved.is_empty() {
+        return None;
+    }
+
+    for t in &resolved {
+        if !t.feasible() {
+            warnings.push(Warning::new(
+                "LATENCY_INFEASIBLE",
+                format!(
+                    "{} not evaluated: baseline has too few successful samples",
+                    t.percentile()
+                ),
+            ));
+        }
+    }
+
+    #[allow(clippy::cast_precision_loss)]
+    let latencies_f64: Vec<f64> = successful_latencies
+        .iter()
+        .map(|d| d.as_millis() as f64)
+        .collect();
+    Some(LatencyDimension::build(&latencies_f64, &resolved))
 }
 
 /// Builds the statistical analysis component of a verdict.

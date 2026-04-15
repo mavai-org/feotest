@@ -34,6 +34,7 @@
 pub mod contract;
 pub mod controls;
 pub mod experiment;
+pub mod latency;
 pub mod model;
 pub mod ptest;
 pub mod reporting;

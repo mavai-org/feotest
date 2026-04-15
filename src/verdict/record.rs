@@ -1,5 +1,6 @@
 //! The verdict record: the single source of truth for all verdict rendering.
 
+use crate::latency::LatencyDimension;
 use crate::model::{ExecutionSummary, TestIdentity, TestIntent, ThresholdOrigin, Warning};
 use crate::verdict::Verdict;
 
@@ -17,6 +18,7 @@ pub struct VerdictRecord {
     statistical_analysis: Option<StatisticalAnalysis>,
     spec_provenance: Option<SpecProvenance>,
     warnings: Vec<Warning>,
+    latency: Option<LatencyDimension>,
 }
 
 impl VerdictRecord {
@@ -38,6 +40,7 @@ impl VerdictRecord {
             statistical_analysis: None,
             spec_provenance: None,
             warnings: Vec::new(),
+            latency: None,
         }
     }
 
@@ -88,6 +91,64 @@ impl VerdictRecord {
     pub fn warnings(&self) -> &[Warning] {
         &self.warnings
     }
+
+    /// The latency dimension, if any thresholds were declared or a baseline
+    /// latency block was present.
+    #[must_use]
+    pub const fn latency(&self) -> Option<&LatencyDimension> {
+        self.latency.as_ref()
+    }
+
+    /// Whether the overall verdict passed.
+    ///
+    /// Combines the functional verdict with the latency dimension when
+    /// present. Advisory latency violations never affect this result.
+    #[must_use]
+    pub fn passed(&self) -> bool {
+        let functional_ok = self.verdict == Verdict::Pass;
+        let latency_ok = self.latency.as_ref().is_none_or(LatencyDimension::passed);
+        functional_ok && latency_ok
+    }
+
+    /// Panics if the functional dimension did not pass.
+    ///
+    /// # Panics
+    ///
+    /// Panics with a diagnostic message when the functional verdict is not
+    /// `Verdict::Pass`.
+    pub fn assert_contract(&self) {
+        assert!(
+            self.verdict == Verdict::Pass,
+            "functional contract failed: verdict = {}",
+            self.verdict
+        );
+    }
+
+    /// Panics if the latency dimension recorded any strict violation.
+    ///
+    /// No-op when no latency dimension is attached or when the dimension
+    /// passed (including advisory-only violations).
+    ///
+    /// # Panics
+    ///
+    /// Panics with a diagnostic message listing strict violations when the
+    /// latency dimension has any.
+    pub fn assert_latency(&self) {
+        if let Some(dim) = self.latency.as_ref() {
+            assert!(
+                dim.passed(),
+                "latency contract failed ({} strict violation(s)):\n{}",
+                dim.strict_violations(),
+                dim
+            );
+        }
+    }
+
+    /// Panics if either dimension failed.
+    pub fn assert_all(&self) {
+        self.assert_contract();
+        self.assert_latency();
+    }
 }
 
 /// Builder for [`VerdictRecord`].
@@ -100,6 +161,7 @@ pub struct VerdictRecordBuilder {
     statistical_analysis: Option<StatisticalAnalysis>,
     spec_provenance: Option<SpecProvenance>,
     warnings: Vec<Warning>,
+    latency: Option<LatencyDimension>,
 }
 
 impl VerdictRecordBuilder {
@@ -124,6 +186,13 @@ impl VerdictRecordBuilder {
         self
     }
 
+    /// Attaches a latency dimension.
+    #[must_use]
+    pub fn latency(mut self, dimension: LatencyDimension) -> Self {
+        self.latency = Some(dimension);
+        self
+    }
+
     /// Builds the verdict record.
     #[must_use]
     pub fn build(self) -> VerdictRecord {
@@ -136,6 +205,7 @@ impl VerdictRecordBuilder {
             statistical_analysis: self.statistical_analysis,
             spec_provenance: self.spec_provenance,
             warnings: self.warnings,
+            latency: self.latency,
         }
     }
 }

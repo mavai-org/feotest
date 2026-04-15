@@ -277,6 +277,11 @@ where
 
         let config_overrides = self.build_execution_config(&approach);
 
+        let latency_config = crate::ptest::runner::LatencyConfig {
+            thresholds: crate::latency::LatencyThresholds::new(),
+            baseline_mode: None,
+            baseline_confidence: crate::latency::DEFAULT_BASELINE_CONFIDENCE,
+        };
         let result = runner::execute(
             &self.use_case_id,
             self.inputs,
@@ -289,6 +294,7 @@ where
             None, // baseline spec resolved via the resolver
             config_overrides.as_ref(),
             self.covariate_context.as_ref(),
+            &latency_config,
         );
 
         // Always print the brief verdict line

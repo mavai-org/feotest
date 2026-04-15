@@ -96,6 +96,33 @@ pub struct StatisticsBlock {
     /// Distribution of failures by postcondition check name.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub failure_distribution: Option<std::collections::BTreeMap<String, u32>>,
+
+    /// Post-warmup successful-response latencies.
+    ///
+    /// Absent for baselines generated before latency capture existed or for
+    /// runs that produced no successful trials.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub latency: Option<LatencyBlock>,
+}
+
+/// Latency block within a baseline spec.
+///
+/// Stores the full sorted vector of successful-response latencies so that
+/// thresholds can be re-resolved exactly at verdict time for any chosen
+/// `(percentile, confidence)` pair. This matches the non-parametric
+/// derivation in `javai-R/R/latency.R::latency_threshold_derive`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct LatencyBlock {
+    /// Post-warmup successful-response latencies in milliseconds, sorted
+    /// ascending.
+    pub latencies_ms: Vec<u64>,
+
+    /// Sample mean in milliseconds, rounded.
+    pub mean_ms: u64,
+
+    /// Observed maximum in milliseconds.
+    pub max_ms: u64,
 }
 
 /// Success rate statistics within a baseline spec.
@@ -306,6 +333,7 @@ mod tests {
                 successes: 777,
                 failures: 223,
                 failure_distribution: None,
+                latency: None,
             },
         )
     }

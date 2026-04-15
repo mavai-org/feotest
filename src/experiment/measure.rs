@@ -4,7 +4,9 @@ use crate::controls::{ExecutionConfig, PacingConfig, TokenRecorder};
 use crate::experiment::engine::{ExecutionEngine, ExecutionResult};
 use crate::model::TrialOutcome;
 use crate::spec::SpecResolver;
-use crate::spec::baseline::{BaselineSpec, RequirementsBlock, StatisticsBlock, SuccessRateBlock};
+use crate::spec::baseline::{
+    BaselineSpec, LatencyBlock, RequirementsBlock, StatisticsBlock, SuccessRateBlock,
+};
 use crate::spec::common::{
     build_cost_block, build_execution_block, build_failure_distribution, now_iso8601, round4,
     standard_error, wilson_interval, wilson_lower_bound,
@@ -220,6 +222,7 @@ where
                 successes,
                 failures,
                 failure_distribution: build_failure_distribution(result.aggregate()),
+                latency: build_latency_block(result.aggregate().successful_latencies()),
             },
         );
 
@@ -228,6 +231,33 @@ where
 
         spec
     }
+}
+
+/// Builds a `LatencyBlock` from the post-warmup successful-response
+/// latencies, or `None` when no successes were recorded.
+#[allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    clippy::cast_precision_loss
+)]
+fn build_latency_block(successful_latencies: &[std::time::Duration]) -> Option<LatencyBlock> {
+    if successful_latencies.is_empty() {
+        return None;
+    }
+    let mut ms: Vec<u64> = successful_latencies
+        .iter()
+        .map(|d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX))
+        .collect();
+    ms.sort_unstable();
+    let n = ms.len() as f64;
+    let sum: f64 = ms.iter().map(|&x| x as f64).sum();
+    let mean_ms = (sum / n).round() as u64;
+    let max_ms = *ms.last().expect("non-empty");
+    Some(LatencyBlock {
+        latencies_ms: ms,
+        mean_ms,
+        max_ms,
+    })
 }
 
 /// Result of a measure experiment.

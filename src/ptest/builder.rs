@@ -1,8 +1,11 @@
 //! Builder for configuring and launching a probabilistic test.
 
+use std::time::Duration;
+
 use crate::controls::ExecutionConfig;
+use crate::latency::{LatencyEnforcementMode, LatencyThresholds, Percentile};
 use crate::model::{TestIntent, ThresholdOrigin, TrialOutcome};
-use crate::ptest::runner::{self, ProbabilisticTestResult};
+use crate::ptest::runner::{self, LatencyConfig, ProbabilisticTestResult};
 use crate::ptest::validation::{self, MacroConfig};
 use crate::spec::{BaselineSpec, SpecResolver};
 use crate::usecase::{CovariateContext, UseCase};
@@ -113,6 +116,9 @@ pub struct ProbabilisticTestBuilder<'a, F> {
     config_overrides: Option<ExecutionConfig>,
     transparent_stats: bool,
     covariate_context: Option<CovariateContext>,
+    latency_thresholds: LatencyThresholds,
+    baseline_latency_mode: Option<LatencyEnforcementMode>,
+    baseline_latency_confidence: Option<f64>,
 }
 
 impl<'a, F> ProbabilisticTestBuilder<'a, F>
@@ -139,6 +145,9 @@ where
             config_overrides: None,
             transparent_stats: false,
             covariate_context: None,
+            latency_thresholds: LatencyThresholds::new(),
+            baseline_latency_mode: None,
+            baseline_latency_confidence: None,
         }
     }
 
@@ -202,6 +211,57 @@ where
         self
     }
 
+    /// Declares an explicit p50 latency threshold. Strictly enforced.
+    #[must_use]
+    pub fn latency_p50(mut self, value: Duration) -> Self {
+        self.latency_thresholds = self.latency_thresholds.with(Percentile::P50, value);
+        self
+    }
+
+    /// Declares an explicit p90 latency threshold. Strictly enforced.
+    #[must_use]
+    pub fn latency_p90(mut self, value: Duration) -> Self {
+        self.latency_thresholds = self.latency_thresholds.with(Percentile::P90, value);
+        self
+    }
+
+    /// Declares an explicit p95 latency threshold. Strictly enforced.
+    #[must_use]
+    pub fn latency_p95(mut self, value: Duration) -> Self {
+        self.latency_thresholds = self.latency_thresholds.with(Percentile::P95, value);
+        self
+    }
+
+    /// Declares an explicit p99 latency threshold. Strictly enforced.
+    #[must_use]
+    pub fn latency_p99(mut self, value: Duration) -> Self {
+        self.latency_thresholds = self.latency_thresholds.with(Percentile::P99, value);
+        self
+    }
+
+    /// Controls whether baseline-derived latency thresholds fail the verdict
+    /// on violation (`true` → `Strict`) or warn only (`false` → `Advisory`).
+    ///
+    /// When unset, the `FEOTEST_LATENCY_ENFORCE` env var is consulted, then
+    /// `Advisory` is the default. Explicit thresholds are always strict.
+    #[must_use]
+    pub const fn enforce_baseline_latency(mut self, strict: bool) -> Self {
+        self.baseline_latency_mode = Some(if strict {
+            LatencyEnforcementMode::Strict
+        } else {
+            LatencyEnforcementMode::Advisory
+        });
+        self
+    }
+
+    /// Overrides the confidence level used when deriving a latency threshold
+    /// from the baseline (default `0.95`).
+    #[must_use]
+    pub const fn baseline_latency_confidence(mut self, confidence: f64) -> Self {
+        self.baseline_latency_confidence = Some(confidence);
+        self
+    }
+
     /// Sets covariate context from a use case for baseline selection.
     ///
     /// When set, the resolver uses covariate-aware selection to find
@@ -236,6 +296,13 @@ where
         validation::validate(&config);
 
         let transparent_stats = self.transparent_stats;
+        let latency_config = LatencyConfig {
+            thresholds: self.latency_thresholds,
+            baseline_mode: self.baseline_latency_mode,
+            baseline_confidence: self
+                .baseline_latency_confidence
+                .unwrap_or(crate::latency::DEFAULT_BASELINE_CONFIDENCE),
+        };
 
         let result = runner::execute(
             &self.use_case_id,
@@ -249,6 +316,7 @@ where
             self.baseline_spec,
             self.config_overrides.as_ref(),
             self.covariate_context.as_ref(),
+            &latency_config,
         );
 
         // Always print the brief verdict line

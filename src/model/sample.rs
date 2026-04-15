@@ -15,6 +15,7 @@ pub struct SampleAggregate {
     failures: u32,
     failure_distribution: Vec<(String, u32)>,
     total_elapsed: Duration,
+    successful_latencies: Vec<Duration>,
     example_failures: Vec<ContractViolation>,
     conformance_mismatches: u32,
     example_mismatches: Vec<String>,
@@ -29,6 +30,7 @@ impl SampleAggregate {
             failures: 0,
             failure_distribution: Vec::new(),
             total_elapsed: Duration::ZERO,
+            successful_latencies: Vec::new(),
             example_failures: Vec::new(),
             conformance_mismatches: 0,
             example_mismatches: Vec::new(),
@@ -39,6 +41,17 @@ impl SampleAggregate {
     pub fn record_success(&mut self, elapsed: Duration) {
         self.successes += 1;
         self.total_elapsed += elapsed;
+        self.successful_latencies.push(elapsed);
+    }
+
+    /// Post-warmup successful-response latencies in observation order.
+    ///
+    /// Consumers must sort when required; this accessor preserves insertion
+    /// order so that downstream percentile computation can verify its own
+    /// sorting invariants.
+    #[must_use]
+    pub fn successful_latencies(&self) -> &[Duration] {
+        &self.successful_latencies
     }
 
     /// Records a failed trial.

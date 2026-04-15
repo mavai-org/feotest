@@ -500,8 +500,6 @@ struct LatencyPercentileExpected {
     #[serde(default)]
     mean: Option<f64>,
     #[serde(default)]
-    sd: Option<f64>,
-    #[serde(default)]
     max: Option<f64>,
 }
 
@@ -512,7 +510,6 @@ fn conformance_latency_percentile() {
 
     for case in &suite.cases {
         if let Some(p) = case.inputs.percentile {
-            // Percentile case
             let result = latency::nearest_rank_percentile(&case.inputs.latencies, p);
             assert_close(
                 result,
@@ -522,7 +519,6 @@ fn conformance_latency_percentile() {
                 "value",
             );
         } else {
-            // Summary statistics case
             let summary = latency::LatencySummary::from_latencies(&case.inputs.latencies);
 
             assert_close(
@@ -539,20 +535,6 @@ fn conformance_latency_percentile() {
                 &case.name,
                 "max",
             );
-
-            match case.expected.sd {
-                Some(expected_sd) => {
-                    assert_close(summary.sd(), expected_sd, suite.tolerance, &case.name, "sd");
-                }
-                None => {
-                    assert!(
-                        summary.sd().is_nan(),
-                        "Case '{}', field 'sd': expected NaN, got {}",
-                        case.name,
-                        summary.sd()
-                    );
-                }
-            }
         }
     }
 }
@@ -570,16 +552,17 @@ struct LatencyThresholdCase {
 
 #[derive(Deserialize)]
 struct LatencyThresholdInputs {
-    baseline_percentile: f64,
-    baseline_sd: f64,
-    baseline_n: u32,
+    baseline_latencies: Vec<f64>,
+    p: f64,
     confidence: f64,
 }
 
 #[derive(Deserialize)]
 struct LatencyThresholdExpected {
-    raw_upper: f64,
+    rank: u32,
     threshold: f64,
+    baseline_percentile: f64,
+    n: u32,
 }
 
 #[test]
@@ -589,18 +572,26 @@ fn conformance_latency_threshold() {
 
     for case in &suite.cases {
         let result = latency::derive_latency_threshold(
-            case.inputs.baseline_percentile,
-            case.inputs.baseline_sd,
-            case.inputs.baseline_n,
+            &case.inputs.baseline_latencies,
+            case.inputs.p,
             case.inputs.confidence,
         );
 
-        assert_close(
-            result.raw_upper(),
-            case.expected.raw_upper,
-            suite.tolerance,
-            &case.name,
-            "raw_upper",
+        assert_eq!(
+            result.rank(),
+            case.expected.rank,
+            "Case '{}', field 'rank': expected {}, got {}",
+            case.name,
+            case.expected.rank,
+            result.rank()
+        );
+        assert_eq!(
+            result.n(),
+            case.expected.n,
+            "Case '{}', field 'n': expected {}, got {}",
+            case.name,
+            case.expected.n,
+            result.n()
         );
         assert_close(
             result.threshold(),
@@ -608,6 +599,13 @@ fn conformance_latency_threshold() {
             suite.tolerance,
             &case.name,
             "threshold",
+        );
+        assert_close(
+            result.baseline_percentile(),
+            case.expected.baseline_percentile,
+            suite.tolerance,
+            &case.name,
+            "baseline_percentile",
         );
     }
 }
