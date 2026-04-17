@@ -70,6 +70,35 @@ impl SelectionResult {
     pub fn non_conforming(&self) -> Vec<&ConformanceDetail> {
         self.conformance.iter().filter(|d| !d.conforms()).collect()
     }
+
+    /// Creates a `SelectionResult` from a single spec with no conformance
+    /// issues. For use in tests that need a clean selection result.
+    #[cfg(test)]
+    pub(crate) fn from_single(spec: BaselineSpec) -> Self {
+        Self {
+            selected: spec,
+            conformance: Vec::new(),
+            ambiguous: false,
+            candidate_count: 1,
+        }
+    }
+
+    /// Creates a `SelectionResult` with custom conformance and ambiguity.
+    /// For use in tests that need to exercise warning paths.
+    #[cfg(test)]
+    pub(crate) fn with_details(
+        spec: BaselineSpec,
+        conformance: Vec<ConformanceDetail>,
+        ambiguous: bool,
+        candidate_count: usize,
+    ) -> Self {
+        Self {
+            selected: spec,
+            conformance,
+            ambiguous,
+            candidate_count,
+        }
+    }
 }
 
 /// Errors that can occur during baseline selection.

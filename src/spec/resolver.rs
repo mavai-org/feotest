@@ -455,6 +455,114 @@ mod tests {
     }
 
     #[test]
+    fn spec_dir_returns_configured_path() {
+        let dir = tempfile::tempdir().unwrap();
+        let resolver = SpecResolver::with_dir(dir.path());
+        assert_eq!(resolver.spec_dir(), dir.path());
+    }
+
+    #[test]
+    fn resolve_file_missing_file_returns_not_found() {
+        let result = SpecResolver::resolve_file("/nonexistent/path/spec.yaml");
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            SpecResolveError::NotFound { .. }
+        ));
+    }
+
+    #[test]
+    fn sanitises_special_characters_in_use_case_id() {
+        let dir = tempfile::tempdir().unwrap();
+        let resolver = SpecResolver::with_dir(dir.path());
+
+        // Write a spec with a sanitised name: "my.service/v2" → "my_service_v2"
+        let spec = sample_spec();
+        let mut enriched = spec.clone();
+        enriched.use_case_id = "my.service/v2".to_string();
+
+        // Write via the resolver (which sanitises internally)
+        let profile = CovariateProfile::empty();
+        // The write uses the spec's use_case_id, but find_candidates sanitises
+        // the lookup ID. We need the file to match the sanitised prefix.
+        // Write it manually with the sanitised name.
+        let mut signed = enriched.clone();
+        signed.content_fingerprint = None;
+        let yaml_without_fp = signed.to_yaml().unwrap();
+        let digest = sha2::Sha256::digest(yaml_without_fp.as_bytes());
+        signed.content_fingerprint = Some(format!("{digest:x}"));
+        let yaml = signed.to_yaml().unwrap();
+        let path = dir.path().join("my_service_v2-abcd1234.yaml");
+        fs::write(&path, yaml).unwrap();
+
+        // find_candidates should find it via the sanitised prefix
+        let candidates = resolver.find_candidates("my.service/v2").unwrap();
+        assert_eq!(candidates.len(), 1);
+    }
+
+    #[test]
+    fn resolve_with_covariates_empty_dir_returns_not_found() {
+        use crate::usecase::{CovariateCategory, CovariateDeclaration};
+
+        let dir = tempfile::tempdir().unwrap();
+        let resolver = SpecResolver::with_dir(dir.path());
+
+        let profile = CovariateProfile::builder().put("region", "US").build();
+        let declarations = vec![CovariateDeclaration::new(
+            "region",
+            CovariateCategory::Infrastructure,
+        )];
+
+        let result = resolver.resolve_with_covariates("nonexistent", &profile, &declarations);
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            SpecResolveError::NotFound { .. }
+        ));
+    }
+
+    #[test]
+    fn find_candidates_nonexistent_dir_returns_not_found() {
+        let resolver = SpecResolver::with_dir("/nonexistent/dir");
+        let result = resolver.find_candidates("test");
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            SpecResolveError::NotFound { .. }
+        ));
+    }
+
+    #[test]
+    fn error_display_formats_correctly() {
+        let err = SpecResolveError::NotFound {
+            use_case_id: "my-service".to_string(),
+            path: PathBuf::from("/specs"),
+            source: std::io::Error::new(std::io::ErrorKind::NotFound, "not found"),
+        };
+        assert!(err.to_string().contains("my-service"));
+        assert!(err.to_string().contains("/specs"));
+
+        let err = SpecResolveError::Selection {
+            use_case_id: "my-service".to_string(),
+            source: SelectionError::NoCandidates {
+                use_case_id: "my-service".to_string(),
+            },
+        };
+        assert!(err.to_string().contains("my-service"));
+        assert!(err.to_string().contains("selection failed"));
+    }
+
+    #[test]
+    fn error_source_is_accessible() {
+        let err = SpecResolveError::NotFound {
+            use_case_id: "x".to_string(),
+            path: PathBuf::from("/x"),
+            source: std::io::Error::new(std::io::ErrorKind::NotFound, "not found"),
+        };
+        assert!(std::error::Error::source(&err).is_some());
+    }
+
+    #[test]
     fn resolve_file_rejects_missing_fingerprint() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("no-fp-test.yaml");
