@@ -10,7 +10,8 @@
 mod record;
 
 pub use record::{
-    FunctionalDimension, SpecProvenance, StatisticalAnalysis, VerdictRecord, VerdictRecordBuilder,
+    BaselineProvenance, CovariateStatus, FunctionalDimension, Misalignment, SpecProvenance,
+    StatisticalAnalysis, VerdictRecord, VerdictRecordBuilder,
 };
 
 use std::fmt;

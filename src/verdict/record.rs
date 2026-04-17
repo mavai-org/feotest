@@ -1,7 +1,9 @@
 //! The verdict record: the single source of truth for all verdict rendering.
 
 use crate::latency::LatencyDimension;
-use crate::model::{ExecutionSummary, TestIdentity, TestIntent, ThresholdOrigin, Warning};
+use crate::model::{
+    ExecutionSummary, TerminationReason, TestIdentity, TestIntent, ThresholdOrigin, Warning,
+};
 use crate::verdict::Verdict;
 
 /// The complete record of a probabilistic test verdict.
@@ -12,11 +14,14 @@ use crate::verdict::Verdict;
 pub struct VerdictRecord {
     identity: TestIdentity,
     verdict: Verdict,
+    verdict_reason: String,
     intent: TestIntent,
     execution: ExecutionSummary,
     functional: FunctionalDimension,
     statistical_analysis: Option<StatisticalAnalysis>,
     spec_provenance: Option<SpecProvenance>,
+    baseline_provenance: Option<BaselineProvenance>,
+    covariate_status: CovariateStatus,
     warnings: Vec<Warning>,
     latency: Option<LatencyDimension>,
 }
@@ -39,6 +44,8 @@ impl VerdictRecord {
             functional,
             statistical_analysis: None,
             spec_provenance: None,
+            baseline_provenance: None,
+            covariate_status: CovariateStatus::all_aligned(),
             warnings: Vec::new(),
             latency: None,
         }
@@ -80,10 +87,28 @@ impl VerdictRecord {
         self.statistical_analysis.as_ref()
     }
 
+    /// The human-readable reason for the verdict.
+    #[must_use]
+    pub fn verdict_reason(&self) -> &str {
+        &self.verdict_reason
+    }
+
     /// Baseline provenance, if a spec was used.
     #[must_use]
     pub const fn spec_provenance(&self) -> Option<&SpecProvenance> {
         self.spec_provenance.as_ref()
+    }
+
+    /// Baseline measurement provenance, if a baseline was used.
+    #[must_use]
+    pub const fn baseline_provenance(&self) -> Option<&BaselineProvenance> {
+        self.baseline_provenance.as_ref()
+    }
+
+    /// Covariate alignment status.
+    #[must_use]
+    pub const fn covariate_status(&self) -> &CovariateStatus {
+        &self.covariate_status
     }
 
     /// Warnings attached to this verdict.
@@ -160,6 +185,8 @@ pub struct VerdictRecordBuilder {
     functional: FunctionalDimension,
     statistical_analysis: Option<StatisticalAnalysis>,
     spec_provenance: Option<SpecProvenance>,
+    baseline_provenance: Option<BaselineProvenance>,
+    covariate_status: CovariateStatus,
     warnings: Vec<Warning>,
     latency: Option<LatencyDimension>,
 }
@@ -186,6 +213,20 @@ impl VerdictRecordBuilder {
         self
     }
 
+    /// Attaches baseline provenance.
+    #[must_use]
+    pub fn baseline_provenance(mut self, provenance: BaselineProvenance) -> Self {
+        self.baseline_provenance = Some(provenance);
+        self
+    }
+
+    /// Sets the covariate alignment status.
+    #[must_use]
+    pub fn covariate_status(mut self, status: CovariateStatus) -> Self {
+        self.covariate_status = status;
+        self
+    }
+
     /// Attaches a latency dimension.
     #[must_use]
     pub fn latency(mut self, dimension: LatencyDimension) -> Self {
@@ -194,16 +235,29 @@ impl VerdictRecordBuilder {
     }
 
     /// Builds the verdict record.
+    ///
+    /// The `verdict_reason` field is derived automatically from the verdict,
+    /// execution, covariate status, and statistical analysis.
     #[must_use]
     pub fn build(self) -> VerdictRecord {
+        let verdict_reason = derive_verdict_reason(
+            self.verdict,
+            &self.execution,
+            &self.covariate_status,
+            &self.functional,
+            self.statistical_analysis.as_ref(),
+        );
         VerdictRecord {
             identity: self.identity,
             verdict: self.verdict,
+            verdict_reason,
             intent: self.intent,
             execution: self.execution,
             functional: self.functional,
             statistical_analysis: self.statistical_analysis,
             spec_provenance: self.spec_provenance,
+            baseline_provenance: self.baseline_provenance,
+            covariate_status: self.covariate_status,
             warnings: self.warnings,
             latency: self.latency,
         }
@@ -383,6 +437,178 @@ impl StatisticalAnalysis {
     }
 }
 
+/// Covariate alignment status between the baseline and the observed run.
+///
+/// When no covariates are declared, both profiles are empty and `aligned`
+/// is `true`. When covariates are declared but all values match, `aligned`
+/// is `true` and `misalignments` is empty.
+#[derive(Debug, Clone)]
+pub struct CovariateStatus {
+    aligned: bool,
+    misalignments: Vec<Misalignment>,
+    baseline_profile: Vec<(String, String)>,
+    observed_profile: Vec<(String, String)>,
+}
+
+impl CovariateStatus {
+    /// Creates a covariate status from profiles and computed misalignments.
+    #[must_use]
+    pub const fn new(
+        aligned: bool,
+        misalignments: Vec<Misalignment>,
+        baseline_profile: Vec<(String, String)>,
+        observed_profile: Vec<(String, String)>,
+    ) -> Self {
+        Self {
+            aligned,
+            misalignments,
+            baseline_profile,
+            observed_profile,
+        }
+    }
+
+    /// Creates a status indicating all covariates are aligned (or none declared).
+    #[must_use]
+    pub const fn all_aligned() -> Self {
+        Self {
+            aligned: true,
+            misalignments: Vec::new(),
+            baseline_profile: Vec::new(),
+            observed_profile: Vec::new(),
+        }
+    }
+
+    /// Whether all covariates are aligned.
+    #[must_use]
+    pub const fn aligned(&self) -> bool {
+        self.aligned
+    }
+
+    /// Individual misalignments, if any.
+    #[must_use]
+    pub fn misalignments(&self) -> &[Misalignment] {
+        &self.misalignments
+    }
+
+    /// Covariate key-value pairs from the baseline.
+    #[must_use]
+    pub fn baseline_profile(&self) -> &[(String, String)] {
+        &self.baseline_profile
+    }
+
+    /// Covariate key-value pairs observed at test time.
+    #[must_use]
+    pub fn observed_profile(&self) -> &[(String, String)] {
+        &self.observed_profile
+    }
+}
+
+/// A single covariate key whose baseline and observed values differ.
+#[derive(Debug, Clone)]
+pub struct Misalignment {
+    key: String,
+    baseline_value: String,
+    observed_value: String,
+}
+
+impl Misalignment {
+    /// Creates a new misalignment record.
+    #[must_use]
+    pub fn new(
+        key: impl Into<String>,
+        baseline_value: impl Into<String>,
+        observed_value: impl Into<String>,
+    ) -> Self {
+        Self {
+            key: key.into(),
+            baseline_value: baseline_value.into(),
+            observed_value: observed_value.into(),
+        }
+    }
+
+    /// The covariate key.
+    #[must_use]
+    pub fn key(&self) -> &str {
+        &self.key
+    }
+
+    /// The value recorded in the baseline.
+    #[must_use]
+    pub fn baseline_value(&self) -> &str {
+        &self.baseline_value
+    }
+
+    /// The value observed at test time.
+    #[must_use]
+    pub fn observed_value(&self) -> &str {
+        &self.observed_value
+    }
+}
+
+/// Provenance of the baseline measurement used for threshold derivation.
+///
+/// Carries enough data to render the baseline provenance block in the
+/// console output: which file, when it was generated, and the key
+/// statistical parameters.
+#[derive(Debug, Clone)]
+pub struct BaselineProvenance {
+    source_file: String,
+    generated_at: String,
+    baseline_samples: u32,
+    baseline_rate: f64,
+    derived_threshold: f64,
+}
+
+impl BaselineProvenance {
+    /// Creates a new baseline provenance record.
+    #[must_use]
+    pub fn new(
+        source_file: impl Into<String>,
+        generated_at: impl Into<String>,
+        baseline_samples: u32,
+        baseline_rate: f64,
+        derived_threshold: f64,
+    ) -> Self {
+        Self {
+            source_file: source_file.into(),
+            generated_at: generated_at.into(),
+            baseline_samples,
+            baseline_rate,
+            derived_threshold,
+        }
+    }
+
+    /// The baseline spec filename.
+    #[must_use]
+    pub fn source_file(&self) -> &str {
+        &self.source_file
+    }
+
+    /// ISO 8601 timestamp of when the baseline was generated.
+    #[must_use]
+    pub fn generated_at(&self) -> &str {
+        &self.generated_at
+    }
+
+    /// Number of samples in the baseline measurement.
+    #[must_use]
+    pub const fn baseline_samples(&self) -> u32 {
+        self.baseline_samples
+    }
+
+    /// Observed success rate in the baseline measurement.
+    #[must_use]
+    pub const fn baseline_rate(&self) -> f64 {
+        self.baseline_rate
+    }
+
+    /// The threshold derived from the baseline.
+    #[must_use]
+    pub const fn derived_threshold(&self) -> f64 {
+        self.derived_threshold
+    }
+}
+
 /// Provenance of the baseline spec used for threshold derivation.
 #[derive(Debug, Clone)]
 pub struct SpecProvenance {
@@ -432,6 +658,46 @@ impl SpecProvenance {
     #[must_use]
     pub fn contract_ref(&self) -> Option<&str> {
         self.contract_ref.as_deref()
+    }
+}
+
+/// Derives the verdict reason from the verdict, execution, and analysis context.
+fn derive_verdict_reason(
+    verdict: Verdict,
+    execution: &ExecutionSummary,
+    covariate_status: &CovariateStatus,
+    functional: &FunctionalDimension,
+    analysis: Option<&StatisticalAnalysis>,
+) -> String {
+    let is_budget_exhausted = matches!(
+        execution.termination().reason(),
+        TerminationReason::TimeBudgetExhausted | TerminationReason::TokenBudgetExhausted
+    );
+
+    match verdict {
+        Verdict::Pass => {
+            let observed = functional.pass_rate();
+            let threshold = analysis.map_or(0.0, StatisticalAnalysis::threshold);
+            format!("{observed:.4} >= {threshold:.4}")
+        }
+        Verdict::Fail => {
+            if is_budget_exhausted {
+                "budget exhausted".to_string()
+            } else {
+                let observed = functional.pass_rate();
+                let threshold = analysis.map_or(0.0, StatisticalAnalysis::threshold);
+                format!("{observed:.4} < {threshold:.4}")
+            }
+        }
+        Verdict::Inconclusive => {
+            if !covariate_status.aligned() {
+                "covariate misalignment".to_string()
+            } else if is_budget_exhausted {
+                "budget exhausted".to_string()
+            } else {
+                "insufficient evidence".to_string()
+            }
+        }
     }
 }
 

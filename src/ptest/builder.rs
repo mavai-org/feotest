@@ -5,7 +5,9 @@ use std::time::Duration;
 use crate::controls::ExecutionConfig;
 use crate::latency::{LatencyEnforcementMode, LatencyThresholds, Percentile};
 use crate::model::{TestIntent, ThresholdOrigin, TrialOutcome};
-use crate::ptest::runner::{self, LatencyConfig, ProbabilisticTestResult};
+use crate::ptest::runner::{
+    self, AssessmentCriteria, BaselineContext, LatencyConfig, ProbabilisticTestResult,
+};
 use crate::ptest::validation::{self, MacroConfig};
 use crate::spec::{BaselineSpec, SpecResolver};
 use crate::usecase::{CovariateContext, UseCase};
@@ -296,34 +298,37 @@ where
         validation::validate(&config);
 
         let transparent_stats = self.transparent_stats;
-        let latency_config = LatencyConfig {
-            thresholds: self.latency_thresholds,
-            baseline_mode: self.baseline_latency_mode,
-            baseline_confidence: self
-                .baseline_latency_confidence
-                .unwrap_or(crate::latency::DEFAULT_BASELINE_CONFIDENCE),
+        let criteria = AssessmentCriteria {
+            approach,
+            intent: self.intent,
+            threshold_origin: self.threshold_origin,
+            contract_ref: self.contract_ref,
+            latency: LatencyConfig {
+                thresholds: self.latency_thresholds,
+                baseline_mode: self.baseline_latency_mode,
+                baseline_confidence: self
+                    .baseline_latency_confidence
+                    .unwrap_or(crate::latency::DEFAULT_BASELINE_CONFIDENCE),
+            },
+        };
+        let baseline = BaselineContext {
+            spec_resolver: self.spec_resolver,
+            pre_resolved_spec: self.baseline_spec,
+            covariate_context: self.covariate_context,
         };
 
         let result = runner::execute(
             &self.use_case_id,
             self.inputs,
             self.trial,
-            &approach,
-            self.intent,
-            self.threshold_origin,
-            self.contract_ref.as_deref(),
-            self.spec_resolver.as_ref(),
-            self.baseline_spec,
+            &criteria,
+            baseline,
             self.config_overrides.as_ref(),
-            self.covariate_context.as_ref(),
-            &latency_config,
         );
 
-        // Always print the brief verdict line
-        let mut line = String::new();
-        crate::reporting::transparent::render_verdict_line(result.verdict_record(), &mut line)
-            .expect("formatting should not fail");
-        eprintln!("{line}");
+        // Always print the console verdict
+        let renderer = crate::reporting::ConsoleRenderer::new();
+        renderer.print_verdict(result.verdict_record());
 
         if transparent_stats {
             let mut buf = String::new();

@@ -3,7 +3,7 @@
 use std::time::SystemTime;
 
 use crate::model::{CostSummary, ExecutionSummary, SampleAggregate};
-use crate::spec::baseline::{CostBlock, ExecutionBlock};
+use crate::spec::baseline::{CostBlock, ExecutionBlock, LatencyBlock, SuccessRateBlock};
 use crate::statistics::types::ConfidenceLevel;
 use crate::statistics::{defaults, proportion};
 
@@ -82,6 +82,55 @@ pub fn build_failure_distribution(
         }
         Some(map)
     }
+}
+
+/// Builds a success rate block from raw success and total counts.
+#[must_use]
+pub fn build_success_rate_block(successes: u32, total: u32) -> SuccessRateBlock {
+    let observed = if total == 0 {
+        0.0
+    } else {
+        f64::from(successes) / f64::from(total)
+    };
+    let se = standard_error(successes, total);
+    let (ci_lower, ci_upper) = wilson_interval(successes, total);
+    SuccessRateBlock {
+        observed: round4(observed),
+        standard_error: round4(se),
+        confidence_interval95: [round4(ci_lower), round4(ci_upper)],
+    }
+}
+
+/// Builds a latency distribution block from successful-response latencies.
+///
+/// Returns `None` when no successes were recorded.
+#[must_use]
+#[allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    clippy::cast_precision_loss,
+    clippy::missing_panics_doc
+)]
+pub fn build_latency_distribution(
+    successful_latencies: &[std::time::Duration],
+) -> Option<LatencyBlock> {
+    if successful_latencies.is_empty() {
+        return None;
+    }
+    let mut ms: Vec<u64> = successful_latencies
+        .iter()
+        .map(|d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX))
+        .collect();
+    ms.sort_unstable();
+    let n = ms.len() as f64;
+    let sum: f64 = ms.iter().map(|&x| x as f64).sum();
+    let mean_ms = (sum / n).round() as u64;
+    let max_ms = *ms.last().expect("non-empty");
+    Some(LatencyBlock {
+        latencies_ms: ms,
+        mean_ms,
+        max_ms,
+    })
 }
 
 /// Computes the Wilson lower bound at 95% confidence.

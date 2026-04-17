@@ -13,8 +13,43 @@ use crate::spec::SpecResolver;
 use crate::statistics::{evaluator, feasibility, proportion};
 use crate::usecase::CovariateContext;
 use crate::verdict::{
-    FunctionalDimension, SpecProvenance, StatisticalAnalysis, Verdict, VerdictRecord,
+    BaselineProvenance, FunctionalDimension, SpecProvenance, StatisticalAnalysis, Verdict,
+    VerdictRecord,
 };
+
+/// What constitutes acceptable service behaviour.
+///
+/// Groups the functional success-rate criteria and the latency criteria
+/// as peers — both are dimensions of the same question: "is this service
+/// good enough?" Provenance fields describe where the criteria came from.
+#[derive(Debug, Clone)]
+pub struct AssessmentCriteria {
+    /// How to derive the success-rate threshold.
+    pub approach: ThresholdApproach,
+    /// Whether this is a verification or smoke test.
+    pub intent: TestIntent,
+    /// Where the threshold originates (empirical, SLA, etc.).
+    pub threshold_origin: ThresholdOrigin,
+    /// Human-readable contract reference, if any.
+    pub contract_ref: Option<String>,
+    /// Latency acceptance criteria.
+    pub latency: LatencyConfig,
+}
+
+/// How to find and interpret empirical reference data.
+///
+/// The resolved baseline feeds both the functional assessment (observed
+/// success rate for threshold derivation) and the latency assessment
+/// (observed latencies for derived percentile thresholds).
+#[derive(Debug, Clone, Default)]
+pub struct BaselineContext {
+    /// Filesystem resolver for baseline specs.
+    pub spec_resolver: Option<SpecResolver>,
+    /// A pre-loaded baseline spec, bypassing the resolver.
+    pub pre_resolved_spec: Option<crate::spec::BaselineSpec>,
+    /// Covariate context for covariate-aware baseline selection.
+    pub covariate_context: Option<CovariateContext>,
+}
 
 /// Latency configuration carried into the runner.
 #[derive(Debug, Clone, Copy, Default)]
@@ -86,52 +121,43 @@ impl ProbabilisticTestResult {
 }
 
 /// Executes a probabilistic test and produces a verdict.
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_lines)]
 pub fn execute<F>(
     use_case_id: &str,
     inputs: &[String],
     trial: F,
-    approach: &ThresholdApproach,
-    intent: TestIntent,
-    threshold_origin: ThresholdOrigin,
-    contract_ref: Option<&str>,
-    spec_resolver: Option<&SpecResolver>,
-    pre_resolved_spec: Option<crate::spec::BaselineSpec>,
+    criteria: &AssessmentCriteria,
+    baseline: BaselineContext,
     config_overrides: Option<&ExecutionConfig>,
-    covariate_context: Option<&CovariateContext>,
-    latency_config: &LatencyConfig,
 ) -> ProbabilisticTestResult
 where
     F: FnMut(&str) -> TrialOutcome,
 {
     let mut warnings: Vec<Warning> = Vec::new();
 
-    // Use pre-resolved spec if provided, otherwise resolve from filesystem
-    // (with covariate-aware selection when context is available)
-    let baseline_spec = pre_resolved_spec.or_else(|| {
-        spec_resolver.and_then(|resolver| {
-            crate::ptest::baseline::resolve(resolver, use_case_id, covariate_context, &mut warnings)
+    let baseline_spec = baseline.pre_resolved_spec.or_else(|| {
+        baseline.spec_resolver.as_ref().and_then(|resolver| {
+            crate::ptest::baseline::resolve(
+                resolver,
+                use_case_id,
+                baseline.covariate_context.as_ref(),
+                &mut warnings,
+            )
         })
     });
 
-    // Determine samples and threshold based on the approach
     let (samples, derived_threshold) = approach::resolve_threshold(
-        approach,
+        &criteria.approach,
         baseline_spec.as_ref().map(|s| &s.statistics),
         baseline_spec.as_ref().map(|s| &s.execution),
     );
 
-    // Pre-flight feasibility check — runs for all intents and origins.
-    // Uses the resolved confidence (user-supplied when available, default otherwise).
-    let resolved_confidence = approach::resolved_confidence(approach);
-    let feas = feasibility::feasibility_check(
-        samples,
-        derived_threshold.value(),
-        resolved_confidence,
-    );
+    let resolved_confidence = approach::resolved_confidence(&criteria.approach);
+    let feas =
+        feasibility::feasibility_check(samples, derived_threshold.value(), resolved_confidence);
 
     if !feas.feasible() {
-        match intent {
+        match criteria.intent {
             TestIntent::Verification => {
                 panic!(
                     "\n\n{}\n",
@@ -147,64 +173,77 @@ where
         }
     }
 
-    // Build execution config
     let config = config_overrides
         .cloned()
         .unwrap_or_else(|| ExecutionConfig::new(samples));
 
-    // Run trials
     let token_recorder = TokenRecorder::new();
     let exec_result = ExecutionEngine::run(&config, inputs, &token_recorder, trial);
 
     let summary = exec_result.summary();
     let aggregate = exec_result.aggregate();
 
-    // Evaluate verdict using the statistics evaluator
     let stats_verdict = evaluator::evaluate(
         summary.successes(),
         summary.samples_executed(),
         &derived_threshold,
     );
 
-    // Map to framework verdict
     let verdict = if stats_verdict.passed() {
         Verdict::Pass
     } else {
         Verdict::Fail
     };
 
-    // Check for smoke intent caveat
-    if intent == TestIntent::Smoke && threshold_origin.is_normative() {
+    if criteria.intent == TestIntent::Smoke && criteria.threshold_origin.is_normative() {
         warnings.push(Warning::new(
             "SMOKE_NORMATIVE",
             "Smoke test against normative threshold — verdict is not evidential",
         ));
     }
 
-    // Build verdict record components
-    let analysis = build_analysis(summary, &derived_threshold, threshold_origin);
-    let provenance = build_provenance(threshold_origin, baseline_spec.as_ref(), contract_ref);
+    let analysis = build_analysis(summary, &derived_threshold, criteria.threshold_origin);
+    let provenance = build_provenance(
+        criteria.threshold_origin,
+        baseline_spec.as_ref(),
+        criteria.contract_ref.as_deref(),
+    );
     let functional = FunctionalDimension::new(
         summary.successes(),
         summary.failures(),
         aggregate.failure_distribution().to_vec(),
     );
 
-    // Latency dimension (LT05). Built whenever explicit thresholds were
-    // declared OR the baseline carries a latency block.
     let latency_dimension = build_latency_dimension(
-        latency_config,
+        &criteria.latency,
         aggregate.successful_latencies(),
         baseline_spec.as_ref(),
         &mut warnings,
     );
 
-    // Assemble the verdict record
+    let baseline_prov = baseline_spec.as_ref().map(|spec| {
+        BaselineProvenance::new(
+            format!("{}.yaml", spec.use_case_id),
+            spec.generated_at.clone(),
+            spec.execution.samples_executed,
+            spec.statistics.success_rate.observed,
+            spec.requirements.min_pass_rate,
+        )
+    });
+
     let identity = TestIdentity::new(use_case_id);
-    let mut builder =
-        VerdictRecord::builder(identity, verdict, intent, summary.clone(), functional)
-            .statistical_analysis(analysis)
-            .spec_provenance(provenance);
+    let mut builder = VerdictRecord::builder(
+        identity,
+        verdict,
+        criteria.intent,
+        summary.clone(),
+        functional,
+    )
+    .statistical_analysis(analysis)
+    .spec_provenance(provenance);
+    if let Some(bp) = baseline_prov {
+        builder = builder.baseline_provenance(bp);
+    }
     if let Some(dim) = latency_dimension {
         builder = builder.latency(dim);
     }
@@ -214,7 +253,7 @@ where
 
     ProbabilisticTestResult {
         verdict_record: builder.build(),
-        approach: approach.clone(),
+        approach: criteria.approach.clone(),
     }
 }
 
@@ -226,7 +265,7 @@ fn build_latency_dimension(
     baseline_spec: Option<&crate::spec::BaselineSpec>,
     warnings: &mut Vec<Warning>,
 ) -> Option<LatencyDimension> {
-    let baseline_latency = baseline_spec.and_then(|s| s.statistics.latency.as_ref());
+    let baseline_latency = baseline_spec.and_then(|s| s.statistics.latency_distribution.as_ref());
     if config.thresholds.is_empty() && baseline_latency.is_none() {
         return None;
     }

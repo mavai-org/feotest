@@ -35,11 +35,7 @@ fn format_target_percent(target: f64) -> String {
 ///
 /// Appends the Wilson score criterion, alpha, and confidence level.
 #[must_use]
-pub fn infeasibility_message(
-    test_name: &str,
-    result: &FeasibilityResult,
-    verbose: bool,
-) -> String {
+pub fn infeasibility_message(test_name: &str, result: &FeasibilityResult, verbose: bool) -> String {
     let target_pct = format_target_percent(result.target());
     let configured = result.configured_samples();
     let minimum = result.minimum_samples();
@@ -109,7 +105,10 @@ mod tests {
         let result = feasibility_check(5, 0.90, cl(0.95));
         let msg = infeasibility_message("test", &result, false);
         assert!(msg.contains("90%"), "expected '90%' in: {msg}");
-        assert!(!msg.contains("90.0%"), "should not contain '90.0%' in: {msg}");
+        assert!(
+            !msg.contains("90.0%"),
+            "should not contain '90.0%' in: {msg}"
+        );
     }
 
     #[test]
@@ -141,7 +140,13 @@ mod tests {
     fn default_mode_excludes_verbose_details() {
         let result = feasibility_check(5, 0.95, cl(0.95));
         let msg = infeasibility_message("test", &result, false);
-        assert!(!msg.contains("Criterion"), "default mode should not include criterion");
-        assert!(!msg.contains("Alpha"), "default mode should not include alpha");
+        assert!(
+            !msg.contains("Criterion"),
+            "default mode should not include criterion"
+        );
+        assert!(
+            !msg.contains("Alpha"),
+            "default mode should not include alpha"
+        );
     }
 }

@@ -1,0 +1,15 @@
+---
+source: src/reporting/console.rs
+assertion_line: 588
+expression: output
+---
+═ VERDICT: FAIL (0.8000 < 0.9000) ═
+Test:                my-service
+
+Pass rate:           0.8000 (80/100 samples)
+Threshold:           0.9000
+Confidence:          0.9500
+CI:                  [0.7220, 0.8780]
+Spec:                my-service.yaml
+Origin:              EMPIRICAL
+Elapsed:             0.5s

@@ -1,0 +1,13 @@
+---
+source: src/reporting/console.rs
+assertion_line: 612
+expression: output
+---
+═ VERDICT: PASS (1.0000 >= 0.0000) ═
+Test:                warned-service
+
+Pass rate:           1.0000 (10/10 samples)
+Elapsed:             0.5s
+
+Warning:             [UNDERSIZED] Sample size 10 is insufficient for verification-grade evidence
+Warning:             [SMOKE_NORMATIVE] Smoke test against normative threshold — verdict is not evidential

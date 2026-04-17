@@ -6,9 +6,11 @@
 //! Console rendering is available for interactive use and transparent
 //! statistics mode.
 
+pub mod console;
 mod junit;
 pub mod transparent;
 
+pub use console::ConsoleRenderer;
 pub use junit::JunitXmlWriter;
 pub use transparent::render as render_transparent_stats;
 pub use transparent::render_verdict_line;

@@ -1,0 +1,15 @@
+---
+source: src/reporting/console.rs
+assertion_line: 604
+expression: output
+---
+═ VERDICT: INCONCLUSIVE (covariate misalignment) ═
+Test:                covariate-test
+
+Pass rate:           0.8500 (85/100 samples)
+
+Covariate misalignment:
+  Baseline:          model=gpt-4o, region=us-east-1
+  Observed:          model=gpt-4o-mini, region=us-east-1
+  Differs:           model (baseline: gpt-4o, observed: gpt-4o-mini)
+Elapsed:             0.5s

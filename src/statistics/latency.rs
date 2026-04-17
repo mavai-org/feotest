@@ -258,14 +258,20 @@ mod tests {
     fn threshold_rank_never_below_point_estimate() {
         let data: Vec<f64> = (1..=100).map(f64::from).collect();
         let t = derive_latency_threshold(&data, 0.95, 0.95);
-        assert!(t.rank() >= 95, "rank {} should be >= ceil(0.95 * 100)", t.rank());
+        assert!(
+            t.rank() >= 95,
+            "rank {} should be >= ceil(0.95 * 100)",
+            t.rank()
+        );
         assert!(t.threshold() >= t.baseline_percentile());
     }
 
     #[test]
     fn threshold_saturates_at_n_for_tight_bounds() {
         // Small n_s vs. high p: rank saturates at n and threshold = max.
-        let data = vec![100.0, 120.0, 140.0, 160.0, 180.0, 200.0, 250.0, 300.0, 400.0, 500.0];
+        let data = vec![
+            100.0, 120.0, 140.0, 160.0, 180.0, 200.0, 250.0, 300.0, 400.0, 500.0,
+        ];
         let t = derive_latency_threshold(&data, 0.99, 0.95);
         assert_eq!(t.rank(), 10);
         assert_relative_eq!(t.threshold(), 500.0);

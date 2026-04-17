@@ -1,0 +1,6 @@
+---
+source: src/reporting/console.rs
+assertion_line: 623
+expression: buf
+---
+feotest: 3 tests — 1 passed, 1 failed, 1 inconclusive (12.3s)

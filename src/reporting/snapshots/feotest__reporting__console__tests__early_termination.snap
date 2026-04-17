@@ -1,0 +1,17 @@
+---
+source: src/reporting/console.rs
+assertion_line: 658
+expression: output
+---
+═ VERDICT: FAIL (0.4762 < 0.9000) ═
+Test:                degraded-service
+
+Pass rate:           0.4762 (20/42 samples)
+Threshold:           0.9000
+Confidence:          0.9500
+CI:                  [0.3420, 0.6580]
+Origin:              EMPIRICAL
+
+Termination:         FAILURE_INEVITABLE
+Executed:            42 of 100 planned
+Elapsed:             0.2s

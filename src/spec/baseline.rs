@@ -97,12 +97,12 @@ pub struct StatisticsBlock {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub failure_distribution: Option<std::collections::BTreeMap<String, u32>>,
 
-    /// Post-warmup successful-response latencies.
+    /// Post-warmup successful-response latency distribution.
     ///
     /// Absent for baselines generated before latency capture existed or for
     /// runs that produced no successful trials.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub latency: Option<LatencyBlock>,
+    #[serde(default, skip_serializing_if = "Option::is_none", alias = "latency")]
+    pub latency_distribution: Option<LatencyBlock>,
 }
 
 /// Latency block within a baseline spec.
@@ -333,7 +333,7 @@ mod tests {
                 successes: 777,
                 failures: 223,
                 failure_distribution: None,
-                latency: None,
+                latency_distribution: None,
             },
         )
     }

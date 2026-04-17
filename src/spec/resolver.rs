@@ -15,6 +15,7 @@ use crate::usecase::CovariateDeclaration;
 ///
 /// Searches for specs by use case ID, checking an environment-override
 /// directory first, then the configured default.
+#[derive(Debug, Clone)]
 pub struct SpecResolver {
     spec_dir: PathBuf,
 }
@@ -313,7 +314,7 @@ mod tests {
                 successes: 90,
                 failures: 10,
                 failure_distribution: None,
-                latency: None,
+                latency_distribution: None,
             },
         )
     }

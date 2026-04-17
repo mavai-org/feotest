@@ -11,7 +11,7 @@ use std::time::Duration;
 use crate::controls::{ExecutionConfig, PacingConfig};
 use crate::model::{TestIntent, ThresholdOrigin, TrialOutcome};
 use crate::ptest::builder::ThresholdApproach;
-use crate::ptest::runner;
+use crate::ptest::runner::{self, AssessmentCriteria, BaselineContext};
 use crate::spec::SpecResolver;
 use crate::usecase::{CovariateContext, UseCase};
 use crate::verdict::{Verdict, VerdictRecord};
@@ -261,9 +261,8 @@ where
         crate::ptest::builder::validate_approach_bounds(&approach);
 
         // Coherence validation (PT13) — covers rules that detect_approach() does not
-        let has_baseline = self.baseline_path.is_some()
-            || self.baseline_dir.is_some()
-            || self.threshold.is_none(); // threshold-less approaches auto-resolve a baseline
+        let has_baseline =
+            self.baseline_path.is_some() || self.baseline_dir.is_some() || self.threshold.is_none(); // threshold-less approaches auto-resolve a baseline
         let config = crate::ptest::builder::macro_config_from_approach(
             &self.use_case_id,
             &approach,
@@ -277,24 +276,30 @@ where
 
         let config_overrides = self.build_execution_config(&approach);
 
-        let latency_config = crate::ptest::runner::LatencyConfig {
-            thresholds: crate::latency::LatencyThresholds::new(),
-            baseline_mode: None,
-            baseline_confidence: crate::latency::DEFAULT_BASELINE_CONFIDENCE,
+        let criteria = AssessmentCriteria {
+            approach,
+            intent: self.intent,
+            threshold_origin: self.threshold_origin,
+            contract_ref: self.contract_ref,
+            latency: crate::ptest::runner::LatencyConfig {
+                thresholds: crate::latency::LatencyThresholds::new(),
+                baseline_mode: None,
+                baseline_confidence: crate::latency::DEFAULT_BASELINE_CONFIDENCE,
+            },
         };
+        let baseline = BaselineContext {
+            spec_resolver,
+            pre_resolved_spec: None,
+            covariate_context: self.covariate_context,
+        };
+
         let result = runner::execute(
             &self.use_case_id,
             self.inputs,
             self.trial,
-            &approach,
-            self.intent,
-            self.threshold_origin,
-            self.contract_ref.as_deref(),
-            spec_resolver.as_ref(),
-            None, // baseline spec resolved via the resolver
+            &criteria,
+            baseline,
             config_overrides.as_ref(),
-            self.covariate_context.as_ref(),
-            &latency_config,
         );
 
         // Always print the brief verdict line
