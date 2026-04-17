@@ -792,4 +792,194 @@ mod tests {
         let dim = FunctionalDimension::new(0, 0, vec![]);
         assert!((dim.pass_rate()).abs() < 1e-10);
     }
+
+    // --- Verdict reason derivation ---
+
+    #[test]
+    fn verdict_reason_pass() {
+        let record = VerdictRecord::builder(
+            TestIdentity::new("test"),
+            Verdict::Pass,
+            TestIntent::Verification,
+            sample_execution(),
+            FunctionalDimension::new(95, 5, vec![]),
+        )
+        .statistical_analysis(StatisticalAnalysis::new(
+            0.95,
+            0.022,
+            0.907,
+            0.993,
+            0.900,
+            ThresholdOrigin::Empirical,
+        ))
+        .build();
+
+        assert_eq!(record.verdict_reason(), "0.9500 >= 0.9000");
+    }
+
+    #[test]
+    fn verdict_reason_fail_completed() {
+        let record = VerdictRecord::builder(
+            TestIdentity::new("test"),
+            Verdict::Fail,
+            TestIntent::Verification,
+            sample_execution(),
+            FunctionalDimension::new(80, 20, vec![]),
+        )
+        .statistical_analysis(StatisticalAnalysis::new(
+            0.95,
+            0.040,
+            0.722,
+            0.878,
+            0.900,
+            ThresholdOrigin::Empirical,
+        ))
+        .build();
+
+        assert_eq!(record.verdict_reason(), "0.8000 < 0.9000");
+    }
+
+    #[test]
+    fn verdict_reason_fail_budget_exhausted() {
+        let record = VerdictRecord::builder(
+            TestIdentity::new("test"),
+            Verdict::Fail,
+            TestIntent::Verification,
+            ExecutionSummary::new(
+                100,
+                50,
+                30,
+                20,
+                TerminationInfo::new(TerminationReason::TimeBudgetExhausted),
+                CostSummary::new(Duration::from_secs(60), 0, 50),
+            ),
+            FunctionalDimension::new(30, 20, vec![]),
+        )
+        .build();
+
+        assert_eq!(record.verdict_reason(), "budget exhausted");
+    }
+
+    #[test]
+    fn verdict_reason_inconclusive_covariate_misalignment() {
+        let record = VerdictRecord::builder(
+            TestIdentity::new("test"),
+            Verdict::Inconclusive,
+            TestIntent::Verification,
+            sample_execution(),
+            FunctionalDimension::new(85, 15, vec![]),
+        )
+        .covariate_status(CovariateStatus::new(
+            false,
+            vec![Misalignment::new("model", "gpt-4o", "gpt-3.5")],
+            vec![("model".to_string(), "gpt-4o".to_string())],
+            vec![("model".to_string(), "gpt-3.5".to_string())],
+        ))
+        .build();
+
+        assert_eq!(record.verdict_reason(), "covariate misalignment");
+    }
+
+    #[test]
+    fn verdict_reason_inconclusive_budget_exhausted() {
+        let record = VerdictRecord::builder(
+            TestIdentity::new("test"),
+            Verdict::Inconclusive,
+            TestIntent::Verification,
+            ExecutionSummary::new(
+                100,
+                20,
+                15,
+                5,
+                TerminationInfo::new(TerminationReason::TokenBudgetExhausted),
+                CostSummary::new(Duration::from_secs(10), 10_000, 20),
+            ),
+            FunctionalDimension::new(15, 5, vec![]),
+        )
+        .build();
+
+        assert_eq!(record.verdict_reason(), "budget exhausted");
+    }
+
+    #[test]
+    fn verdict_reason_inconclusive_insufficient_evidence() {
+        let record = VerdictRecord::builder(
+            TestIdentity::new("test"),
+            Verdict::Inconclusive,
+            TestIntent::Verification,
+            sample_execution(),
+            FunctionalDimension::new(7, 3, vec![]),
+        )
+        .build();
+
+        assert_eq!(record.verdict_reason(), "insufficient evidence");
+    }
+
+    // --- New field accessors ---
+
+    #[test]
+    fn covariate_status_defaults_to_aligned() {
+        let record = VerdictRecord::builder(
+            TestIdentity::new("test"),
+            Verdict::Pass,
+            TestIntent::Verification,
+            sample_execution(),
+            FunctionalDimension::new(95, 5, vec![]),
+        )
+        .build();
+
+        assert!(record.covariate_status().aligned());
+        assert!(record.covariate_status().misalignments().is_empty());
+    }
+
+    #[test]
+    fn baseline_provenance_defaults_to_none() {
+        let record = VerdictRecord::builder(
+            TestIdentity::new("test"),
+            Verdict::Pass,
+            TestIntent::Verification,
+            sample_execution(),
+            FunctionalDimension::new(95, 5, vec![]),
+        )
+        .build();
+
+        assert!(record.baseline_provenance().is_none());
+    }
+
+    #[test]
+    fn baseline_provenance_set_and_readable() {
+        let record = VerdictRecord::builder(
+            TestIdentity::new("test"),
+            Verdict::Pass,
+            TestIntent::Verification,
+            sample_execution(),
+            FunctionalDimension::new(95, 5, vec![]),
+        )
+        .baseline_provenance(BaselineProvenance::new(
+            "test.yaml",
+            "2026-04-01T12:00:00Z",
+            200,
+            0.95,
+            0.90,
+        ))
+        .build();
+
+        let bp = record.baseline_provenance().unwrap();
+        assert_eq!(bp.source_file(), "test.yaml");
+        assert_eq!(bp.generated_at(), "2026-04-01T12:00:00Z");
+        assert_eq!(bp.baseline_samples(), 200);
+        assert!((bp.baseline_rate() - 0.95).abs() < 1e-10);
+        assert!((bp.derived_threshold() - 0.90).abs() < 1e-10);
+    }
+
+    #[test]
+    fn conformance_dimension_accessors() {
+        let dim = FunctionalDimension::new(80, 20, vec![("parse".to_string(), 12)]).conformance(
+            3,
+            vec!["diff1".to_string(), "diff2".to_string()],
+        );
+        assert_eq!(dim.conformance_mismatches(), 3);
+        assert_eq!(dim.example_mismatches().len(), 2);
+        assert_eq!(dim.failure_distribution().len(), 1);
+    }
 }

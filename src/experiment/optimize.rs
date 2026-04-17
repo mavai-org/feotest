@@ -477,4 +477,134 @@ mod tests {
         // All iterations score 1.0, so after first + 3 no-improvement, should stop at 4
         assert!(result.history().len() <= 4);
     }
+
+    #[test]
+    fn minimize_objective() {
+        let inputs = vec!["input".to_string()];
+        let uc = TestUc("minimize-test");
+        let call_count = Arc::new(Mutex::new(0u32));
+        let count_for_trial = Arc::clone(&call_count);
+
+        let result = OptimizeExperiment::new(
+            &uc,
+            "factor",
+            FactorValue::Float(1.0),
+            SuccessRateScorer,
+            IncrementMutator,
+            &inputs,
+            move |_input| {
+                let mut c = count_for_trial.lock().unwrap();
+                *c += 1;
+                TrialOutcome::success(Duration::ZERO)
+            },
+            |_value| {},
+        )
+        .with_objective(Objective::Minimize)
+        .with_max_iterations(3)
+        .with_samples_per_iteration(5)
+        .run();
+
+        assert_eq!(result.objective(), Objective::Minimize);
+        assert!(result.best_score().is_some());
+    }
+
+    #[test]
+    fn display_minimize_label() {
+        let inputs = vec!["input".to_string()];
+        let uc = TestUc("min-label");
+
+        let result = OptimizeExperiment::new(
+            &uc,
+            "cost",
+            FactorValue::Float(1.0),
+            SuccessRateScorer,
+            IncrementMutator,
+            &inputs,
+            |_| TrialOutcome::success(Duration::ZERO),
+            |_| {},
+        )
+        .with_objective(Objective::Minimize)
+        .with_max_iterations(2)
+        .with_samples_per_iteration(5)
+        .run();
+
+        let output = result.to_string();
+        assert!(output.contains("minimize"));
+    }
+
+    #[test]
+    fn single_iteration_produces_best() {
+        let inputs = vec!["input".to_string()];
+        let uc = TestUc("single-iter");
+
+        let result = OptimizeExperiment::new(
+            &uc,
+            "factor",
+            FactorValue::Float(1.0),
+            SuccessRateScorer,
+            IncrementMutator,
+            &inputs,
+            |_| TrialOutcome::success(Duration::ZERO),
+            |_| {},
+        )
+        .with_max_iterations(1)
+        .with_samples_per_iteration(5)
+        .run();
+
+        assert_eq!(result.history().len(), 1);
+        assert_eq!(result.best_iteration(), Some(0));
+    }
+
+    #[test]
+    fn iteration_record_accessors() {
+        let inputs = vec!["input".to_string()];
+        let uc = TestUc("accessors");
+
+        let result = OptimizeExperiment::new(
+            &uc,
+            "factor",
+            FactorValue::Float(1.0),
+            SuccessRateScorer,
+            IncrementMutator,
+            &inputs,
+            |_| TrialOutcome::success(Duration::ZERO),
+            |_| {},
+        )
+        .with_max_iterations(1)
+        .with_samples_per_iteration(5)
+        .run();
+
+        let record = &result.history()[0];
+        assert_eq!(record.iteration(), 0);
+        assert_eq!(record.successes(), 5);
+        assert_eq!(record.failures(), 0);
+        assert!((record.score() - 1.0).abs() < 1e-10);
+        assert!(matches!(record.factor_value(), FactorValue::Float(_)));
+    }
+
+    #[test]
+    fn result_accessors() {
+        let inputs = vec!["input".to_string()];
+        let uc = TestUc("result-acc");
+
+        let result = OptimizeExperiment::new(
+            &uc,
+            "factor",
+            FactorValue::Float(1.0),
+            SuccessRateScorer,
+            IncrementMutator,
+            &inputs,
+            |_| TrialOutcome::success(Duration::ZERO),
+            |_| {},
+        )
+        .with_max_iterations(2)
+        .with_samples_per_iteration(5)
+        .with_experiment_id("exp-123")
+        .run();
+
+        assert_eq!(result.use_case_id(), "result-acc");
+        assert_eq!(result.control_factor(), "factor");
+        assert_eq!(result.experiment_id(), Some("exp-123"));
+        assert_eq!(result.objective(), Objective::Maximize);
+    }
 }

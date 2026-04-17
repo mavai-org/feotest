@@ -666,4 +666,176 @@ mod tests {
         .threshold(0.90)
         .run();
     }
+
+    // --- Under-specified edge cases ---
+
+    #[test]
+    #[should_panic(expected = "UNDER-SPECIFIED")]
+    fn panics_under_specified_threshold_only() {
+        let inputs = vec!["input".to_string()];
+        ProbabilisticTest::new("test", &inputs, always_succeeds)
+            .threshold(0.90)
+            .run();
+    }
+
+    #[test]
+    #[should_panic(expected = "INCOMPLETE")]
+    fn panics_incomplete_confidence_only() {
+        let inputs = vec!["input".to_string()];
+        ProbabilisticTest::new("test", &inputs, always_succeeds)
+            .confidence(0.95)
+            .run();
+    }
+
+    #[test]
+    #[should_panic(expected = "INCOMPLETE")]
+    fn panics_incomplete_mde_only() {
+        let inputs = vec!["input".to_string()];
+        ProbabilisticTest::new("test", &inputs, always_succeeds)
+            .min_detectable_effect(0.05)
+            .run();
+    }
+
+    #[test]
+    #[should_panic(expected = "INCOMPLETE")]
+    fn panics_incomplete_power_only() {
+        let inputs = vec!["input".to_string()];
+        ProbabilisticTest::new("test", &inputs, always_succeeds)
+            .power(0.80)
+            .run();
+    }
+
+    #[test]
+    #[should_panic(expected = "INCOMPLETE")]
+    fn panics_incomplete_mde_and_power_no_confidence() {
+        let inputs = vec!["input".to_string()];
+        ProbabilisticTest::new("test", &inputs, always_succeeds)
+            .min_detectable_effect(0.05)
+            .power(0.80)
+            .run();
+    }
+
+    // --- build_spec_resolver paths ---
+
+    #[test]
+    fn threshold_first_without_baseline_returns_no_resolver() {
+        let inputs = vec!["input".to_string()];
+        let pt = ProbabilisticTest::new("test", &inputs, always_succeeds)
+            .samples(50)
+            .threshold(0.90);
+        assert!(pt.build_spec_resolver().is_none());
+    }
+
+    #[test]
+    fn explicit_baseline_dir_uses_that_dir() {
+        let dir = tempfile::tempdir().unwrap();
+        let inputs = vec!["input".to_string()];
+        let pt = ProbabilisticTest::new("test", &inputs, always_succeeds)
+            .samples(50)
+            .confidence(0.95)
+            .baseline_dir(dir.path());
+        let resolver = pt.build_spec_resolver();
+        assert!(resolver.is_some());
+    }
+
+    #[test]
+    fn explicit_baseline_path_uses_parent_dir() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("my-spec.yaml");
+        let inputs = vec!["input".to_string()];
+        let pt = ProbabilisticTest::new("test", &inputs, always_succeeds)
+            .samples(50)
+            .confidence(0.95)
+            .baseline(path);
+        let resolver = pt.build_spec_resolver();
+        assert!(resolver.is_some());
+    }
+
+    #[test]
+    fn default_resolver_uses_tests_baselines() {
+        let inputs = vec!["input".to_string()];
+        let pt = ProbabilisticTest::new("test", &inputs, always_succeeds)
+            .samples(50)
+            .confidence(0.95);
+        // No baseline_path or baseline_dir — falls through to default
+        let resolver = pt.build_spec_resolver();
+        assert!(resolver.is_some());
+    }
+
+    // --- build_execution_config paths ---
+
+    #[test]
+    fn no_overrides_returns_none() {
+        let inputs = vec!["input".to_string()];
+        let pt = ProbabilisticTest::new("test", &inputs, always_succeeds)
+            .samples(50)
+            .threshold(0.90);
+        let approach = pt.detect_approach();
+        assert!(pt.build_execution_config(&approach).is_none());
+    }
+
+    #[test]
+    fn time_budget_returns_some_config() {
+        let inputs = vec!["input".to_string()];
+        let pt = ProbabilisticTest::new("test", &inputs, always_succeeds)
+            .samples(50)
+            .threshold(0.90)
+            .time_budget(Duration::from_secs(60));
+        let approach = pt.detect_approach();
+        assert!(pt.build_execution_config(&approach).is_some());
+    }
+
+    #[test]
+    fn token_budget_returns_some_config() {
+        let inputs = vec!["input".to_string()];
+        let pt = ProbabilisticTest::new("test", &inputs, always_succeeds)
+            .samples(50)
+            .threshold(0.90)
+            .token_budget(10_000);
+        let approach = pt.detect_approach();
+        assert!(pt.build_execution_config(&approach).is_some());
+    }
+
+    #[test]
+    fn confidence_first_with_overrides_returns_none() {
+        let inputs = vec!["input".to_string()];
+        let pt = ProbabilisticTest::new("test", &inputs, always_succeeds)
+            .confidence(0.95)
+            .min_detectable_effect(0.05)
+            .power(0.80)
+            .time_budget(Duration::from_secs(60));
+        let approach = pt.detect_approach();
+        // ConfidenceFirst cannot know sample size yet — returns None
+        assert!(pt.build_execution_config(&approach).is_none());
+    }
+
+    // --- Optional builder methods ---
+
+    #[test]
+    fn intent_and_origin_propagate() {
+        let inputs = vec!["input".to_string()];
+        let record = ProbabilisticTest::new("test", &inputs, always_succeeds)
+            .samples(50)
+            .threshold(0.80)
+            .intent(TestIntent::Smoke)
+            .threshold_origin(ThresholdOrigin::Sla)
+            .contract_ref("SLA v1")
+            .run();
+
+        assert_eq!(record.intent(), TestIntent::Smoke);
+        let prov = record.spec_provenance().unwrap();
+        assert_eq!(prov.threshold_origin(), ThresholdOrigin::Sla);
+        assert_eq!(prov.contract_ref(), Some("SLA v1"));
+    }
+
+    #[test]
+    fn pacing_config_accepted() {
+        let inputs = vec!["input".to_string()];
+        let pt = ProbabilisticTest::new("test", &inputs, always_succeeds)
+            .samples(50)
+            .threshold(0.90)
+            .pacing(crate::controls::PacingConfig::new().with_min_ms_per_sample(10));
+        let approach = pt.detect_approach();
+        assert!(pt.build_execution_config(&approach).is_some());
+    }
 }

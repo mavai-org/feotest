@@ -310,4 +310,149 @@ mod tests {
         assert!(xml.contains("tests=\"0\""));
         assert!(xml.contains("failures=\"0\""));
     }
+
+    fn inconclusive_verdict() -> VerdictRecord {
+        VerdictRecord::builder(
+            TestIdentity::new("flaky-service"),
+            Verdict::Inconclusive,
+            TestIntent::Verification,
+            ExecutionSummary::new(
+                100,
+                100,
+                60,
+                40,
+                TerminationInfo::new(TerminationReason::Completed),
+                CostSummary::new(Duration::from_millis(500), 1000, 100),
+            ),
+            FunctionalDimension::new(60, 40, vec![]),
+        )
+        .build()
+    }
+
+    #[test]
+    fn writes_error_element_for_inconclusive_test() {
+        let mut buf = Vec::new();
+        JunitXmlWriter::write_to(&mut buf, &[inconclusive_verdict()]).unwrap();
+        let xml = String::from_utf8(buf).unwrap();
+
+        assert!(xml.contains("errors=\"1\""));
+        assert!(xml.contains("<error"));
+        assert!(xml.contains("inconclusive"));
+    }
+
+    #[test]
+    fn system_out_includes_statistical_details() {
+        let analysis = StatisticalAnalysis::new(
+            0.95,
+            0.0458,
+            0.6071,
+            0.7929,
+            0.80,
+            ThresholdOrigin::Empirical,
+        )
+        .with_test_results(-2.18, 0.985);
+
+        let provenance = crate::verdict::SpecProvenance::new(ThresholdOrigin::Empirical)
+            .with_spec_filename("my-service.yaml")
+            .with_contract_ref("SLA v2.0");
+
+        let record = VerdictRecord::builder(
+            TestIdentity::new("my-service"),
+            Verdict::Pass,
+            TestIntent::Verification,
+            ExecutionSummary::new(
+                100,
+                100,
+                70,
+                30,
+                TerminationInfo::new(TerminationReason::Completed),
+                CostSummary::new(Duration::from_millis(500), 1000, 100),
+            ),
+            FunctionalDimension::new(70, 30, vec![]),
+        )
+        .statistical_analysis(analysis)
+        .spec_provenance(provenance)
+        .build();
+
+        let mut buf = Vec::new();
+        JunitXmlWriter::write_to(&mut buf, &[record]).unwrap();
+        let xml = String::from_utf8(buf).unwrap();
+
+        assert!(xml.contains("<system-out>"));
+        assert!(xml.contains("Confidence:"));
+        assert!(xml.contains("Baseline: my-service.yaml"));
+        assert!(xml.contains("Contract: SLA v2.0"));
+        assert!(xml.contains("z:"));
+        assert!(xml.contains("p:"));
+    }
+
+    #[test]
+    fn mixed_suite_counts_correctly() {
+        let mut buf = Vec::new();
+        JunitXmlWriter::write_to(
+            &mut buf,
+            &[pass_verdict(), fail_verdict(), inconclusive_verdict()],
+        )
+        .unwrap();
+        let xml = String::from_utf8(buf).unwrap();
+
+        assert!(xml.contains("tests=\"3\""));
+        assert!(xml.contains("failures=\"1\""));
+        assert!(xml.contains("errors=\"1\""));
+    }
+
+    #[test]
+    fn fail_detail_includes_warnings() {
+        let record = VerdictRecord::builder(
+            TestIdentity::new("warned"),
+            Verdict::Fail,
+            TestIntent::Smoke,
+            ExecutionSummary::new(
+                10,
+                10,
+                5,
+                5,
+                TerminationInfo::new(TerminationReason::Completed),
+                CostSummary::new(Duration::from_millis(100), 0, 10),
+            ),
+            FunctionalDimension::new(5, 5, vec![]),
+        )
+        .statistical_analysis(StatisticalAnalysis::new(
+            0.95, 0.158, 0.204, 0.796, 0.80, ThresholdOrigin::Sla,
+        ))
+        .warning(crate::model::Warning::new("UNDERSIZED", "too small"))
+        .build();
+
+        let mut buf = Vec::new();
+        JunitXmlWriter::write_to(&mut buf, &[record]).unwrap();
+        let xml = String::from_utf8(buf).unwrap();
+
+        assert!(xml.contains("Warning:"));
+        assert!(xml.contains("UNDERSIZED"));
+    }
+
+    #[test]
+    fn uses_use_case_id_when_no_test_name() {
+        let record = VerdictRecord::builder(
+            TestIdentity::new("no-name-service"),
+            Verdict::Pass,
+            TestIntent::Verification,
+            ExecutionSummary::new(
+                10,
+                10,
+                10,
+                0,
+                TerminationInfo::new(TerminationReason::Completed),
+                CostSummary::new(Duration::from_millis(50), 0, 10),
+            ),
+            FunctionalDimension::new(10, 0, vec![]),
+        )
+        .build();
+
+        let mut buf = Vec::new();
+        JunitXmlWriter::write_to(&mut buf, &[record]).unwrap();
+        let xml = String::from_utf8(buf).unwrap();
+
+        assert!(xml.contains("name=\"no-name-service\""));
+    }
 }

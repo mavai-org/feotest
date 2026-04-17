@@ -36,10 +36,103 @@ pub fn resolved_mode_from_env(
     }
     env::var(ENV_VAR)
         .ok()
-        .map(|v| v.trim().to_ascii_lowercase())
-        .and_then(|v| match v.as_str() {
-            "1" | "true" | "strict" => Some(LatencyEnforcementMode::Strict),
-            _ => None,
-        })
+        .and_then(|v| parse_mode(&v))
         .unwrap_or(LatencyEnforcementMode::Advisory)
+}
+
+/// Parses an enforcement mode from a string value.
+///
+/// Recognised values (case-insensitive, whitespace-trimmed): `1`, `true`,
+/// `strict`. Returns `None` for anything else.
+fn parse_mode(value: &str) -> Option<LatencyEnforcementMode> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "1" | "true" | "strict" => Some(LatencyEnforcementMode::Strict),
+        _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // --- parse_mode: pure logic, fully testable ---
+
+    #[test]
+    fn parse_1_is_strict() {
+        assert_eq!(parse_mode("1"), Some(LatencyEnforcementMode::Strict));
+    }
+
+    #[test]
+    fn parse_true_is_strict() {
+        assert_eq!(parse_mode("true"), Some(LatencyEnforcementMode::Strict));
+    }
+
+    #[test]
+    fn parse_strict_is_strict() {
+        assert_eq!(parse_mode("strict"), Some(LatencyEnforcementMode::Strict));
+    }
+
+    #[test]
+    fn parse_case_insensitive() {
+        assert_eq!(parse_mode("STRICT"), Some(LatencyEnforcementMode::Strict));
+        assert_eq!(parse_mode("True"), Some(LatencyEnforcementMode::Strict));
+        assert_eq!(parse_mode("Strict"), Some(LatencyEnforcementMode::Strict));
+    }
+
+    #[test]
+    fn parse_trims_whitespace() {
+        assert_eq!(
+            parse_mode("  true  "),
+            Some(LatencyEnforcementMode::Strict)
+        );
+        assert_eq!(parse_mode("\t1\n"), Some(LatencyEnforcementMode::Strict));
+    }
+
+    #[test]
+    fn parse_empty_is_none() {
+        assert_eq!(parse_mode(""), None);
+    }
+
+    #[test]
+    fn parse_invalid_is_none() {
+        assert_eq!(parse_mode("maybe"), None);
+        assert_eq!(parse_mode("0"), None);
+        assert_eq!(parse_mode("false"), None);
+        assert_eq!(parse_mode("advisory"), None);
+    }
+
+    // --- resolved_mode_from_env: builder-setting paths ---
+
+    #[test]
+    fn builder_advisory_takes_precedence() {
+        assert_eq!(
+            resolved_mode_from_env(Some(LatencyEnforcementMode::Advisory)),
+            LatencyEnforcementMode::Advisory,
+        );
+    }
+
+    #[test]
+    fn builder_strict_takes_precedence() {
+        assert_eq!(
+            resolved_mode_from_env(Some(LatencyEnforcementMode::Strict)),
+            LatencyEnforcementMode::Strict,
+        );
+    }
+
+    #[test]
+    fn no_builder_no_env_defaults_to_advisory() {
+        // Assumes FEOTEST_LATENCY_ENFORCE is not set in the test environment.
+        let result = resolved_mode_from_env(None);
+        if env::var(ENV_VAR).is_err() {
+            assert_eq!(result, LatencyEnforcementMode::Advisory);
+        }
+    }
+
+    #[test]
+    fn default_is_advisory() {
+        assert_eq!(
+            LatencyEnforcementMode::default(),
+            LatencyEnforcementMode::Advisory,
+        );
+    }
 }

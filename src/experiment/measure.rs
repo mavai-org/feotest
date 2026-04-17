@@ -335,4 +335,93 @@ mod tests {
     fn round4_works() {
         assert!((crate::spec::common::round4(0.123_456_789) - 0.1235).abs() < 1e-10);
     }
+
+    #[test]
+    fn no_experiment_id_produces_none() {
+        let uc = TestUseCase::new("no-id");
+        let inputs = vec!["input".to_string()];
+        let result = MeasureExperiment::new(&uc, 10, &inputs, succeeding_trial).run();
+        assert!(result.spec().experiment_id.is_none());
+    }
+
+    #[test]
+    fn bare_name_experiment_id_alias() {
+        let uc = TestUseCase::new("alias-eid");
+        let inputs = vec!["input".to_string()];
+        let result = MeasureExperiment::new(&uc, 10, &inputs, succeeding_trial)
+            .experiment_id("v1")
+            .run();
+        assert_eq!(result.spec().experiment_id.as_deref(), Some("v1"));
+    }
+
+    #[test]
+    fn bare_name_baseline_dir_alias() {
+        let dir = tempfile::tempdir().unwrap();
+        let uc = TestUseCase::new("alias-dir");
+        let inputs = vec!["input".to_string()];
+        let result = MeasureExperiment::new(&uc, 10, &inputs, succeeding_trial)
+            .baseline_dir(dir.path())
+            .run();
+        assert!(result.spec_path().is_some());
+        assert!(result.spec_path().unwrap().exists());
+    }
+
+    #[test]
+    fn spec_dir_alias() {
+        let dir = tempfile::tempdir().unwrap();
+        let uc = TestUseCase::new("alias-spec-dir");
+        let inputs = vec!["input".to_string()];
+        let result = MeasureExperiment::new(&uc, 10, &inputs, succeeding_trial)
+            .spec_dir(dir.path())
+            .run();
+        assert!(result.spec_path().is_some());
+    }
+
+    #[test]
+    fn all_successes_has_empty_failure_distribution() {
+        let uc = TestUseCase::new("all-pass");
+        let inputs = vec!["input".to_string()];
+        let result = MeasureExperiment::new(&uc, 20, &inputs, succeeding_trial).run();
+
+        let spec = result.spec();
+        assert_eq!(spec.statistics.failures, 0);
+        // No failure distribution when all succeed
+        assert!(
+            spec.statistics.failure_distribution.is_none()
+                || spec
+                    .statistics
+                    .failure_distribution
+                    .as_ref()
+                    .unwrap()
+                    .is_empty()
+        );
+    }
+
+    #[test]
+    fn cost_block_is_present() {
+        let uc = TestUseCase::new("cost-test");
+        let inputs = vec!["input".to_string()];
+        let result = MeasureExperiment::new(&uc, 10, &inputs, succeeding_trial).run();
+        let cost = result.spec().cost.as_ref().unwrap();
+        assert!(cost.total_time_ms > 0 || cost.avg_time_per_sample_ms == 0);
+    }
+
+    #[test]
+    fn latency_distribution_captured() {
+        let uc = TestUseCase::new("latency-cap");
+        let inputs = vec!["input".to_string()];
+        let result = MeasureExperiment::new(&uc, 20, &inputs, succeeding_trial).run();
+        // All succeed with 1ms latency — latency block should be present
+        let latency = result.spec().statistics.latency_distribution.as_ref();
+        assert!(latency.is_some());
+        assert!(!latency.unwrap().latencies_ms.is_empty());
+    }
+
+    #[test]
+    fn execution_result_accessible() {
+        let uc = TestUseCase::new("exec-access");
+        let inputs = vec!["input".to_string()];
+        let result = MeasureExperiment::new(&uc, 10, &inputs, succeeding_trial).run();
+        assert_eq!(result.execution().summary().successes(), 10);
+    }
 }
