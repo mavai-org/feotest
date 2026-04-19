@@ -1,0 +1,15 @@
+---
+source: src/reporting/verdict_xml.rs
+expression: xml
+---
+<?xml version="1.0" encoding="UTF-8"?>
+<verdict-record xmlns="http://javai.org/verdict/1.0" version="1.0" timestamp="2026-04-19T10:00:00Z" generator="feotest/0.1.0">
+  <identity use-case-id="paced-service"/>
+  <execution planned-samples="100" samples-executed="100" successes="95" failures="5" elapsed-ms="500" intent="VERIFICATION"/>
+  <functional successes="95" failures="5" pass-rate="0.9500"/>
+  <covariates aligned="true"/>
+  <termination reason="COMPLETED"/>
+  <cost total-time-ms="500" total-tokens="1000" avg-time-per-sample-ms="5" avg-tokens-per-sample="10"/>
+  <pacing max-rps="10" max-rpm="300" max-concurrent="1" effective-min-delay-ms="200" effective-concurrency="1" effective-rps="5"/>
+  <verdict value="PASS" reason="0.9500 &gt;= 0.0000"/>
+</verdict-record>

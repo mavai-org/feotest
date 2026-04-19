@@ -2,7 +2,8 @@
 
 use crate::latency::LatencyDimension;
 use crate::model::{
-    ExecutionSummary, TerminationReason, TestIdentity, TestIntent, ThresholdOrigin, Warning,
+    ExpirationInfo, ExecutionSummary, PacingSummary, TerminationReason, TestIdentity, TestIntent,
+    ThresholdOrigin, Warning,
 };
 use crate::verdict::Verdict;
 
@@ -24,6 +25,9 @@ pub struct VerdictRecord {
     covariate_status: CovariateStatus,
     warnings: Vec<Warning>,
     latency: Option<LatencyDimension>,
+    correlation_id: Option<String>,
+    pacing: Option<PacingSummary>,
+    environment: Vec<(String, String)>,
 }
 
 impl VerdictRecord {
@@ -48,6 +52,9 @@ impl VerdictRecord {
             covariate_status: CovariateStatus::all_aligned(),
             warnings: Vec::new(),
             latency: None,
+            correlation_id: None,
+            pacing: None,
+            environment: Vec::new(),
         }
     }
 
@@ -124,6 +131,24 @@ impl VerdictRecord {
         self.latency.as_ref()
     }
 
+    /// Correlation ID for tracing, if set.
+    #[must_use]
+    pub fn correlation_id(&self) -> Option<&str> {
+        self.correlation_id.as_deref()
+    }
+
+    /// Pacing summary, if pacing was configured.
+    #[must_use]
+    pub const fn pacing(&self) -> Option<&PacingSummary> {
+        self.pacing.as_ref()
+    }
+
+    /// Environment metadata entries.
+    #[must_use]
+    pub fn environment(&self) -> &[(String, String)] {
+        &self.environment
+    }
+
     /// Whether the overall verdict passed.
     ///
     /// Combines the functional verdict with the latency dimension when
@@ -189,6 +214,9 @@ pub struct VerdictRecordBuilder {
     covariate_status: CovariateStatus,
     warnings: Vec<Warning>,
     latency: Option<LatencyDimension>,
+    correlation_id: Option<String>,
+    pacing: Option<PacingSummary>,
+    environment: Vec<(String, String)>,
 }
 
 impl VerdictRecordBuilder {
@@ -234,6 +262,27 @@ impl VerdictRecordBuilder {
         self
     }
 
+    /// Sets a correlation ID for tracing.
+    #[must_use]
+    pub fn correlation_id(mut self, id: impl Into<String>) -> Self {
+        self.correlation_id = Some(id.into());
+        self
+    }
+
+    /// Attaches a pacing summary.
+    #[must_use]
+    pub const fn pacing(mut self, summary: PacingSummary) -> Self {
+        self.pacing = Some(summary);
+        self
+    }
+
+    /// Sets environment metadata entries.
+    #[must_use]
+    pub fn environment(mut self, entries: Vec<(String, String)>) -> Self {
+        self.environment = entries;
+        self
+    }
+
     /// Builds the verdict record.
     ///
     /// The `verdict_reason` field is derived automatically from the verdict,
@@ -260,6 +309,9 @@ impl VerdictRecordBuilder {
             covariate_status: self.covariate_status,
             warnings: self.warnings,
             latency: self.latency,
+            correlation_id: self.correlation_id,
+            pacing: self.pacing,
+            environment: self.environment,
         }
     }
 }
@@ -615,6 +667,7 @@ pub struct SpecProvenance {
     spec_filename: Option<String>,
     threshold_origin: ThresholdOrigin,
     contract_ref: Option<String>,
+    expiration: Option<ExpirationInfo>,
 }
 
 impl SpecProvenance {
@@ -625,6 +678,7 @@ impl SpecProvenance {
             spec_filename: None,
             threshold_origin,
             contract_ref: None,
+            expiration: None,
         }
     }
 
@@ -639,6 +693,13 @@ impl SpecProvenance {
     #[must_use]
     pub fn with_contract_ref(mut self, contract_ref: impl Into<String>) -> Self {
         self.contract_ref = Some(contract_ref.into());
+        self
+    }
+
+    /// Sets expiration info on this provenance.
+    #[must_use]
+    pub fn with_expiration(mut self, info: ExpirationInfo) -> Self {
+        self.expiration = Some(info);
         self
     }
 
@@ -658,6 +719,12 @@ impl SpecProvenance {
     #[must_use]
     pub fn contract_ref(&self) -> Option<&str> {
         self.contract_ref.as_deref()
+    }
+
+    /// Expiration info for the baseline spec, if any.
+    #[must_use]
+    pub const fn expiration(&self) -> Option<&ExpirationInfo> {
+        self.expiration.as_ref()
     }
 }
 
@@ -970,6 +1037,61 @@ mod tests {
         assert_eq!(bp.baseline_samples(), 200);
         assert!((bp.baseline_rate() - 0.95).abs() < 1e-10);
         assert!((bp.derived_threshold() - 0.90).abs() < 1e-10);
+    }
+
+    #[test]
+    fn new_fields_default_to_none_or_empty() {
+        let record = VerdictRecord::builder(
+            TestIdentity::new("test"),
+            Verdict::Pass,
+            TestIntent::Verification,
+            sample_execution(),
+            FunctionalDimension::new(95, 5, vec![]),
+        )
+        .build();
+
+        assert!(record.correlation_id().is_none());
+        assert!(record.pacing().is_none());
+        assert!(record.environment().is_empty());
+    }
+
+    #[test]
+    fn new_fields_set_and_readable() {
+        use crate::controls::PacingConfig;
+        use crate::model::{ExpirationInfo, ExpirationStatus, PacingSummary};
+
+        let pacing = PacingSummary::from_config(
+            &PacingConfig::new().with_max_requests_per_second(10.0),
+        );
+
+        let provenance = SpecProvenance::new(ThresholdOrigin::Empirical)
+            .with_expiration(ExpirationInfo::new(
+                ExpirationStatus::ExpiringSoon,
+                Some("2026-06-01T00:00:00Z".into()),
+            ));
+
+        let record = VerdictRecord::builder(
+            TestIdentity::new("test"),
+            Verdict::Pass,
+            TestIntent::Verification,
+            sample_execution(),
+            FunctionalDimension::new(95, 5, vec![]),
+        )
+        .correlation_id("run-123")
+        .pacing(pacing)
+        .environment(vec![("region".to_string(), "eu-west-1".to_string())])
+        .spec_provenance(provenance)
+        .build();
+
+        assert_eq!(record.correlation_id(), Some("run-123"));
+        assert!(record.pacing().is_some());
+        assert_eq!(record.pacing().unwrap().effective_min_delay_ms(), 100);
+        assert_eq!(record.environment().len(), 1);
+        assert_eq!(record.environment()[0].0, "region");
+
+        let exp = record.spec_provenance().unwrap().expiration().unwrap();
+        assert_eq!(exp.status(), &ExpirationStatus::ExpiringSoon);
+        assert_eq!(exp.expires_at(), Some("2026-06-01T00:00:00Z"));
     }
 
     #[test]

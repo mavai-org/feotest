@@ -220,6 +220,18 @@ impl PacingConfig {
         self
     }
 
+    /// Configured maximum requests per second, if set.
+    #[must_use]
+    pub const fn max_requests_per_second(&self) -> Option<f64> {
+        self.max_requests_per_second
+    }
+
+    /// Configured maximum requests per minute, if set.
+    #[must_use]
+    pub const fn max_requests_per_minute(&self) -> Option<f64> {
+        self.max_requests_per_minute
+    }
+
     /// Computes the effective minimum delay between samples in milliseconds.
     ///
     /// Takes the most restrictive of all configured constraints.

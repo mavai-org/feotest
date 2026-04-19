@@ -5,7 +5,7 @@ use crate::experiment::ExecutionEngine;
 use crate::latency::{
     LatencyDimension, LatencyEnforcementMode, LatencyThresholds, enforcement, resolver,
 };
-use crate::model::{TestIdentity, TestIntent, ThresholdOrigin, TrialOutcome, Warning};
+use crate::model::{PacingSummary, TestIdentity, TestIntent, ThresholdOrigin, TrialOutcome, Warning};
 use crate::ptest::approach;
 use crate::ptest::builder::ThresholdApproach;
 use crate::ptest::diagnostics;
@@ -243,6 +243,9 @@ where
     .spec_provenance(provenance);
     if let Some(bp) = baseline_prov {
         builder = builder.baseline_provenance(bp);
+    }
+    if let Some(pacing) = config.pacing() {
+        builder = builder.pacing(PacingSummary::from_config(pacing));
     }
     if let Some(dim) = latency_dimension {
         builder = builder.latency(dim);

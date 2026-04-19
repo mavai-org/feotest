@@ -3,6 +3,8 @@
 use std::fmt;
 use std::time::Duration;
 
+use crate::controls::PacingConfig;
+
 /// The intent behind a probabilistic test.
 ///
 /// Determines how the framework enforces statistical feasibility and
@@ -363,6 +365,145 @@ impl fmt::Display for Warning {
     }
 }
 
+/// Resolved pacing constraints recorded on a verdict.
+///
+/// Captures both the configured limits and the effective values after
+/// constraint resolution. All fields reflect the state at verdict time,
+/// not the configuration input.
+#[derive(Debug, Clone)]
+pub struct PacingSummary {
+    max_rps: f64,
+    max_rpm: f64,
+    max_concurrent: u32,
+    effective_min_delay_ms: u64,
+    effective_concurrency: u32,
+    effective_rps: f64,
+}
+
+impl PacingSummary {
+    /// Constructs a pacing summary from a resolved `PacingConfig`.
+    ///
+    /// Computes effective values from the most-restrictive constraint.
+    #[must_use]
+    pub fn from_config(config: &PacingConfig) -> Self {
+        let effective_delay = config.effective_delay_ms();
+        let effective_rps = if effective_delay > 0 {
+            1000.0 / effective_delay as f64
+        } else {
+            f64::INFINITY
+        };
+        Self {
+            max_rps: config.max_requests_per_second().unwrap_or(0.0),
+            max_rpm: config.max_requests_per_minute().unwrap_or(0.0),
+            max_concurrent: 1,
+            effective_min_delay_ms: effective_delay,
+            effective_concurrency: 1,
+            effective_rps,
+        }
+    }
+
+    /// Configured maximum requests per second, or 0 if unconstrained.
+    #[must_use]
+    pub const fn max_rps(&self) -> f64 {
+        self.max_rps
+    }
+
+    /// Configured maximum requests per minute, or 0 if unconstrained.
+    #[must_use]
+    pub const fn max_rpm(&self) -> f64 {
+        self.max_rpm
+    }
+
+    /// Maximum concurrent requests (always 1 until RC11).
+    #[must_use]
+    pub const fn max_concurrent(&self) -> u32 {
+        self.max_concurrent
+    }
+
+    /// Effective minimum delay between samples in milliseconds.
+    #[must_use]
+    pub const fn effective_min_delay_ms(&self) -> u64 {
+        self.effective_min_delay_ms
+    }
+
+    /// Effective concurrency level (always 1 until RC11).
+    #[must_use]
+    pub const fn effective_concurrency(&self) -> u32 {
+        self.effective_concurrency
+    }
+
+    /// Effective requests per second after constraint resolution.
+    #[must_use]
+    pub const fn effective_rps(&self) -> f64 {
+        self.effective_rps
+    }
+}
+
+/// Baseline freshness status.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ExpirationStatus {
+    /// No expiration policy defined.
+    NoExpiration,
+    /// Baseline is within its validity period.
+    Valid,
+    /// Baseline is approaching expiration.
+    ExpiringSoon,
+    /// Baseline is very close to expiration.
+    ExpiringImminently,
+    /// Baseline has expired.
+    Expired,
+}
+
+impl ExpirationStatus {
+    /// Whether this status warrants a warning in reports.
+    #[must_use]
+    pub const fn requires_warning(&self) -> bool {
+        matches!(
+            self,
+            Self::ExpiringSoon | Self::ExpiringImminently | Self::Expired
+        )
+    }
+
+    /// The XML-safe name for this status.
+    #[must_use]
+    pub const fn xml_name(&self) -> &str {
+        match self {
+            Self::NoExpiration => "NO_EXPIRATION",
+            Self::Valid => "VALID",
+            Self::ExpiringSoon => "EXPIRING_SOON",
+            Self::ExpiringImminently => "EXPIRING_IMMINENTLY",
+            Self::Expired => "EXPIRED",
+        }
+    }
+}
+
+/// Expiration information for a baseline spec.
+#[derive(Debug, Clone)]
+pub struct ExpirationInfo {
+    status: ExpirationStatus,
+    expires_at: Option<String>,
+}
+
+impl ExpirationInfo {
+    /// Creates expiration info with a status and optional expiry timestamp.
+    #[must_use]
+    pub const fn new(status: ExpirationStatus, expires_at: Option<String>) -> Self {
+        Self { status, expires_at }
+    }
+
+    /// The expiration status.
+    #[must_use]
+    pub const fn status(&self) -> &ExpirationStatus {
+        &self.status
+    }
+
+    /// ISO 8601 timestamp when the baseline expires, if known.
+    #[must_use]
+    pub fn expires_at(&self) -> Option<&str> {
+        self.expires_at.as_deref()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -412,5 +553,52 @@ mod tests {
     fn warning_displays_code_and_message() {
         let w = Warning::new("BASELINE_EXPIRED", "Baseline is 45 days old");
         assert_eq!(w.to_string(), "[BASELINE_EXPIRED] Baseline is 45 days old");
+    }
+
+    #[test]
+    fn pacing_summary_from_config() {
+        let config = PacingConfig::new()
+            .with_max_requests_per_second(5.0)
+            .with_max_requests_per_minute(120.0);
+        let summary = PacingSummary::from_config(&config);
+
+        assert!((summary.max_rps() - 5.0).abs() < 1e-10);
+        assert!((summary.max_rpm() - 120.0).abs() < 1e-10);
+        assert_eq!(summary.max_concurrent(), 1);
+        assert_eq!(summary.effective_concurrency(), 1);
+        // 5 rps → 200ms delay; 120 rpm → 500ms delay; most restrictive = 500ms
+        assert_eq!(summary.effective_min_delay_ms(), 500);
+        assert!((summary.effective_rps() - 2.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn pacing_summary_unconstrained() {
+        let config = PacingConfig::new();
+        let summary = PacingSummary::from_config(&config);
+
+        assert!((summary.max_rps()).abs() < 1e-10);
+        assert!((summary.max_rpm()).abs() < 1e-10);
+        assert_eq!(summary.effective_min_delay_ms(), 0);
+        assert!(summary.effective_rps().is_infinite());
+    }
+
+    #[test]
+    fn expiration_status_requires_warning() {
+        assert!(!ExpirationStatus::NoExpiration.requires_warning());
+        assert!(!ExpirationStatus::Valid.requires_warning());
+        assert!(ExpirationStatus::ExpiringSoon.requires_warning());
+        assert!(ExpirationStatus::ExpiringImminently.requires_warning());
+        assert!(ExpirationStatus::Expired.requires_warning());
+    }
+
+    #[test]
+    fn expiration_info_accessors() {
+        let info =
+            ExpirationInfo::new(ExpirationStatus::Expired, Some("2026-05-01T00:00:00Z".into()));
+        assert_eq!(info.status(), &ExpirationStatus::Expired);
+        assert_eq!(info.expires_at(), Some("2026-05-01T00:00:00Z"));
+
+        let info_none = ExpirationInfo::new(ExpirationStatus::NoExpiration, None);
+        assert!(info_none.expires_at().is_none());
     }
 }

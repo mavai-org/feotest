@@ -38,6 +38,9 @@ impl VerdictXmlWriter {
         if let Some(ts) = timestamp {
             write!(xml, " timestamp=\"{}\"", escape_attr(ts)).unwrap();
         }
+        if let Some(id) = record.correlation_id() {
+            write!(xml, " correlation-id=\"{}\"", escape_attr(id)).unwrap();
+        }
         writeln!(xml, " generator=\"feotest/{}\">", env!("CARGO_PKG_VERSION")).unwrap();
 
         write_identity(&mut xml, record);
@@ -51,6 +54,8 @@ impl VerdictXmlWriter {
         write_termination(&mut xml, record);
         write_cost(&mut xml, record);
         write_warnings(&mut xml, record);
+        write_pacing(&mut xml, record);
+        write_environment(&mut xml, record);
         write_verdict(&mut xml, record);
 
         writeln!(xml, "</verdict-record>").unwrap();
@@ -318,7 +323,24 @@ fn write_provenance(w: &mut String, record: &VerdictRecord) {
     if let Some(cref) = prov.contract_ref() {
         write!(w, " contract-ref=\"{}\"", escape_attr(cref)).unwrap();
     }
-    writeln!(w, "/>").unwrap();
+
+    if let Some(exp) = prov.expiration() {
+        writeln!(w, ">").unwrap();
+        write!(
+            w,
+            "    <expiration status=\"{}\"",
+            exp.status().xml_name()
+        )
+        .unwrap();
+        if let Some(at) = exp.expires_at() {
+            write!(w, " expires-at=\"{}\"", escape_attr(at)).unwrap();
+        }
+        write!(w, " requires-warning=\"{}\"", exp.status().requires_warning()).unwrap();
+        writeln!(w, "/>").unwrap();
+        writeln!(w, "  </provenance>").unwrap();
+    } else {
+        writeln!(w, "/>").unwrap();
+    }
 }
 
 fn write_baseline(w: &mut String, record: &VerdictRecord) {
@@ -382,6 +404,47 @@ fn write_warnings(w: &mut String, record: &VerdictRecord) {
     writeln!(w, "  </warnings>").unwrap();
 }
 
+fn write_pacing(w: &mut String, record: &VerdictRecord) {
+    let Some(pacing) = record.pacing() else {
+        return;
+    };
+    write!(w, "  <pacing").unwrap();
+    write!(w, " max-rps=\"{}\"", pacing.max_rps()).unwrap();
+    write!(w, " max-rpm=\"{}\"", pacing.max_rpm()).unwrap();
+    write!(w, " max-concurrent=\"{}\"", pacing.max_concurrent()).unwrap();
+    write!(
+        w,
+        " effective-min-delay-ms=\"{}\"",
+        pacing.effective_min_delay_ms()
+    )
+    .unwrap();
+    write!(
+        w,
+        " effective-concurrency=\"{}\"",
+        pacing.effective_concurrency()
+    )
+    .unwrap();
+    write!(w, " effective-rps=\"{}\"", pacing.effective_rps()).unwrap();
+    writeln!(w, "/>").unwrap();
+}
+
+fn write_environment(w: &mut String, record: &VerdictRecord) {
+    if record.environment().is_empty() {
+        return;
+    }
+    writeln!(w, "  <environment>").unwrap();
+    for (key, value) in record.environment() {
+        writeln!(
+            w,
+            "    <entry key=\"{}\" value=\"{}\"/>",
+            escape_attr(key),
+            escape_attr(value)
+        )
+        .unwrap();
+    }
+    writeln!(w, "  </environment>").unwrap();
+}
+
 fn write_verdict(w: &mut String, record: &VerdictRecord) {
     let verdict_str = match record.verdict() {
         Verdict::Pass => "PASS",
@@ -428,9 +491,10 @@ mod tests {
     use crate::latency::enforcement::LatencyEnforcementMode;
     use crate::latency::percentile::Percentile;
     use crate::latency::resolver::ThresholdProvenance;
+    use crate::controls::PacingConfig;
     use crate::model::{
-        CostSummary, ExecutionSummary, TerminationInfo, TerminationReason, TestIdentity,
-        TestIntent, ThresholdOrigin, Warning,
+        CostSummary, ExpirationInfo, ExpirationStatus, ExecutionSummary, PacingSummary,
+        TerminationInfo, TerminationReason, TestIdentity, TestIntent, ThresholdOrigin, Warning,
     };
     use crate::verdict::{
         BaselineProvenance, CovariateStatus, FunctionalDimension, Misalignment, SpecProvenance,
@@ -696,6 +760,130 @@ mod tests {
         )
         .build();
         let xml = VerdictXmlWriter::write_record(&record, Some("2026-04-01T12:00:00Z"));
+        assert_snapshot!(xml);
+    }
+
+    #[test]
+    fn xml_with_correlation_id() {
+        let record = VerdictRecord::builder(
+            TestIdentity::new("correlated-service"),
+            Verdict::Pass,
+            TestIntent::Verification,
+            sample_execution(50, 50, 48, 2),
+            FunctionalDimension::new(48, 2, vec![]),
+        )
+        .correlation_id("run-20260419-abc123")
+        .build();
+        let xml = VerdictXmlWriter::write_record(&record, Some("2026-04-19T10:00:00Z"));
+        assert_snapshot!(xml);
+    }
+
+    #[test]
+    fn xml_with_pacing() {
+        let pacing_config = PacingConfig::new()
+            .with_max_requests_per_second(10.0)
+            .with_max_requests_per_minute(300.0);
+        let pacing_summary = PacingSummary::from_config(&pacing_config);
+
+        let record = VerdictRecord::builder(
+            TestIdentity::new("paced-service"),
+            Verdict::Pass,
+            TestIntent::Verification,
+            sample_execution(100, 100, 95, 5),
+            FunctionalDimension::new(95, 5, vec![]),
+        )
+        .pacing(pacing_summary)
+        .build();
+        let xml = VerdictXmlWriter::write_record(&record, Some("2026-04-19T10:00:00Z"));
+        assert_snapshot!(xml);
+    }
+
+    #[test]
+    fn xml_with_environment() {
+        let record = VerdictRecord::builder(
+            TestIdentity::new("env-service"),
+            Verdict::Pass,
+            TestIntent::Verification,
+            sample_execution(50, 50, 50, 0),
+            FunctionalDimension::new(50, 0, vec![]),
+        )
+        .environment(vec![
+            ("cloud_provider".to_string(), "aws".to_string()),
+            ("region".to_string(), "eu-west-1".to_string()),
+            ("instance_type".to_string(), "m5.large".to_string()),
+        ])
+        .build();
+        let xml = VerdictXmlWriter::write_record(&record, Some("2026-04-19T10:00:00Z"));
+        assert_snapshot!(xml);
+    }
+
+    #[test]
+    fn xml_with_expiration() {
+        let provenance = SpecProvenance::new(ThresholdOrigin::Empirical)
+            .with_spec_filename("aging-service.yaml")
+            .with_expiration(ExpirationInfo::new(
+                ExpirationStatus::ExpiringSoon,
+                Some("2026-05-01T00:00:00Z".into()),
+            ));
+
+        let record = VerdictRecord::builder(
+            TestIdentity::new("aging-service"),
+            Verdict::Pass,
+            TestIntent::Verification,
+            sample_execution(100, 100, 92, 8),
+            FunctionalDimension::new(92, 8, vec![]),
+        )
+        .spec_provenance(provenance)
+        .build();
+        let xml = VerdictXmlWriter::write_record(&record, Some("2026-04-19T10:00:00Z"));
+        assert_snapshot!(xml);
+    }
+
+    #[test]
+    fn xml_full_record() {
+        let pacing_config = PacingConfig::new().with_max_requests_per_second(5.0);
+        let pacing_summary = PacingSummary::from_config(&pacing_config);
+
+        let analysis = StatisticalAnalysis::new(
+            0.95, 0.022, 0.907, 0.993, 0.900, ThresholdOrigin::Empirical,
+        )
+        .with_test_results(2.294, 0.011);
+
+        let provenance = SpecProvenance::new(ThresholdOrigin::Empirical)
+            .with_spec_filename("full-service.yaml")
+            .with_contract_ref("SLA v2.0 §3")
+            .with_expiration(ExpirationInfo::new(
+                ExpirationStatus::Valid,
+                Some("2026-12-31T23:59:59Z".into()),
+            ));
+
+        let baseline_prov = BaselineProvenance::new(
+            "full-service.yaml",
+            "2026-03-01T08:00:00Z",
+            500,
+            0.9600,
+            0.9200,
+        );
+
+        let record = VerdictRecord::builder(
+            TestIdentity::new("full-service").with_test_name("test_everything"),
+            Verdict::Pass,
+            TestIntent::Verification,
+            sample_execution(200, 200, 192, 8),
+            FunctionalDimension::new(192, 8, vec![]),
+        )
+        .statistical_analysis(analysis)
+        .spec_provenance(provenance)
+        .baseline_provenance(baseline_prov)
+        .correlation_id("suite-run-42")
+        .pacing(pacing_summary)
+        .environment(vec![
+            ("runtime".to_string(), "tokio".to_string()),
+            ("region".to_string(), "us-east-1".to_string()),
+        ])
+        .warning(Warning::new("BASELINE_AGING", "Baseline is 49 days old"))
+        .build();
+        let xml = VerdictXmlWriter::write_record(&record, Some("2026-04-19T10:00:00Z"));
         assert_snapshot!(xml);
     }
 }
