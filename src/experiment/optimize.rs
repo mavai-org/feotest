@@ -1,10 +1,12 @@
 //! Optimize experiment: iterative factor tuning.
 
 use std::fmt;
+use std::path::{Path, PathBuf};
 
 use crate::controls::{ExecutionConfig, TokenRecorder};
 use crate::experiment::engine::{ExecutionEngine, ExecutionResult};
 use crate::model::TrialOutcome;
+use crate::spec::optimization::{OptimizationSpec, OptimizeSpecWriter};
 use crate::usecase::{FactorValue, UseCase};
 
 /// A scoring function that evaluates an iteration's results.
@@ -28,6 +30,47 @@ pub enum Objective {
     Maximize,
     /// Seek the lowest score.
     Minimize,
+}
+
+/// Why an optimisation run stopped iterating.
+///
+/// The set of variants is the same across all javai frameworks so that
+/// optimisation YAML output is cross-project comparable. Not every variant
+/// is reachable in every runtime: feotest currently terminates only on
+/// `MaxIterations` or `NoImprovement`; the others become reachable as
+/// budget and threshold controls mature.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TerminationReason {
+    /// The configured maximum iteration count was reached.
+    MaxIterations,
+    /// The no-improvement window elapsed without a new best score.
+    NoImprovement,
+    /// A wall-clock time budget expired.
+    TimeBudget,
+    /// A token budget was exhausted.
+    TokenBudget,
+    /// A user-supplied score threshold was reached.
+    ScoreThresholdReached,
+}
+
+impl TerminationReason {
+    /// The canonical string used in YAML output.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::MaxIterations => "MAX_ITERATIONS",
+            Self::NoImprovement => "NO_IMPROVEMENT",
+            Self::TimeBudget => "TIME_BUDGET",
+            Self::TokenBudget => "TOKEN_BUDGET",
+            Self::ScoreThresholdReached => "SCORE_THRESHOLD_REACHED",
+        }
+    }
+}
+
+impl fmt::Display for TerminationReason {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
+    }
 }
 
 /// Record of a single optimisation iteration.
@@ -175,6 +218,7 @@ where
         let mut best_score: Option<f64> = None;
         let mut best_iteration: Option<u32> = None;
         let mut no_improvement_count = 0u32;
+        let mut termination_reason = TerminationReason::MaxIterations;
 
         for iteration in 0..self.max_iterations {
             // Apply the current factor value
@@ -213,6 +257,7 @@ where
 
             // Check plateau termination
             if no_improvement_count >= self.no_improvement_window {
+                termination_reason = TerminationReason::NoImprovement;
                 break;
             }
 
@@ -230,6 +275,7 @@ where
             history,
             best_iteration,
             best_score,
+            termination_reason,
         }
     }
 }
@@ -244,6 +290,7 @@ pub struct OptimizeResult {
     history: Vec<IterationRecord>,
     best_iteration: Option<u32>,
     best_score: Option<f64>,
+    termination_reason: TerminationReason,
 }
 
 impl OptimizeResult {
@@ -298,6 +345,51 @@ impl OptimizeResult {
                 .find(|r| r.iteration == idx)
                 .map(|r| &r.factor_value)
         })
+    }
+
+    /// Why optimisation stopped iterating.
+    #[must_use]
+    pub const fn termination_reason(&self) -> TerminationReason {
+        self.termination_reason
+    }
+
+    /// Builds the canonical [`OptimizationSpec`] for this result.
+    #[must_use]
+    pub fn to_spec(&self) -> OptimizationSpec {
+        OptimizationSpec::from_result(self)
+    }
+
+    /// Serialises the result to the canonical YAML schema.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if YAML serialisation fails.
+    pub fn to_yaml(&self) -> Result<String, serde_yaml::Error> {
+        self.to_spec().to_yaml()
+    }
+
+    /// Writes the optimization YAML artefact under the given output root.
+    ///
+    /// The final path is `{root}/{use_case_id}/{experiment_id}.yaml`. The
+    /// default output root is `target/feotest/optimizations/` — see
+    /// [`write_to_default`](Self::write_to_default).
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if directory creation, YAML serialisation, or
+    /// file writing fails.
+    pub fn write_to(&self, root: impl AsRef<Path>) -> Result<PathBuf, std::io::Error> {
+        OptimizeSpecWriter::new(root.as_ref().to_path_buf()).write(self)
+    }
+
+    /// Writes the artefact to the framework default output root.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if directory creation, YAML serialisation, or
+    /// file writing fails.
+    pub fn write_to_default(&self) -> Result<PathBuf, std::io::Error> {
+        OptimizeSpecWriter::with_default_root().write(self)
     }
 }
 

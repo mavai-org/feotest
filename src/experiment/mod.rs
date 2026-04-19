@@ -17,4 +17,7 @@ mod optimize;
 pub use engine::{ExecutionEngine, ExecutionResult};
 pub use explore::{ConfigResult, ExploreExperiment, ExploreResult};
 pub use measure::MeasureExperiment;
-pub use optimize::{FactorMutator, Objective, OptimizeExperiment, Scorer};
+pub use optimize::{
+    FactorMutator, IterationRecord, Objective, OptimizeExperiment, OptimizeResult, Scorer,
+    TerminationReason,
+};
