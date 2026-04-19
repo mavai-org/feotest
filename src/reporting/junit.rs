@@ -418,7 +418,12 @@ mod tests {
             FunctionalDimension::new(5, 5, vec![]),
         )
         .statistical_analysis(StatisticalAnalysis::new(
-            0.95, 0.158, 0.204, 0.796, 0.80, ThresholdOrigin::Sla,
+            0.95,
+            0.158,
+            0.204,
+            0.796,
+            0.80,
+            ThresholdOrigin::Sla,
         ))
         .warning(crate::model::Warning::new("UNDERSIZED", "too small"))
         .build();

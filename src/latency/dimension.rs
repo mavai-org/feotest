@@ -69,6 +69,29 @@ impl LatencyEvaluation {
     pub const fn status(&self) -> EvaluationStatus {
         self.status
     }
+
+    /// Creates a `LatencyEvaluation` from explicit parts.
+    ///
+    /// Intended for testing renderers and other consumers.
+    #[cfg(test)]
+    #[must_use]
+    pub const fn new(
+        percentile: Percentile,
+        observed: Option<Duration>,
+        threshold: Duration,
+        provenance: ThresholdProvenance,
+        mode: LatencyEnforcementMode,
+        status: EvaluationStatus,
+    ) -> Self {
+        Self {
+            percentile,
+            observed,
+            threshold,
+            provenance,
+            mode,
+            status,
+        }
+    }
 }
 
 /// The latency dimension of a verdict record.
@@ -197,6 +220,28 @@ impl LatencyDimension {
     #[must_use]
     pub const fn successful_samples(&self) -> u32 {
         self.successful_samples
+    }
+
+    /// Creates a `LatencyDimension` from pre-computed parts.
+    ///
+    /// This bypasses the normal `build()` path and is intended for testing
+    /// renderers and other consumers that need controlled latency data.
+    #[cfg(test)]
+    #[must_use]
+    pub fn from_parts(
+        observed_percentiles: Vec<(Percentile, Duration)>,
+        evaluations: Vec<LatencyEvaluation>,
+        strict_violations: u32,
+        advisory_violations: u32,
+        successful_samples: u32,
+    ) -> Self {
+        Self {
+            observed_percentiles,
+            evaluations,
+            strict_violations,
+            advisory_violations,
+            successful_samples,
+        }
     }
 }
 

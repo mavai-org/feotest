@@ -974,10 +974,8 @@ mod tests {
 
     #[test]
     fn conformance_dimension_accessors() {
-        let dim = FunctionalDimension::new(80, 20, vec![("parse".to_string(), 12)]).conformance(
-            3,
-            vec!["diff1".to_string(), "diff2".to_string()],
-        );
+        let dim = FunctionalDimension::new(80, 20, vec![("parse".to_string(), 12)])
+            .conformance(3, vec!["diff1".to_string(), "diff2".to_string()]);
         assert_eq!(dim.conformance_mismatches(), 3);
         assert_eq!(dim.example_mismatches().len(), 2);
         assert_eq!(dim.failure_distribution().len(), 1);

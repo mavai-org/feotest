@@ -245,13 +245,8 @@ fn smoke_intent_propagates_and_adds_warning() {
 fn runner_produced_record_renders_through_console() {
     let dir = common::establish_baseline("vp-console", 200, common::always_succeeds);
 
-    let result = common::run_against_baseline(
-        "vp-console",
-        dir.path(),
-        50,
-        0.80,
-        common::always_succeeds,
-    );
+    let result =
+        common::run_against_baseline("vp-console", dir.path(), 50, 0.80, common::always_succeeds);
 
     let renderer = ConsoleRenderer::without_colour();
     let output = renderer.render_verdict_to_string(result.verdict_record());
@@ -266,13 +261,8 @@ fn runner_produced_record_renders_through_console() {
 fn runner_produced_record_renders_through_junit_xml() {
     let dir = common::establish_baseline("vp-junit", 200, common::always_succeeds);
 
-    let result = common::run_against_baseline(
-        "vp-junit",
-        dir.path(),
-        50,
-        0.80,
-        common::always_succeeds,
-    );
+    let result =
+        common::run_against_baseline("vp-junit", dir.path(), 50, 0.80, common::always_succeeds);
 
     let mut buf = Vec::new();
     JunitXmlWriter::write_to(&mut buf, &[result.verdict_record().clone()]).unwrap();

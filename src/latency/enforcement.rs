@@ -81,10 +81,7 @@ mod tests {
 
     #[test]
     fn parse_trims_whitespace() {
-        assert_eq!(
-            parse_mode("  true  "),
-            Some(LatencyEnforcementMode::Strict)
-        );
+        assert_eq!(parse_mode("  true  "), Some(LatencyEnforcementMode::Strict));
         assert_eq!(parse_mode("\t1\n"), Some(LatencyEnforcementMode::Strict));
     }
 

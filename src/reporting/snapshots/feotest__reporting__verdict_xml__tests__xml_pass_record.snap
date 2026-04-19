@@ -1,0 +1,18 @@
+---
+source: src/reporting/verdict_xml.rs
+assertion_line: 692
+expression: xml
+---
+<?xml version="1.0" encoding="UTF-8"?>
+<verdict-record xmlns="http://javai.org/verdict/1.0" version="1.0" timestamp="2026-04-01T12:00:00Z" generator="feotest/0.1.0">
+  <identity use-case-id="my-service" test-name="test_translation"/>
+  <execution planned-samples="100" samples-executed="100" successes="96" failures="4" elapsed-ms="500" intent="VERIFICATION" confidence="0.95"/>
+  <functional successes="96" failures="4" pass-rate="0.9600"/>
+  <statistics confidence-level="0.9500" standard-error="0.0220" ci-lower="0.9070" ci-upper="0.9930" threshold="0.9000" threshold-origin="EMPIRICAL" test-statistic="2.2940" p-value="0.0110"/>
+  <covariates aligned="true"/>
+  <provenance origin="EMPIRICAL" spec-filename="my-service.yaml"/>
+  <baseline source-file="my-service.yaml" generated-at="2026-03-27T10:00:00Z" samples="200" baseline-rate="0.9500" derived-threshold="0.9000"/>
+  <termination reason="COMPLETED"/>
+  <cost total-time-ms="500" total-tokens="1000" avg-time-per-sample-ms="5" avg-tokens-per-sample="10"/>
+  <verdict value="PASS" reason="0.9600 &gt;= 0.9000"/>
+</verdict-record>

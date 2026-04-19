@@ -308,6 +308,9 @@ where
             .expect("formatting should not fail");
         eprintln!("{line}");
 
+        // Write verdict XML to target/feotest/xml/ for the report pipeline
+        write_verdict_xml(result.verdict_record());
+
         if transparent_stats {
             let mut buf = String::new();
             crate::reporting::transparent::render(
@@ -523,6 +526,28 @@ where
             config = config.with_pacing(pacing.clone());
         }
         Some(config)
+    }
+}
+
+/// Writes a verdict record to `target/feotest/xml/` as RP07 verdict XML.
+///
+/// Failures are silently ignored — verdict XML is a diagnostic side-effect,
+/// not a test-critical path. A warning is printed to stderr if the write
+/// fails.
+fn write_verdict_xml(record: &crate::verdict::VerdictRecord) {
+    use std::path::PathBuf;
+
+    let use_case_id = record.identity().use_case_id();
+    let test_name = record.identity().test_name().unwrap_or(use_case_id);
+
+    let filename = format!("{use_case_id}.{test_name}.xml");
+    let path = PathBuf::from("target/feotest/xml").join(filename);
+
+    if let Err(e) = crate::reporting::VerdictXmlWriter::write_to_file(&path, record, None) {
+        eprintln!(
+            "feotest: warning: could not write verdict XML to {}: {e}",
+            path.display()
+        );
     }
 }
 

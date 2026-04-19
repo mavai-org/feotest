@@ -1,0 +1,28 @@
+---
+source: src/reporting/verdict_xml.rs
+assertion_line: 714
+expression: xml
+---
+<?xml version="1.0" encoding="UTF-8"?>
+<verdict-record xmlns="http://javai.org/verdict/1.0" version="1.0" timestamp="2026-04-01T12:00:00Z" generator="feotest/0.1.0">
+  <identity use-case-id="latency-service" test-name="test_response_time"/>
+  <execution planned-samples="100" samples-executed="100" successes="95" failures="5" elapsed-ms="500" intent="VERIFICATION" confidence="0.95"/>
+  <functional successes="95" failures="5" pass-rate="0.9500"/>
+  <latency successful-samples="95" strict-violations="0" advisory-violations="1">
+    <observed>
+      <percentile label="p50" value-ms="120"/>
+      <percentile label="p95" value-ms="450"/>
+      <percentile label="p99" value-ms="890"/>
+    </observed>
+    <evaluations>
+      <evaluation percentile="p50" observed-ms="120" threshold-ms="200" provenance="explicit" mode="advisory" status="PASS"/>
+      <evaluation percentile="p95" observed-ms="450" threshold-ms="500" provenance="explicit" mode="advisory" status="PASS"/>
+      <evaluation percentile="p99" observed-ms="890" threshold-ms="800" provenance="explicit" mode="advisory" status="ADVISORY_WARN"/>
+    </evaluations>
+  </latency>
+  <statistics confidence-level="0.9500" standard-error="0.0220" ci-lower="0.9070" ci-upper="0.9930" threshold="0.9000" threshold-origin="EMPIRICAL" test-statistic="2.2940" p-value="0.0110"/>
+  <covariates aligned="true"/>
+  <termination reason="COMPLETED"/>
+  <cost total-time-ms="500" total-tokens="1000" avg-time-per-sample-ms="5" avg-tokens-per-sample="10"/>
+  <verdict value="PASS" reason="0.9500 &gt;= 0.9000"/>
+</verdict-record>
