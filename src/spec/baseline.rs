@@ -50,6 +50,14 @@ pub struct BaselineSpec {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cost: Option<CostBlock>,
 
+    /// Baseline validity window.
+    ///
+    /// Present only when the measure experiment was configured with a
+    /// non-zero `expiresInDays`. Absent means no expiration policy and
+    /// no expiration checks will be performed at test time.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expiration: Option<ExpirationBlock>,
+
     /// Integrity hash of the spec content.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub content_fingerprint: Option<String>,
@@ -137,6 +145,29 @@ pub struct SuccessRateBlock {
 
     /// 95% confidence interval as [lower, upper].
     pub confidence_interval95: [f64; 2],
+}
+
+/// Baseline validity window within a baseline spec.
+///
+/// Records how long the measurement remains representative of the service
+/// under test. At test time, the [`crate::spec::expiration`] evaluator
+/// compares the current time against `expiration_date` to decide whether
+/// the baseline is still fresh.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ExpirationBlock {
+    /// Validity window in days. Must be non-zero; a zero-day policy is
+    /// represented by omitting the whole block.
+    pub expires_in_days: u32,
+
+    /// ISO 8601 timestamp of when the measurement run ended.
+    pub baseline_end_time: String,
+
+    /// Derived ISO 8601 timestamp of when the baseline becomes stale.
+    ///
+    /// Written for human readability — the evaluator recomputes this
+    /// value from `baseline_end_time + expires_in_days` at check time.
+    pub expiration_date: String,
 }
 
 /// Cost summary within a baseline spec.
@@ -233,6 +264,7 @@ impl BaselineSpec {
             requirements,
             statistics,
             cost: None,
+            expiration: None,
             content_fingerprint: None,
         }
     }
@@ -470,6 +502,78 @@ mod tests {
         let result = BaselineSpec::from_yaml("not: valid: yaml: [[[");
         assert!(result.is_err());
         assert!(matches!(result.unwrap_err(), SpecLoadError::Parse(_)));
+    }
+
+    fn sample_spec_with_expiration() -> BaselineSpec {
+        let mut spec = sample_spec();
+        spec.expiration = Some(ExpirationBlock {
+            expires_in_days: 30,
+            baseline_end_time: "2026-04-19T10:00:00Z".to_string(),
+            expiration_date: "2026-05-19T10:00:00Z".to_string(),
+        });
+        spec
+    }
+
+    #[test]
+    fn expiration_block_round_trips_through_yaml() {
+        let spec = sample_spec_with_expiration();
+        let yaml = spec.to_yaml().unwrap();
+        assert!(yaml.contains("expiration:"));
+        assert!(yaml.contains("expiresInDays: 30"));
+        assert!(yaml.contains("baselineEndTime: 2026-04-19T10:00:00Z"));
+        assert!(yaml.contains("expirationDate: 2026-05-19T10:00:00Z"));
+
+        let restored = BaselineSpec::parse_yaml(&yaml).unwrap();
+        assert_eq!(restored.expiration, spec.expiration);
+    }
+
+    #[test]
+    fn expiration_block_omitted_when_none() {
+        let yaml = sample_spec().to_yaml().unwrap();
+        assert!(!yaml.contains("expiration:"));
+        assert!(!yaml.contains("expiresInDays"));
+    }
+
+    #[test]
+    fn fingerprint_covers_expiration_block() {
+        let spec = sample_spec_with_expiration();
+        let yaml_without_fp = spec.to_yaml().unwrap();
+        let digest = Sha256::digest(yaml_without_fp.as_bytes());
+        let fingerprint = format!("{digest:x}");
+        let mut signed = spec;
+        signed.content_fingerprint = Some(fingerprint);
+        let yaml = signed.to_yaml().unwrap();
+
+        // Verifies: the expiration block sits before the contentFingerprint
+        // line and so is covered by content_before_fingerprint.
+        let loaded = BaselineSpec::from_yaml(&yaml).unwrap();
+        assert_eq!(
+            loaded.expiration.as_ref().map(|e| e.expires_in_days),
+            Some(30)
+        );
+    }
+
+    #[test]
+    fn from_yaml_rejects_tampered_expires_in_days() {
+        let spec = sample_spec_with_expiration();
+        let yaml_without_fp = spec.to_yaml().unwrap();
+        let digest = Sha256::digest(yaml_without_fp.as_bytes());
+        let fingerprint = format!("{digest:x}");
+        let mut signed = spec;
+        signed.content_fingerprint = Some(fingerprint);
+        let yaml = signed.to_yaml().unwrap();
+
+        // Adversarial: extend the window to resurrect a baseline that
+        // should already have expired.
+        let tampered = yaml.replace("expiresInDays: 30", "expiresInDays: 365");
+        assert_ne!(yaml, tampered);
+
+        let result = BaselineSpec::from_yaml(&tampered);
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            SpecLoadError::IntegrityFailure { .. }
+        ));
     }
 
     #[test]

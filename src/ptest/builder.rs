@@ -121,6 +121,7 @@ pub struct ProbabilisticTestBuilder<'a, F> {
     latency_thresholds: LatencyThresholds,
     baseline_latency_mode: Option<LatencyEnforcementMode>,
     baseline_latency_confidence: Option<f64>,
+    fail_on_expired_baseline: bool,
 }
 
 impl<'a, F> ProbabilisticTestBuilder<'a, F>
@@ -150,6 +151,7 @@ where
             latency_thresholds: LatencyThresholds::new(),
             baseline_latency_mode: None,
             baseline_latency_confidence: None,
+            fail_on_expired_baseline: false,
         }
     }
 
@@ -264,6 +266,22 @@ where
         self
     }
 
+    /// Escalates expired baselines from warning to test failure.
+    ///
+    /// By default, loading an expired baseline emits a warning in the
+    /// verdict report but does not affect the pass/fail outcome. Setting
+    /// this to `true` causes the runner to produce
+    /// [`crate::verdict::Verdict::Fail`] whenever the resolved baseline
+    /// has an [`crate::model::ExpirationStatus::Expired`] status.
+    ///
+    /// Has no effect on baselines without an expiration policy or on
+    /// those still within their validity window.
+    #[must_use]
+    pub const fn fail_on_expired_baseline(mut self, fail: bool) -> Self {
+        self.fail_on_expired_baseline = fail;
+        self
+    }
+
     /// Sets covariate context from a use case for baseline selection.
     ///
     /// When set, the resolver uses covariate-aware selection to find
@@ -310,6 +328,7 @@ where
                     .baseline_latency_confidence
                     .unwrap_or(crate::latency::DEFAULT_BASELINE_CONFIDENCE),
             },
+            fail_on_expired_baseline: self.fail_on_expired_baseline,
         };
         let baseline = BaselineContext {
             spec_resolver: self.spec_resolver,

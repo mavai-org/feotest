@@ -4,10 +4,11 @@ use crate::controls::{ExecutionConfig, PacingConfig, TokenRecorder};
 use crate::experiment::engine::{ExecutionEngine, ExecutionResult};
 use crate::model::TrialOutcome;
 use crate::spec::SpecResolver;
-use crate::spec::baseline::{BaselineSpec, RequirementsBlock, StatisticsBlock};
+use crate::spec::baseline::{BaselineSpec, ExpirationBlock, RequirementsBlock, StatisticsBlock};
 use crate::spec::common::{
     build_cost_block, build_execution_block, build_failure_distribution,
-    build_latency_distribution, build_success_rate_block, now_iso8601, round4, wilson_lower_bound,
+    build_latency_distribution, build_success_rate_block, iso8601_plus_days, now_iso8601, round4,
+    wilson_lower_bound,
 };
 use crate::spec::namer::CovariateProfile;
 use crate::usecase::UseCase;
@@ -51,6 +52,7 @@ pub struct MeasureExperiment<'a, F> {
     spec_resolver: Option<SpecResolver>,
     covariate_keys: Vec<String>,
     covariate_profile: CovariateProfile,
+    expires_in_days: u32,
 }
 
 impl<'a, F> MeasureExperiment<'a, F>
@@ -83,6 +85,7 @@ where
             spec_resolver: Some(SpecResolver::new("tests/baselines")),
             covariate_keys,
             covariate_profile,
+            expires_in_days: 0,
         }
     }
 
@@ -170,6 +173,23 @@ where
         self
     }
 
+    /// Sets the baseline validity window in days.
+    ///
+    /// When non-zero, the baseline spec YAML carries an `expiration` block
+    /// recording when the measurement ran and when it becomes stale.
+    /// Probabilistic tests loading the spec consult this block via the
+    /// [`crate::spec::expiration`] evaluator; expired baselines render a
+    /// warning by default and can be escalated to a test failure via
+    /// [`crate::ptest::ProbabilisticTestBuilder::fail_on_expired_baseline`].
+    ///
+    /// A value of `0` (the default) disables expiration entirely: no block
+    /// is written, no checks are performed.
+    #[must_use]
+    pub const fn expires_in_days(mut self, days: u32) -> Self {
+        self.expires_in_days = days;
+        self
+    }
+
     /// Runs the measure experiment and returns the result.
     pub fn run(mut self) -> MeasureResult {
         let token_recorder = TokenRecorder::new();
@@ -219,6 +239,17 @@ where
 
         spec.experiment_id.clone_from(&self.experiment_id);
         spec.cost = Some(build_cost_block(summary.cost()));
+
+        if self.expires_in_days > 0 {
+            let baseline_end_time = spec.generated_at.clone();
+            let expiration_date = iso8601_plus_days(&baseline_end_time, self.expires_in_days)
+                .unwrap_or_else(|| baseline_end_time.clone());
+            spec.expiration = Some(ExpirationBlock {
+                expires_in_days: self.expires_in_days,
+                baseline_end_time,
+                expiration_date,
+            });
+        }
 
         spec
     }
@@ -423,5 +454,34 @@ mod tests {
         let inputs = vec!["input".to_string()];
         let result = MeasureExperiment::new(&uc, 10, &inputs, succeeding_trial).run();
         assert_eq!(result.execution().summary().successes(), 10);
+    }
+
+    #[test]
+    fn zero_expires_in_days_omits_expiration_block() {
+        let uc = TestUseCase::new("no-expiry");
+        let inputs = vec!["input".to_string()];
+        let result = MeasureExperiment::new(&uc, 10, &inputs, succeeding_trial).run();
+        assert!(result.spec().expiration.is_none());
+    }
+
+    #[test]
+    fn expires_in_days_populates_expiration_block() {
+        let uc = TestUseCase::new("with-expiry");
+        let inputs = vec!["input".to_string()];
+        let result = MeasureExperiment::new(&uc, 10, &inputs, succeeding_trial)
+            .expires_in_days(30)
+            .run();
+
+        let exp = result
+            .spec()
+            .expiration
+            .as_ref()
+            .expect("expiration block must be present");
+        assert_eq!(exp.expires_in_days, 30);
+        assert_eq!(exp.baseline_end_time, result.spec().generated_at);
+        assert_eq!(
+            exp.expiration_date,
+            crate::spec::common::iso8601_plus_days(&exp.baseline_end_time, 30).unwrap()
+        );
     }
 }

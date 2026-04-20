@@ -34,6 +34,9 @@ pub struct AssessmentCriteria {
     pub contract_ref: Option<String>,
     /// Latency acceptance criteria.
     pub latency: LatencyConfig,
+    /// If true, an expired baseline forces the verdict to `Fail` rather
+    /// than only emitting a warning.
+    pub fail_on_expired_baseline: bool,
 }
 
 /// How to find and interpret empirical reference data.
@@ -189,11 +192,31 @@ where
         &derived_threshold,
     );
 
-    let verdict = if stats_verdict.passed() {
+    let mut verdict = if stats_verdict.passed() {
         Verdict::Pass
     } else {
         Verdict::Fail
     };
+
+    let expiration_info = baseline_spec
+        .as_ref()
+        .map(crate::spec::expiration::evaluate);
+    let baseline_expired = expiration_info
+        .as_ref()
+        .is_some_and(|info| matches!(info.status(), crate::model::ExpirationStatus::Expired));
+
+    if baseline_expired && criteria.fail_on_expired_baseline {
+        verdict = Verdict::Fail;
+        warnings.push(Warning::new(
+            "BASELINE_EXPIRED",
+            "baseline has expired; failing per fail_on_expired_baseline",
+        ));
+    } else if baseline_expired {
+        warnings.push(Warning::new(
+            "BASELINE_EXPIRED",
+            "baseline has expired; re-run the measure experiment to refresh it",
+        ));
+    }
 
     if criteria.intent == TestIntent::Smoke && criteria.threshold_origin.is_normative() {
         warnings.push(Warning::new(
@@ -207,6 +230,7 @@ where
         criteria.threshold_origin,
         baseline_spec.as_ref(),
         criteria.contract_ref.as_deref(),
+        expiration_info,
     );
     let functional = FunctionalDimension::new(
         summary.successes(),
@@ -351,10 +375,16 @@ fn build_provenance(
     threshold_origin: ThresholdOrigin,
     baseline_spec: Option<&crate::spec::BaselineSpec>,
     contract_ref: Option<&str>,
+    expiration_info: Option<crate::model::ExpirationInfo>,
 ) -> SpecProvenance {
     let mut provenance = SpecProvenance::new(threshold_origin);
     if let Some(spec) = baseline_spec {
         provenance = provenance.with_spec_filename(format!("{}.yaml", spec.use_case_id));
+        if let Some(info) = expiration_info
+            && !matches!(info.status(), crate::model::ExpirationStatus::NoExpiration)
+        {
+            provenance = provenance.with_expiration(info);
+        }
     }
     if let Some(cref) = contract_ref {
         provenance = provenance.with_contract_ref(cref);

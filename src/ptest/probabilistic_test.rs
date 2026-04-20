@@ -286,6 +286,7 @@ where
                 baseline_mode: None,
                 baseline_confidence: crate::latency::DEFAULT_BASELINE_CONFIDENCE,
             },
+            fail_on_expired_baseline: false,
         };
         let baseline = BaselineContext {
             spec_resolver,
