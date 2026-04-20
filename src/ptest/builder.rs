@@ -297,8 +297,9 @@ where
     ///
     /// # Panics
     ///
-    /// Panics if no threshold approach has been set, or if parameter bounds
-    /// are violated (samples = 0, `min_pass_rate` outside [0, 1]).
+    /// Panics if no threshold approach has been set, or if any parameter on
+    /// the selected [`ThresholdApproach`] is outside its valid range. See
+    /// [`validate_approach_bounds`] for the per-parameter constraints.
     pub fn run(self) -> ProbabilisticTestResult {
         let approach = self
             .approach
@@ -422,36 +423,52 @@ pub(crate) fn macro_config_from_approach(
 ///
 /// # Panics
 ///
-/// Panics if samples is zero or `min_pass_rate` is outside (0, 1].
+/// Panics if any parameter on the supplied approach is outside its valid
+/// range:
+///
+/// - `samples` must be `> 0`.
+/// - `min_pass_rate` must be in `[0, 1]`.
+/// - `confidence`, `min_detectable_effect`, and `power` must be in `(0, 1)`.
 pub(crate) fn validate_approach_bounds(approach: &ThresholdApproach) {
     match approach {
         ThresholdApproach::ThresholdFirst {
             samples,
             min_pass_rate,
         } => {
+            assert_samples_positive(*samples);
             assert!(
-                *samples > 0,
-                "samples must be greater than 0, got {samples}"
-            );
-            assert!(
-                *min_pass_rate > 0.0 && *min_pass_rate <= 1.0,
-                "min_pass_rate must be in (0, 1], got {min_pass_rate}"
+                (0.0..=1.0).contains(min_pass_rate),
+                "min_pass_rate must be in [0, 1], got {min_pass_rate}"
             );
         }
         ThresholdApproach::SampleSizeFirst {
             samples,
-            confidence: _,
+            confidence,
         } => {
-            assert!(
-                *samples > 0,
-                "samples must be greater than 0, got {samples}"
-            );
+            assert_samples_positive(*samples);
+            assert_in_open_unit_interval("confidence", *confidence);
         }
-        ThresholdApproach::ConfidenceFirst { .. } => {
-            // Confidence-first derives samples; no samples to validate here.
-            // confidence, MDE, and power are validated downstream.
+        ThresholdApproach::ConfidenceFirst {
+            confidence,
+            min_detectable_effect,
+            power,
+        } => {
+            assert_in_open_unit_interval("confidence", *confidence);
+            assert_in_open_unit_interval("min_detectable_effect", *min_detectable_effect);
+            assert_in_open_unit_interval("power", *power);
         }
     }
+}
+
+fn assert_samples_positive(samples: u32) {
+    assert!(samples > 0, "samples must be > 0, got {samples}");
+}
+
+fn assert_in_open_unit_interval(parameter: &str, value: f64) {
+    assert!(
+        value > 0.0 && value < 1.0,
+        "{parameter} must be in (0, 1), got {value}"
+    );
 }
 
 #[cfg(test)]
@@ -587,7 +604,7 @@ mod tests {
     // --- Validation: PT12 parameter bounds ---
 
     #[test]
-    #[should_panic(expected = "min_pass_rate must be in (0, 1]")]
+    #[should_panic(expected = "min_pass_rate must be in [0, 1], got 1.5")]
     fn panics_on_min_pass_rate_above_one() {
         let inputs = vec!["input".to_string()];
         ProbabilisticTestBuilder::new("test", &inputs, always_succeeds)
@@ -599,7 +616,19 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "samples must be greater than 0")]
+    #[should_panic(expected = "min_pass_rate must be in [0, 1], got -0.1")]
+    fn panics_on_min_pass_rate_negative() {
+        let inputs = vec!["input".to_string()];
+        ProbabilisticTestBuilder::new("test", &inputs, always_succeeds)
+            .approach(ThresholdApproach::ThresholdFirst {
+                samples: 10,
+                min_pass_rate: -0.1,
+            })
+            .run();
+    }
+
+    #[test]
+    #[should_panic(expected = "samples must be > 0, got 0")]
     fn panics_on_zero_samples_threshold_first() {
         let inputs = vec!["input".to_string()];
         ProbabilisticTestBuilder::new("test", &inputs, always_succeeds)
@@ -611,7 +640,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "samples must be greater than 0")]
+    #[should_panic(expected = "samples must be > 0, got 0")]
     fn panics_on_zero_samples_sample_size_first() {
         let inputs = vec!["input".to_string()];
         ProbabilisticTestBuilder::new("test", &inputs, always_succeeds)
@@ -623,13 +652,157 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "min_pass_rate must be in (0, 1]")]
-    fn rejects_min_pass_rate_zero() {
+    fn accepts_min_pass_rate_zero() {
         let inputs = vec!["input".to_string()];
-        ProbabilisticTestBuilder::new("test", &inputs, always_succeeds)
+        let result = ProbabilisticTestBuilder::new("test", &inputs, always_succeeds)
             .approach(ThresholdApproach::ThresholdFirst {
                 samples: 50,
                 min_pass_rate: 0.0,
+            })
+            .run();
+        assert_eq!(result.verdict_record().verdict(), Verdict::Pass);
+    }
+
+    #[test]
+    fn accepts_min_pass_rate_one() {
+        // min_pass_rate = 1.0 is a valid boundary but is inherently
+        // infeasible at any finite sample count. Smoke intent surfaces
+        // infeasibility as a warning rather than a panic, letting the
+        // test run to completion with always-successful trials.
+        let inputs = vec!["input".to_string()];
+        let result = ProbabilisticTestBuilder::new("test", &inputs, always_succeeds)
+            .approach(ThresholdApproach::ThresholdFirst {
+                samples: 50,
+                min_pass_rate: 1.0,
+            })
+            .intent(TestIntent::Smoke)
+            .run();
+        assert_eq!(result.verdict_record().verdict(), Verdict::Pass);
+    }
+
+    #[test]
+    #[should_panic(expected = "confidence must be in (0, 1), got 0")]
+    fn panics_on_sample_size_first_confidence_zero() {
+        let inputs = vec!["input".to_string()];
+        ProbabilisticTestBuilder::new("test", &inputs, always_succeeds)
+            .approach(ThresholdApproach::SampleSizeFirst {
+                samples: 50,
+                confidence: 0.0,
+            })
+            .run();
+    }
+
+    #[test]
+    #[should_panic(expected = "confidence must be in (0, 1), got 1")]
+    fn panics_on_sample_size_first_confidence_one() {
+        let inputs = vec!["input".to_string()];
+        ProbabilisticTestBuilder::new("test", &inputs, always_succeeds)
+            .approach(ThresholdApproach::SampleSizeFirst {
+                samples: 50,
+                confidence: 1.0,
+            })
+            .run();
+    }
+
+    #[test]
+    #[should_panic(expected = "confidence must be in (0, 1), got 1.2")]
+    fn panics_on_sample_size_first_confidence_above_one() {
+        let inputs = vec!["input".to_string()];
+        ProbabilisticTestBuilder::new("test", &inputs, always_succeeds)
+            .approach(ThresholdApproach::SampleSizeFirst {
+                samples: 50,
+                confidence: 1.2,
+            })
+            .run();
+    }
+
+    #[test]
+    #[should_panic(expected = "confidence must be in (0, 1), got 0")]
+    fn panics_on_confidence_first_confidence_zero() {
+        let inputs = vec!["input".to_string()];
+        ProbabilisticTestBuilder::new("test", &inputs, always_succeeds)
+            .approach(ThresholdApproach::ConfidenceFirst {
+                confidence: 0.0,
+                min_detectable_effect: 0.05,
+                power: 0.80,
+            })
+            .run();
+    }
+
+    #[test]
+    #[should_panic(expected = "confidence must be in (0, 1), got 1")]
+    fn panics_on_confidence_first_confidence_one() {
+        let inputs = vec!["input".to_string()];
+        ProbabilisticTestBuilder::new("test", &inputs, always_succeeds)
+            .approach(ThresholdApproach::ConfidenceFirst {
+                confidence: 1.0,
+                min_detectable_effect: 0.05,
+                power: 0.80,
+            })
+            .run();
+    }
+
+    #[test]
+    #[should_panic(expected = "confidence must be in (0, 1), got -0.01")]
+    fn panics_on_confidence_first_confidence_negative() {
+        let inputs = vec!["input".to_string()];
+        ProbabilisticTestBuilder::new("test", &inputs, always_succeeds)
+            .approach(ThresholdApproach::ConfidenceFirst {
+                confidence: -0.01,
+                min_detectable_effect: 0.05,
+                power: 0.80,
+            })
+            .run();
+    }
+
+    #[test]
+    #[should_panic(expected = "power must be in (0, 1), got 0")]
+    fn panics_on_confidence_first_power_zero() {
+        let inputs = vec!["input".to_string()];
+        ProbabilisticTestBuilder::new("test", &inputs, always_succeeds)
+            .approach(ThresholdApproach::ConfidenceFirst {
+                confidence: 0.95,
+                min_detectable_effect: 0.05,
+                power: 0.0,
+            })
+            .run();
+    }
+
+    #[test]
+    #[should_panic(expected = "power must be in (0, 1), got 1")]
+    fn panics_on_confidence_first_power_one() {
+        let inputs = vec!["input".to_string()];
+        ProbabilisticTestBuilder::new("test", &inputs, always_succeeds)
+            .approach(ThresholdApproach::ConfidenceFirst {
+                confidence: 0.95,
+                min_detectable_effect: 0.05,
+                power: 1.0,
+            })
+            .run();
+    }
+
+    #[test]
+    #[should_panic(expected = "min_detectable_effect must be in (0, 1), got 0")]
+    fn panics_on_confidence_first_min_detectable_effect_zero() {
+        let inputs = vec!["input".to_string()];
+        ProbabilisticTestBuilder::new("test", &inputs, always_succeeds)
+            .approach(ThresholdApproach::ConfidenceFirst {
+                confidence: 0.95,
+                min_detectable_effect: 0.0,
+                power: 0.80,
+            })
+            .run();
+    }
+
+    #[test]
+    #[should_panic(expected = "min_detectable_effect must be in (0, 1), got 1")]
+    fn panics_on_confidence_first_min_detectable_effect_one() {
+        let inputs = vec!["input".to_string()];
+        ProbabilisticTestBuilder::new("test", &inputs, always_succeeds)
+            .approach(ThresholdApproach::ConfidenceFirst {
+                confidence: 0.95,
+                min_detectable_effect: 1.0,
+                power: 0.80,
             })
             .run();
     }
