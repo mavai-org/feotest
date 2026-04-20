@@ -4,8 +4,8 @@ use std::time::{Duration, SystemTime};
 
 use feotest::experiment::MeasureExperiment;
 use feotest::model::{ExpirationStatus, TrialOutcome};
-use feotest::ptest::builder::ThresholdApproach;
 use feotest::ptest::ProbabilisticTestBuilder;
+use feotest::ptest::builder::ThresholdApproach;
 use feotest::spec::common::{iso8601_plus_days, parse_iso8601};
 use feotest::spec::expiration;
 use feotest::spec::{BaselineSpec, SpecResolver};
@@ -166,10 +166,12 @@ fn ptest_with_fail_on_expired_produces_fail_verdict() {
 
     let record = result.verdict_record();
     assert_eq!(record.verdict(), Verdict::Fail);
-    assert!(record
-        .warnings()
-        .iter()
-        .any(|w| w.code() == "BASELINE_EXPIRED"));
+    assert!(
+        record
+            .warnings()
+            .iter()
+            .any(|w| w.code() == "BASELINE_EXPIRED")
+    );
 }
 
 #[test]
