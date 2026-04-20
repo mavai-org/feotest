@@ -13,6 +13,7 @@ pub mod common;
 pub mod explore;
 pub(crate) mod matching;
 pub mod namer;
+pub mod optimization;
 pub mod projection;
 mod resolver;
 pub(crate) mod selector;
