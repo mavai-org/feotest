@@ -157,17 +157,18 @@ impl ExecutionEngine {
 /// pass rate over the given sample count.
 ///
 /// Uses ceiling so that `required_successes / samples >= min_pass_rate`
-/// is the tightest achievable ratio at or above the threshold.
+/// is the tightest achievable ratio at or above the threshold. A rate of
+/// `0.0` yields zero required successes (the trivially-passing case).
 ///
 /// # Panics
 ///
-/// Panics if `min_pass_rate` is not finite or is non-positive. These are
+/// Panics if `min_pass_rate` is outside `[0, 1]` or not finite. These are
 /// precondition violations — a caller must never pass an invalid rate.
 #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
 fn required_successes(samples: u32, min_pass_rate: f64) -> u32 {
     assert!(
-        min_pass_rate.is_finite() && min_pass_rate > 0.0,
-        "min_pass_rate must be finite and positive, got {min_pass_rate}"
+        min_pass_rate.is_finite() && (0.0..=1.0).contains(&min_pass_rate),
+        "min_pass_rate must be in [0, 1], got {min_pass_rate}"
     );
     let target = f64::from(samples) * min_pass_rate;
     target.ceil() as u32
