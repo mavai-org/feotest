@@ -178,7 +178,9 @@ where
 
     let config = config_overrides
         .cloned()
-        .unwrap_or_else(|| ExecutionConfig::new(samples));
+        .unwrap_or_else(|| ExecutionConfig::new(samples))
+        .min_pass_rate(derived_threshold.value())
+        .min_samples_for_validity(feas.minimum_samples());
 
     let token_recorder = TokenRecorder::new();
     let exec_result = ExecutionEngine::run(&config, inputs, &token_recorder, trial);
