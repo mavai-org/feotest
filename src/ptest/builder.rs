@@ -422,7 +422,7 @@ pub(crate) fn macro_config_from_approach(
 ///
 /// # Panics
 ///
-/// Panics if samples is zero or `min_pass_rate` is outside [0, 1].
+/// Panics if samples is zero or `min_pass_rate` is outside (0, 1].
 pub(crate) fn validate_approach_bounds(approach: &ThresholdApproach) {
     match approach {
         ThresholdApproach::ThresholdFirst {
@@ -434,8 +434,8 @@ pub(crate) fn validate_approach_bounds(approach: &ThresholdApproach) {
                 "samples must be greater than 0, got {samples}"
             );
             assert!(
-                (0.0..=1.0).contains(min_pass_rate),
-                "min_pass_rate must be in [0, 1], got {min_pass_rate}"
+                *min_pass_rate > 0.0 && *min_pass_rate <= 1.0,
+                "min_pass_rate must be in (0, 1], got {min_pass_rate}"
             );
         }
         ThresholdApproach::SampleSizeFirst {
@@ -587,7 +587,7 @@ mod tests {
     // --- Validation: PT12 parameter bounds ---
 
     #[test]
-    #[should_panic(expected = "min_pass_rate must be in [0, 1]")]
+    #[should_panic(expected = "min_pass_rate must be in (0, 1]")]
     fn panics_on_min_pass_rate_above_one() {
         let inputs = vec!["input".to_string()];
         ProbabilisticTestBuilder::new("test", &inputs, always_succeeds)
@@ -623,15 +623,15 @@ mod tests {
     }
 
     #[test]
-    fn accepts_min_pass_rate_zero() {
+    #[should_panic(expected = "min_pass_rate must be in (0, 1]")]
+    fn rejects_min_pass_rate_zero() {
         let inputs = vec!["input".to_string()];
-        let result = ProbabilisticTestBuilder::new("test", &inputs, always_succeeds)
+        ProbabilisticTestBuilder::new("test", &inputs, always_succeeds)
             .approach(ThresholdApproach::ThresholdFirst {
                 samples: 50,
                 min_pass_rate: 0.0,
             })
             .run();
-        assert_eq!(result.verdict_record().verdict(), Verdict::Pass);
     }
 
     // --- Validation: PT13 coherence via builder API ---

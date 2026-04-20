@@ -93,9 +93,23 @@ src/
 - **Small, coherent modules**: each module should have a single clear responsibility. Prefer many small files over few large ones.
 - **Minimal public surface**: default to `pub(crate)` visibility. Only make items `pub` when they form part of the intended public API. Re-export key public types from `lib.rs` once the API stabilises.
 - **Type-driven design**: use newtypes and enums to make invalid states unrepresentable. Prefer `struct` with named fields over tuples for domain concepts. Derive standard traits (`Debug`, `Clone`, `PartialEq`) where appropriate.
-- **`Result` is for genuine runtime uncertainty only**: `Result` is reserved for conditions outside the program's control — a stochastic service that may not deliver, a network call that may fail, or a user-provided file that has not yet been placed in the requisite folder. The deciding question is *whose fault is it?* If a required application config file is missing because the developer failed to ship it, that is a defect — assert and abort. If a file is missing because an end user has not yet supplied it, that is a legitimate runtime condition — return a `Result`. A violated precondition (e.g., a confidence level outside (0, 1), successes exceeding trials) is always a programming error, not a runtime condition. There is no case for "handling" a defective program — it must abort with a clear message. Use `assert!` with descriptive messages for preconditions. Do not wrap deterministic logic in `Result` types.
+- **`Result` is for genuine runtime uncertainty only**: `Result` is reserved for conditions outside the program's control — a stochastic service that may not deliver, a network call that may fail, or a user-provided file that has not yet been placed in the requisite folder. The deciding question is *whose fault is it?* If a required application config file is missing because the developer failed to ship it, that is a defect — assert and abort. If a file is missing because an end user has not yet supplied it, that is a legitimate runtime condition — return a `Result`. Do not wrap deterministic logic in `Result` types.
 - **`unwrap()` in library code**: acceptable only where failure is logically impossible and the invariant is self-evident (e.g., constructing a standard normal distribution with known-good constants). `unwrap()` is freely acceptable in tests.
-- **Doc comments**: all public items must have `///` doc comments. Use `//!` module-level docs in `mod.rs` files. Include examples in doc comments where the usage is not obvious. Document `Panics` sections for functions with preconditions.
+- **Doc comments**: all public items must have `///` doc comments. Use `//!` module-level docs in `mod.rs` files. Include examples in doc comments where the usage is not obvious.
+
+### Design by Contract
+
+These four rules govern how preconditions, postconditions, and invariants are handled throughout the codebase.
+
+1. **Preconditions are enforced by panic, not by silent recovery.** A method whose precondition is violated must panic with a descriptive message. Returning a default, clamping to a valid range, or wrapping the error in `Result` are all forms of concealment. A violated precondition is a defect in the calling code; the only correct response is to make the defect visible immediately.
+
+2. **Trait contracts must be statically knowable.** A trait that declares preconditions on its methods must make those preconditions discoverable from the trait definition alone. The caller must never need to call a method to find out whether calling it is valid. Where possible, use the type system to make invalid calls unrepresentable. Where that is impractical, document the precondition explicitly and ensure the caller has access to the state needed to verify it in advance.
+
+3. **No defensive programming against well-defined contracts.** When a function's contract guarantees a postcondition, the caller must not re-check that postcondition. When a type's invariant guarantees a property, downstream code must not guard against its absence. Defensive checks against conditions that the contract already excludes obscure real bugs by handling them silently.
+
+4. **All public methods must state their preconditions explicitly.** Every public method documents what it requires of its inputs — via `# Panics` doc sections, assert messages, or type constraints. A method with no stated preconditions is making a promise: it accepts any value its signature permits. If that promise is false, the method is defective.
+
+**Builder policy:** a builder rejects invalid input at the earliest point it can be detected. When a single parameter value is invalid in isolation (e.g., a zero sample count), the setter method panics immediately. When validity depends on a combination of values, validation occurs in the terminal `build` or `run` method.
 
 ### Testing
 

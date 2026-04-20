@@ -148,6 +148,9 @@ where
     /// - `inputs`: Input values for trials.
     /// - `trial`: Trial closure.
     /// - `apply_factor`: Closure that applies a factor value to the use case.
+    /// # Panics
+    ///
+    /// Panics if `inputs` is empty.
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         use_case: &dyn UseCase,
@@ -159,6 +162,7 @@ where
         trial: F,
         apply_factor: impl FnMut(&FactorValue) + 'static,
     ) -> Self {
+        assert!(!inputs.is_empty(), "inputs must not be empty");
         Self {
             use_case_id: use_case.id().to_owned(),
             control_factor: control_factor.into(),
@@ -184,22 +188,43 @@ where
     }
 
     /// Sets samples per iteration.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `samples` is zero.
     #[must_use]
-    pub const fn with_samples_per_iteration(mut self, samples: u32) -> Self {
+    pub fn with_samples_per_iteration(mut self, samples: u32) -> Self {
+        assert!(
+            samples > 0,
+            "samples_per_iteration must be positive, got 0"
+        );
         self.samples_per_iteration = samples;
         self
     }
 
     /// Sets maximum iterations.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `max` is zero.
     #[must_use]
-    pub const fn with_max_iterations(mut self, max: u32) -> Self {
+    pub fn with_max_iterations(mut self, max: u32) -> Self {
+        assert!(max > 0, "max_iterations must be positive, got 0");
         self.max_iterations = max;
         self
     }
 
     /// Sets the no-improvement window for early termination.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `window` is zero.
     #[must_use]
-    pub const fn with_no_improvement_window(mut self, window: u32) -> Self {
+    pub fn with_no_improvement_window(mut self, window: u32) -> Self {
+        assert!(
+            window > 0,
+            "no_improvement_window must be positive, got 0"
+        );
         self.no_improvement_window = window;
         self
     }
@@ -698,5 +723,49 @@ mod tests {
         assert_eq!(result.control_factor(), "factor");
         assert_eq!(result.experiment_id(), Some("exp-123"));
         assert_eq!(result.objective(), Objective::Maximize);
+    }
+
+    // --- Precondition tests ---
+
+    fn dummy_experiment(inputs: &[String]) -> OptimizeExperiment<'_, impl FnMut(&str) -> TrialOutcome> {
+        let uc = TestUc("precondition-test");
+        OptimizeExperiment::new(
+            &uc,
+            "factor",
+            FactorValue::Float(0.5),
+            SuccessRateScorer,
+            IncrementMutator,
+            inputs,
+            |_| TrialOutcome::success(Duration::ZERO),
+            |_| {},
+        )
+    }
+
+    #[test]
+    #[should_panic(expected = "inputs must not be empty")]
+    fn rejects_empty_inputs() {
+        let inputs: Vec<String> = vec![];
+        dummy_experiment(&inputs);
+    }
+
+    #[test]
+    #[should_panic(expected = "samples_per_iteration must be positive")]
+    fn rejects_zero_samples_per_iteration() {
+        let inputs = vec!["input".to_string()];
+        dummy_experiment(&inputs).with_samples_per_iteration(0);
+    }
+
+    #[test]
+    #[should_panic(expected = "max_iterations must be positive")]
+    fn rejects_zero_max_iterations() {
+        let inputs = vec!["input".to_string()];
+        dummy_experiment(&inputs).with_max_iterations(0);
+    }
+
+    #[test]
+    #[should_panic(expected = "no_improvement_window must be positive")]
+    fn rejects_zero_no_improvement_window() {
+        let inputs = vec!["input".to_string()];
+        dummy_experiment(&inputs).with_no_improvement_window(0);
     }
 }

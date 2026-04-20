@@ -112,8 +112,16 @@ impl ExecutionConfig {
     /// Leaving this unset (the default) disables early-termination
     /// entirely — measure, explore, and optimize experiments always run
     /// all planned samples.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `rate` is not in (0, 1].
     #[must_use]
-    pub const fn min_pass_rate(mut self, rate: f64) -> Self {
+    pub fn min_pass_rate(mut self, rate: f64) -> Self {
+        assert!(
+            rate > 0.0 && rate <= 1.0,
+            "min_pass_rate must be in (0, 1], got {rate}"
+        );
         self.min_pass_rate = Some(rate);
         self
     }
@@ -127,8 +135,13 @@ impl ExecutionConfig {
     /// statistically valid verdict. Has no effect on
     /// `FailureInevitable`, which stops as soon as the threshold becomes
     /// unreachable.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `floor` is zero.
     #[must_use]
-    pub const fn min_samples_for_validity(mut self, floor: u32) -> Self {
+    pub fn min_samples_for_validity(mut self, floor: u32) -> Self {
+        assert!(floor > 0, "min_samples_for_validity must be positive, got 0");
         self.min_samples_for_validity = Some(floor);
         self
     }
@@ -358,6 +371,48 @@ mod tests {
     #[should_panic(expected = "sample count must be positive")]
     fn rejects_zero_samples() {
         ExecutionConfig::new(0);
+    }
+
+    #[test]
+    #[should_panic(expected = "min_pass_rate must be in (0, 1]")]
+    fn rejects_min_pass_rate_zero() {
+        ExecutionConfig::new(100).min_pass_rate(0.0);
+    }
+
+    #[test]
+    #[should_panic(expected = "min_pass_rate must be in (0, 1]")]
+    fn rejects_min_pass_rate_negative() {
+        ExecutionConfig::new(100).min_pass_rate(-0.5);
+    }
+
+    #[test]
+    #[should_panic(expected = "min_pass_rate must be in (0, 1]")]
+    fn rejects_min_pass_rate_above_one() {
+        ExecutionConfig::new(100).min_pass_rate(1.1);
+    }
+
+    #[test]
+    #[should_panic(expected = "min_pass_rate must be in (0, 1]")]
+    fn rejects_min_pass_rate_nan() {
+        ExecutionConfig::new(100).min_pass_rate(f64::NAN);
+    }
+
+    #[test]
+    fn accepts_min_pass_rate_one() {
+        let config = ExecutionConfig::new(100).min_pass_rate(1.0);
+        assert_eq!(config.configured_min_pass_rate(), Some(1.0));
+    }
+
+    #[test]
+    #[should_panic(expected = "min_samples_for_validity must be positive")]
+    fn rejects_min_samples_for_validity_zero() {
+        ExecutionConfig::new(100).min_samples_for_validity(0);
+    }
+
+    #[test]
+    fn accepts_min_samples_for_validity_one() {
+        let config = ExecutionConfig::new(100).min_samples_for_validity(1);
+        assert_eq!(config.configured_min_samples_for_validity(), Some(1));
     }
 
     #[test]

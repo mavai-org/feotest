@@ -158,11 +158,17 @@ impl ExecutionEngine {
 ///
 /// Uses ceiling so that `required_successes / samples >= min_pass_rate`
 /// is the tightest achievable ratio at or above the threshold.
+///
+/// # Panics
+///
+/// Panics if `min_pass_rate` is not finite or is non-positive. These are
+/// precondition violations — a caller must never pass an invalid rate.
 #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
 fn required_successes(samples: u32, min_pass_rate: f64) -> u32 {
-    if !min_pass_rate.is_finite() || min_pass_rate <= 0.0 {
-        return 0;
-    }
+    assert!(
+        min_pass_rate.is_finite() && min_pass_rate > 0.0,
+        "min_pass_rate must be finite and positive, got {min_pass_rate}"
+    );
     let target = f64::from(samples) * min_pass_rate;
     target.ceil() as u32
 }
@@ -379,9 +385,7 @@ mod tests {
     fn success_guaranteed_terminates_when_threshold_met_and_floor_cleared() {
         // 100 samples at 0.90, no validity floor → require 90 successes.
         // With all-pass trials this triggers exactly after sample 90.
-        let config = ExecutionConfig::new(100)
-            .min_pass_rate(0.90)
-            .min_samples_for_validity(0);
+        let config = ExecutionConfig::new(100).min_pass_rate(0.90);
         let recorder = TokenRecorder::new();
         let inputs = vec!["input".to_string()];
 
