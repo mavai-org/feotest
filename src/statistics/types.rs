@@ -1,5 +1,27 @@
 //! Core types for the statistics module.
 
+/// Maximum magnitude of floating-point undershoot (below 0.0) or overshoot
+/// (above 1.0) tolerated in Wilson score interval bounds. The Wilson formula
+/// can produce bounds fractionally outside [0, 1] due to IEEE 754 rounding;
+/// values within this tolerance are snapped to the nearest boundary. Values
+/// outside it indicate a computational error and trigger a panic.
+const BOUND_TOLERANCE: f64 = 0.001;
+
+/// Snaps a confidence interval bound to [0, 1], tolerating floating-point
+/// noise up to [`BOUND_TOLERANCE`]. Panics if the value is further out.
+fn snap_bound(value: f64, name: &str) -> f64 {
+    if (0.0..=1.0).contains(&value) {
+        return value;
+    }
+    if (-BOUND_TOLERANCE..0.0).contains(&value) {
+        return 0.0;
+    }
+    if value > 1.0 && value <= 1.0 + BOUND_TOLERANCE {
+        return 1.0;
+    }
+    panic!("{name} is {value}, which is more than {BOUND_TOLERANCE} outside [0, 1]");
+}
+
 // ---------------------------------------------------------------------------
 // ConfidenceLevel newtype
 // ---------------------------------------------------------------------------
@@ -87,8 +109,14 @@ pub struct ProportionEstimate {
 impl ProportionEstimate {
     /// Creates a new `ProportionEstimate`.
     ///
-    /// Bounds are clamped to [0, 1].
-    pub(in crate::statistics) const fn new(
+    /// Bounds within [`BOUND_TOLERANCE`] of [0, 1] are snapped to the
+    /// nearest boundary to absorb floating-point noise from the Wilson
+    /// score formula. Bounds outside this tolerance are programming errors.
+    ///
+    /// # Panics
+    ///
+    /// Panics if either bound is more than [`BOUND_TOLERANCE`] outside [0, 1].
+    pub(in crate::statistics) fn new(
         point_estimate: f64,
         sample_size: u32,
         lower_bound: f64,
@@ -98,8 +126,8 @@ impl ProportionEstimate {
         Self {
             point_estimate,
             sample_size,
-            lower_bound: lower_bound.clamp(0.0, 1.0),
-            upper_bound: upper_bound.clamp(0.0, 1.0),
+            lower_bound: snap_bound(lower_bound, "lower_bound"),
+            upper_bound: snap_bound(upper_bound, "upper_bound"),
             confidence_level,
         }
     }
@@ -522,5 +550,56 @@ impl FeasibilityResult {
     #[must_use]
     pub fn criterion(&self) -> &str {
         &self.criterion
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn snap_bound_passes_valid_values() {
+        assert!((snap_bound(0.0, "lb") - 0.0).abs() < f64::EPSILON);
+        assert!((snap_bound(0.5, "lb") - 0.5).abs() < f64::EPSILON);
+        assert!((snap_bound(1.0, "ub") - 1.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn snap_bound_rounds_small_undershoot_to_zero() {
+        assert!((snap_bound(-0.0005, "lb") - 0.0).abs() < f64::EPSILON);
+        assert!((snap_bound(-0.001, "lb") - 0.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn snap_bound_rounds_small_overshoot_to_one() {
+        assert!((snap_bound(1.0005, "ub") - 1.0).abs() < f64::EPSILON);
+        assert!((snap_bound(1.001, "ub") - 1.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    #[should_panic(expected = "outside [0, 1]")]
+    fn snap_bound_panics_on_large_undershoot() {
+        snap_bound(-0.002, "lower_bound");
+    }
+
+    #[test]
+    #[should_panic(expected = "outside [0, 1]")]
+    fn snap_bound_panics_on_large_overshoot() {
+        snap_bound(1.002, "upper_bound");
+    }
+
+    #[test]
+    fn proportion_estimate_accepts_clean_bounds() {
+        let cl = ConfidenceLevel::new(0.95);
+        let est = ProportionEstimate::new(0.9, 100, 0.85, 0.95, cl);
+        assert!((est.lower_bound() - 0.85).abs() < f64::EPSILON);
+        assert!((est.upper_bound() - 0.95).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn proportion_estimate_snaps_tiny_undershoot() {
+        let cl = ConfidenceLevel::new(0.95);
+        let est = ProportionEstimate::new(0.01, 5, -0.0003, 0.05, cl);
+        assert!((est.lower_bound() - 0.0).abs() < f64::EPSILON);
     }
 }

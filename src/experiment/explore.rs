@@ -130,12 +130,20 @@ where
     /// * `inputs` — the input strings to cycle through during trials.
     /// * `trial` — function that executes one trial given a use case
     ///   reference and an input string.
+    /// # Panics
+    ///
+    /// Panics if `samples_per_config` is zero or `inputs` is empty.
     pub fn new(
         first_config: &'a T,
         samples_per_config: u32,
         inputs: &'a [String],
         trial: F,
     ) -> Self {
+        assert!(
+            samples_per_config > 0,
+            "samples_per_config must be positive, got 0"
+        );
+        assert!(!inputs.is_empty(), "inputs must not be empty");
         let use_case_id = first_config.id().to_owned();
         let mut configs = Vec::new();
         configs.push((first_config.to_string(), first_config));
@@ -452,5 +460,25 @@ mod tests {
 
         assert_eq!(good_result.execution().summary().successes(), 5);
         assert_eq!(bad_result.execution().summary().failures(), 5);
+    }
+
+    #[test]
+    #[should_panic(expected = "samples_per_config must be positive")]
+    fn rejects_zero_samples_per_config() {
+        let svc = MockService::new(1.0);
+        let inputs = vec!["input".to_string()];
+        ExploreExperiment::new(&svc, 0, &inputs, |_svc: &MockService, _input| {
+            TrialOutcome::success(Duration::ZERO)
+        });
+    }
+
+    #[test]
+    #[should_panic(expected = "inputs must not be empty")]
+    fn rejects_empty_inputs() {
+        let svc = MockService::new(1.0);
+        let inputs: Vec<String> = vec![];
+        ExploreExperiment::new(&svc, 10, &inputs, |_svc: &MockService, _input| {
+            TrialOutcome::success(Duration::ZERO)
+        });
     }
 }
