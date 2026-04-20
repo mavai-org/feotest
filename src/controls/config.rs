@@ -18,6 +18,8 @@ pub struct ExecutionConfig {
     on_budget_exhausted: BudgetExhaustedBehavior,
     max_example_failures: u32,
     pacing: Option<PacingConfig>,
+    min_pass_rate: Option<f64>,
+    min_samples_for_validity: Option<u32>,
 }
 
 impl ExecutionConfig {
@@ -44,6 +46,8 @@ impl ExecutionConfig {
             on_budget_exhausted: BudgetExhaustedBehavior::Fail,
             max_example_failures: 5,
             pacing: None,
+            min_pass_rate: None,
+            min_samples_for_validity: None,
         }
     }
 
@@ -93,6 +97,39 @@ impl ExecutionConfig {
     #[must_use]
     pub const fn with_pacing(mut self, pacing: PacingConfig) -> Self {
         self.pacing = Some(pacing);
+        self
+    }
+
+    /// Sets the minimum pass rate used for early-termination decisions.
+    ///
+    /// When set, the execution engine checks after each sample whether
+    /// the planned threshold remains reachable
+    /// ([`TerminationReason::FailureInevitable`](crate::model::TerminationReason::FailureInevitable))
+    /// or is already guaranteed
+    /// ([`TerminationReason::SuccessGuaranteed`](crate::model::TerminationReason::SuccessGuaranteed))
+    /// and stops early when appropriate.
+    ///
+    /// Leaving this unset (the default) disables early-termination
+    /// entirely — measure, explore, and optimize experiments always run
+    /// all planned samples.
+    #[must_use]
+    pub const fn min_pass_rate(mut self, rate: f64) -> Self {
+        self.min_pass_rate = Some(rate);
+        self
+    }
+
+    /// Sets the minimum number of samples the engine must execute before
+    /// it is allowed to terminate on `SuccessGuaranteed`.
+    ///
+    /// Typically sourced from
+    /// [`crate::statistics::feasibility::feasibility_check`] so that
+    /// early termination never bypasses the sample count required for a
+    /// statistically valid verdict. Has no effect on
+    /// `FailureInevitable`, which stops as soon as the threshold becomes
+    /// unreachable.
+    #[must_use]
+    pub const fn min_samples_for_validity(mut self, floor: u32) -> Self {
+        self.min_samples_for_validity = Some(floor);
         self
     }
 
@@ -165,6 +202,20 @@ impl ExecutionConfig {
     #[must_use]
     pub const fn pacing(&self) -> Option<&PacingConfig> {
         self.pacing.as_ref()
+    }
+
+    /// The configured minimum pass rate for early-termination checks,
+    /// if any.
+    #[must_use]
+    pub const fn configured_min_pass_rate(&self) -> Option<f64> {
+        self.min_pass_rate
+    }
+
+    /// The minimum sample floor that gates `SuccessGuaranteed`
+    /// termination, if any.
+    #[must_use]
+    pub const fn configured_min_samples_for_validity(&self) -> Option<u32> {
+        self.min_samples_for_validity
     }
 }
 
