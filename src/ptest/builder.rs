@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use crate::controls::ExecutionConfig;
 use crate::latency::{LatencyEnforcementMode, LatencyThresholds, Percentile};
-use crate::model::{TestIntent, ThresholdOrigin, TrialOutcome};
+use crate::model::{BudgetExhaustedBehavior, TestIntent, ThresholdOrigin, TrialOutcome};
 use crate::ptest::runner::{
     self, AssessmentCriteria, BaselineContext, LatencyConfig, ProbabilisticTestResult,
 };
@@ -122,6 +122,7 @@ pub struct ProbabilisticTestBuilder<'a, F> {
     baseline_latency_mode: Option<LatencyEnforcementMode>,
     baseline_latency_confidence: Option<f64>,
     fail_on_expired_baseline: bool,
+    on_budget_exhausted: Option<BudgetExhaustedBehavior>,
 }
 
 impl<'a, F> ProbabilisticTestBuilder<'a, F>
@@ -152,6 +153,7 @@ where
             baseline_latency_mode: None,
             baseline_latency_confidence: None,
             fail_on_expired_baseline: false,
+            on_budget_exhausted: None,
         }
     }
 
@@ -205,6 +207,18 @@ where
     #[must_use]
     pub const fn execution_config(mut self, config: ExecutionConfig) -> Self {
         self.config_overrides = Some(config);
+        self
+    }
+
+    /// Sets the behaviour when a budget is exhausted.
+    ///
+    /// If a full [`ExecutionConfig`] is also supplied via
+    /// [`Self::execution_config`], that config's own setting wins —
+    /// this setter only has effect when the runner synthesises a default
+    /// config.
+    #[must_use]
+    pub const fn on_budget_exhausted(mut self, behaviour: BudgetExhaustedBehavior) -> Self {
+        self.on_budget_exhausted = Some(behaviour);
         self
     }
 
@@ -330,6 +344,7 @@ where
                     .unwrap_or(crate::latency::DEFAULT_BASELINE_CONFIDENCE),
             },
             fail_on_expired_baseline: self.fail_on_expired_baseline,
+            on_budget_exhausted: self.on_budget_exhausted,
         };
         let baseline = BaselineContext {
             spec_resolver: self.spec_resolver,

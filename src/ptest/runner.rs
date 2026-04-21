@@ -40,6 +40,11 @@ pub struct AssessmentCriteria {
     /// If true, an expired baseline forces the verdict to `Fail` rather
     /// than only emitting a warning.
     pub fail_on_expired_baseline: bool,
+    /// What to do when a budget is exhausted. Applied to the runner's
+    /// synthesized execution config when the caller did not supply an
+    /// explicit `ExecutionConfig`. An explicit config carries its own
+    /// setting and is respected as-is.
+    pub on_budget_exhausted: Option<BudgetExhaustedBehavior>,
 }
 
 /// How to find and interpret empirical reference data.
@@ -181,7 +186,13 @@ where
 
     let config = config_overrides
         .cloned()
-        .unwrap_or_else(|| ExecutionConfig::new(samples))
+        .unwrap_or_else(|| {
+            let mut c = ExecutionConfig::new(samples);
+            if let Some(behaviour) = criteria.on_budget_exhausted {
+                c = c.with_on_budget_exhausted(behaviour);
+            }
+            c
+        })
         .min_pass_rate(derived_threshold.value())
         .min_samples_for_validity(feas.minimum_samples());
 
