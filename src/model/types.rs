@@ -96,14 +96,35 @@ pub enum ExceptionHandling {
 pub enum TerminationReason {
     /// All planned samples were executed.
     Completed,
-    /// Time budget exhausted.
+    /// Method-level time budget exhausted.
     TimeBudgetExhausted,
-    /// Token budget exhausted.
+    /// Method-level token budget exhausted.
     TokenBudgetExhausted,
+    /// Run-scoped time budget exhausted. The shared wall-clock cap for
+    /// the cargo invocation ran out.
+    RunTimeBudgetExhausted,
+    /// Run-scoped token budget exhausted. The shared token cap for the
+    /// cargo invocation ran out.
+    RunTokenBudgetExhausted,
     /// Early termination: failure is inevitable.
     FailureInevitable,
     /// Early termination: success is guaranteed.
     SuccessGuaranteed,
+}
+
+impl TerminationReason {
+    /// Whether this reason denotes any kind of budget exhaustion
+    /// (method-level or run-scoped).
+    #[must_use]
+    pub const fn is_budget_exhausted(&self) -> bool {
+        matches!(
+            self,
+            Self::TimeBudgetExhausted
+                | Self::TokenBudgetExhausted
+                | Self::RunTimeBudgetExhausted
+                | Self::RunTokenBudgetExhausted
+        )
+    }
 }
 
 impl fmt::Display for TerminationReason {
@@ -112,6 +133,8 @@ impl fmt::Display for TerminationReason {
             Self::Completed => write!(f, "COMPLETED"),
             Self::TimeBudgetExhausted => write!(f, "TIME_BUDGET_EXHAUSTED"),
             Self::TokenBudgetExhausted => write!(f, "TOKEN_BUDGET_EXHAUSTED"),
+            Self::RunTimeBudgetExhausted => write!(f, "RUN_TIME_BUDGET_EXHAUSTED"),
+            Self::RunTokenBudgetExhausted => write!(f, "RUN_TOKEN_BUDGET_EXHAUSTED"),
             Self::FailureInevitable => write!(f, "FAILURE_INEVITABLE"),
             Self::SuccessGuaranteed => write!(f, "SUCCESS_GUARANTEED"),
         }
