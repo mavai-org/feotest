@@ -307,7 +307,7 @@ where
 
         validate_approach_bounds(&approach);
 
-        // Coherence validation (PT13) — same rules as the macro path
+        // Coherence validation — same rules as the macro path
         let config = macro_config_from_approach(
             &self.use_case_id,
             &approach,
@@ -601,7 +601,7 @@ mod tests {
         ));
     }
 
-    // --- Validation: PT12 parameter bounds ---
+    // --- Validation: parameter bounds ---
 
     #[test]
     #[should_panic(expected = "min_pass_rate must be in [0, 1], got 1.5")]
@@ -807,7 +807,7 @@ mod tests {
             .run();
     }
 
-    // --- Validation: PT13 coherence via builder API ---
+    // --- Validation: coherence via builder API ---
 
     #[test]
     #[should_panic(expected = "REQUIRES_BASELINE")]
@@ -836,7 +836,7 @@ mod tests {
             .run();
     }
 
-    // --- Feasibility: PT08 via builder API ---
+    // --- Feasibility via builder API ---
 
     #[test]
     #[should_panic(expected = "Infeasible")]

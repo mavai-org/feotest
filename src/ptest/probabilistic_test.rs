@@ -561,7 +561,7 @@ where
     }
 }
 
-/// Writes a verdict record to `target/feotest/xml/` as RP07 verdict XML.
+/// Writes a verdict record to `target/feotest/xml/` as verdict XML.
 ///
 /// Failures are silently ignored — verdict XML is a diagnostic side-effect,
 /// not a test-critical path. A warning is printed to stderr if the write
@@ -910,7 +910,7 @@ mod tests {
     fn panics_sample_size_first_without_baseline() {
         let dir = tempfile::tempdir().unwrap();
         let inputs = vec!["input".to_string()];
-        ProbabilisticTest::new("pt13-ssf-missing", &inputs, always_succeeds)
+        ProbabilisticTest::new("coherence-ssf-missing", &inputs, always_succeeds)
             .samples(200)
             .confidence(0.95)
             .baseline_dir(dir.path())
@@ -922,7 +922,7 @@ mod tests {
     fn panics_confidence_first_without_baseline() {
         let dir = tempfile::tempdir().unwrap();
         let inputs = vec!["input".to_string()];
-        ProbabilisticTest::new("pt13-cf-missing", &inputs, always_succeeds)
+        ProbabilisticTest::new("coherence-cf-missing", &inputs, always_succeeds)
             .confidence(0.95)
             .min_detectable_effect(0.05)
             .power(0.80)
@@ -934,13 +934,13 @@ mod tests {
     #[should_panic(expected = "CONFLICT")]
     fn panics_conflict_non_normative_origin() {
         let dir = tempfile::tempdir().unwrap();
-        let uc = NamedUseCase("pt13-conflict");
+        let uc = NamedUseCase("coherence-conflict");
         let inputs = vec!["input".to_string()];
         crate::experiment::MeasureExperiment::new(&uc, 200, &inputs, always_succeeds)
             .with_spec_resolver(crate::spec::SpecResolver::with_dir(dir.path()))
             .run();
 
-        ProbabilisticTest::new("pt13-conflict", &inputs, always_succeeds)
+        ProbabilisticTest::new("coherence-conflict", &inputs, always_succeeds)
             .samples(100)
             .threshold(0.90)
             .threshold_origin(ThresholdOrigin::Empirical)
@@ -951,13 +951,13 @@ mod tests {
     #[test]
     fn accepts_normative_override_sla() {
         let dir = tempfile::tempdir().unwrap();
-        let uc = NamedUseCase("pt13-normative-sla");
+        let uc = NamedUseCase("coherence-normative-sla");
         let inputs = vec!["input".to_string()];
         crate::experiment::MeasureExperiment::new(&uc, 200, &inputs, always_succeeds)
             .with_spec_resolver(crate::spec::SpecResolver::with_dir(dir.path()))
             .run();
 
-        let record = ProbabilisticTest::new("pt13-normative-sla", &inputs, always_succeeds)
+        let record = ProbabilisticTest::new("coherence-normative-sla", &inputs, always_succeeds)
             .samples(100)
             .threshold(0.95)
             .threshold_origin(ThresholdOrigin::Sla)
