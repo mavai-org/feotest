@@ -913,7 +913,10 @@ mod tests {
         let w = warning_with_code(record, "BUDGET_EXHAUSTED").expect("BUDGET_EXHAUSTED warning");
         let msg = w.message();
         assert!(msg.contains("time"), "message: {msg}");
-        assert!(msg.contains("consumed"), "missing consumption phrase: {msg}");
+        assert!(
+            msg.contains("consumed"),
+            "missing consumption phrase: {msg}"
+        );
         assert!(msg.contains("/100 samples"), "missing sample ratio: {msg}");
     }
 
@@ -938,8 +941,14 @@ mod tests {
         let w = warning_with_code(record, "BUDGET_EXHAUSTED").expect("BUDGET_EXHAUSTED warning");
         let msg = w.message();
         assert!(msg.contains("token"), "message: {msg}");
-        assert!(msg.contains("consumed"), "missing consumption phrase: {msg}");
-        assert!(msg.contains("of 300 tokens"), "missing budget ceiling: {msg}");
+        assert!(
+            msg.contains("consumed"),
+            "missing consumption phrase: {msg}"
+        );
+        assert!(
+            msg.contains("of 300 tokens"),
+            "missing budget ceiling: {msg}"
+        );
         assert!(msg.contains("/100 samples"), "missing sample ratio: {msg}");
     }
 
@@ -965,7 +974,10 @@ mod tests {
             .expect("BUDGET_EXHAUSTED_PARTIAL warning");
         let msg = w.message();
         assert!(msg.contains("time"), "message: {msg}");
-        assert!(msg.contains("consumed"), "missing consumption phrase: {msg}");
+        assert!(
+            msg.contains("consumed"),
+            "missing consumption phrase: {msg}"
+        );
         assert!(msg.contains("/100 samples"), "missing sample ratio: {msg}");
     }
 
@@ -991,8 +1003,14 @@ mod tests {
             .expect("BUDGET_EXHAUSTED_PARTIAL warning");
         let msg = w.message();
         assert!(msg.contains("token"), "message: {msg}");
-        assert!(msg.contains("consumed"), "missing consumption phrase: {msg}");
-        assert!(msg.contains("of 300 tokens"), "missing budget ceiling: {msg}");
+        assert!(
+            msg.contains("consumed"),
+            "missing consumption phrase: {msg}"
+        );
+        assert!(
+            msg.contains("of 300 tokens"),
+            "missing budget ceiling: {msg}"
+        );
         assert!(msg.contains("/100 samples"), "missing sample ratio: {msg}");
     }
 
@@ -1024,7 +1042,10 @@ mod tests {
             )
         });
         let msg = w.message();
-        assert!(msg.contains("consumed"), "missing consumption phrase: {msg}");
+        assert!(
+            msg.contains("consumed"),
+            "missing consumption phrase: {msg}"
+        );
         assert!(msg.contains("of 1ns"), "missing budget ceiling: {msg}");
     }
 
@@ -1054,7 +1075,10 @@ mod tests {
         // "token" appears nowhere — not as the budget name, and not as a unit
         // since the time path formats Duration rather than a tokens count.
         assert!(!msg.contains("token"), "message: {msg}");
-        assert!(msg.contains("consumed"), "missing consumption phrase: {msg}");
+        assert!(
+            msg.contains("consumed"),
+            "missing consumption phrase: {msg}"
+        );
         assert!(msg.contains("/100 samples"), "missing sample ratio: {msg}");
     }
 }

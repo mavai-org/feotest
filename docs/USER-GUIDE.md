@@ -552,8 +552,44 @@ let config = ExecutionConfig::new(1000)
     .with_token_budget(100_000);
 ```
 
-When a budget is exhausted, the framework either fails the test or evaluates the
-partial results, depending on the configured `BudgetExhaustedBehavior`.
+Both budgets are checked between samples. The first one to exhaust wins —
+time is checked before tokens on each iteration, so ties go to the time
+budget. Zero or negative budgets are rejected at configuration time.
+
+#### Budget exhaustion behaviour
+
+When a budget is exhausted, two outcomes are available:
+
+- **`Fail` (default)** — the test is force-failed. No statistical verdict
+  is produced from the partial sample set; the failure is signalled by a
+  `BUDGET_EXHAUSTED` warning naming the exhausted budget, how much was
+  consumed, and how many samples completed versus planned. This is the
+  safe default: running out of budget means the test could not complete
+  as specified.
+- **`EvaluatePartial`** — the framework evaluates the samples completed
+  so far with the normal statistical machinery and produces a verdict
+  from the partial results. A `BUDGET_EXHAUSTED_PARTIAL` warning
+  accompanies the verdict. Choose this for cost-constrained LLM work
+  where a statistically valid (if less powerful) answer on 60 samples
+  beats a hard fail after 60 of 100 requested.
+
+Zero completed samples always force `Fail` regardless of policy — there
+is nothing to evaluate. A `BUDGET_EXHAUSTED_NO_SAMPLES` warning is
+emitted in that case.
+
+The policy is settable directly on both the simplified API and the
+builder:
+
+```rust
+use feotest::{BudgetExhaustedBehavior, ptest::ProbabilisticTest};
+
+let record = ProbabilisticTest::new("my-service", &inputs, trial)
+    .samples(1000)
+    .threshold(0.95)
+    .time_budget(Duration::from_secs(60))
+    .on_budget_exhausted(BudgetExhaustedBehavior::EvaluatePartial)
+    .run();
+```
 
 ### Token tracking
 
