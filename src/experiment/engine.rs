@@ -72,88 +72,29 @@ impl ExecutionEngine {
     {
         assert!(!inputs.is_empty(), "inputs must not be empty");
 
-        // Warmup phase: execute and discard
-        for i in 0..config.warmup() {
-            let input = &inputs[i as usize % inputs.len()];
-            let _ = trial(input);
-        }
+        execute_warmup(config, inputs, &mut trial);
 
         let start = Instant::now();
         let mut aggregate = SampleAggregate::new();
         let mut termination_reason = TerminationReason::Completed;
 
         for i in 0..config.samples() {
-            // Run-scoped checks come first. The run-scoped budget is the
-            // broader constraint, and preferring its termination reason
-            // on ties ensures the reported cause is the most general.
-            if let Some(rb) = run_budget {
-                if rb.time_exhausted() {
-                    termination_reason = TerminationReason::RunTimeBudgetExhausted;
-                    break;
-                }
-                let projected = config.static_token_charge().unwrap_or(0);
-                if rb.token_exhausted_at(projected) {
-                    termination_reason = TerminationReason::RunTokenBudgetExhausted;
-                    break;
-                }
+            if let Some(reason) =
+                check_pre_sample_budgets(i, config, token_recorder, run_budget, start)
+            {
+                termination_reason = reason;
+                break;
             }
 
-            // Method-level time budget
-            if let Some(budget) = config.time_budget() {
-                if start.elapsed() >= budget {
-                    termination_reason = TerminationReason::TimeBudgetExhausted;
-                    break;
-                }
-            }
+            apply_pacing(config);
 
-            // Method-level token budget
-            let tokens_consumed = token_recorder.total()
-                + config.static_token_charge().map_or(0, |c| u64::from(i) * c);
-            if let Some(budget) = config.token_budget() {
-                if tokens_consumed >= budget {
-                    termination_reason = TerminationReason::TokenBudgetExhausted;
-                    break;
-                }
-            }
-
-            // Apply pacing delay
-            if let Some(pacing) = config.pacing() {
-                let delay_ms = pacing.effective_delay_ms();
-                if delay_ms > 0 {
-                    std::thread::sleep(Duration::from_millis(delay_ms));
-                }
-            }
-
-            // Capture the per-method token total so the delta consumed
-            // by this single sample (dynamic + static) can be mirrored
-            // into the run-scoped budget after the trial completes.
             let tokens_before = token_recorder.total();
-
             let input = &inputs[i as usize % inputs.len()];
             let outcome = trial(input);
 
-            // Record static token charge
-            if let Some(charge) = config.static_token_charge() {
-                token_recorder.record(charge);
-            }
+            record_post_trial_consumption(config, token_recorder, run_budget, tokens_before);
+            record_sample_outcome(&mut aggregate, &outcome, config.max_example_failures());
 
-            if let Some(rb) = run_budget {
-                let delta = token_recorder.total().saturating_sub(tokens_before);
-                rb.record_tokens(delta);
-            }
-
-            // Record outcome
-            if outcome.is_success() {
-                aggregate.record_success(outcome.elapsed());
-            } else if let Some(violation) = outcome.violation() {
-                aggregate.record_failure(
-                    violation,
-                    outcome.elapsed(),
-                    config.max_example_failures(),
-                );
-            }
-
-            // Early termination checks
             let remaining = config.samples() - (i + 1);
             if let Some(reason) = check_early_termination(&aggregate, remaining, config) {
                 termination_reason = reason;
@@ -161,25 +102,18 @@ impl ExecutionEngine {
             }
         }
 
-        let total_elapsed = start.elapsed();
-        let total_tokens = token_recorder.total();
-        let samples_executed = aggregate.total();
-
-        let cost = run_budget.map_or_else(
-            || CostSummary::new(total_elapsed, total_tokens, samples_executed),
-            |rb| {
-                CostSummary::new(total_elapsed, total_tokens, samples_executed)
-                    .with_run_scoped(rb.snapshot())
-            },
+        let cost = build_cost_summary(
+            start.elapsed(),
+            token_recorder.total(),
+            aggregate.total(),
+            run_budget,
         );
-        let termination = TerminationInfo::new(termination_reason);
-
         let summary = ExecutionSummary::new(
             config.samples(),
-            samples_executed,
+            aggregate.total(),
             aggregate.successes(),
             aggregate.failures(),
-            termination,
+            TerminationInfo::new(termination_reason),
             cost,
         );
 
@@ -189,6 +123,123 @@ impl ExecutionEngine {
             token_recorder: token_recorder.clone(),
         }
     }
+}
+
+/// Runs the warmup phase, discarding every outcome.
+fn execute_warmup<F>(config: &ExecutionConfig, inputs: &[String], trial: &mut F)
+where
+    F: FnMut(&str) -> TrialOutcome,
+{
+    for i in 0..config.warmup() {
+        let input = &inputs[i as usize % inputs.len()];
+        let _ = trial(input);
+    }
+}
+
+/// Decides whether the upcoming sample must be skipped because a budget
+/// is already exhausted.
+///
+/// Run-scoped budgets are checked before method-level ones: when both
+/// scopes exhaust at the same sample, the more general cause is
+/// reported. `sample_index` is the zero-based iteration counter and
+/// `method_start` is the wall-clock start of the per-method run.
+fn check_pre_sample_budgets(
+    sample_index: u32,
+    config: &ExecutionConfig,
+    token_recorder: &TokenRecorder,
+    run_budget: Option<&RunBudget>,
+    method_start: Instant,
+) -> Option<TerminationReason> {
+    if let Some(rb) = run_budget {
+        if rb.time_exhausted() {
+            return Some(TerminationReason::RunTimeBudgetExhausted);
+        }
+        let projected = config.static_token_charge().unwrap_or(0);
+        if rb.token_exhausted_at(projected) {
+            return Some(TerminationReason::RunTokenBudgetExhausted);
+        }
+    }
+
+    if let Some(budget) = config.time_budget() {
+        if method_start.elapsed() >= budget {
+            return Some(TerminationReason::TimeBudgetExhausted);
+        }
+    }
+
+    let tokens_consumed = token_recorder.total()
+        + config
+            .static_token_charge()
+            .map_or(0, |c| u64::from(sample_index) * c);
+    if let Some(budget) = config.token_budget() {
+        if tokens_consumed >= budget {
+            return Some(TerminationReason::TokenBudgetExhausted);
+        }
+    }
+
+    None
+}
+
+/// Sleeps for the configured pacing delay, if any.
+fn apply_pacing(config: &ExecutionConfig) {
+    if let Some(pacing) = config.pacing() {
+        let delay_ms = pacing.effective_delay_ms();
+        if delay_ms > 0 {
+            std::thread::sleep(Duration::from_millis(delay_ms));
+        }
+    }
+}
+
+/// Records the token consumption attributable to a just-completed
+/// trial.
+///
+/// Adds the configured static charge to the method-level
+/// [`TokenRecorder`], then mirrors the resulting total delta (static
+/// plus any dynamic charges the trial recorded itself) into the
+/// run-scoped budget when one is active.
+fn record_post_trial_consumption(
+    config: &ExecutionConfig,
+    token_recorder: &TokenRecorder,
+    run_budget: Option<&RunBudget>,
+    tokens_before_trial: u64,
+) {
+    if let Some(charge) = config.static_token_charge() {
+        token_recorder.record(charge);
+    }
+    if let Some(rb) = run_budget {
+        let delta = token_recorder.total().saturating_sub(tokens_before_trial);
+        rb.record_tokens(delta);
+    }
+}
+
+/// Records a trial outcome against the aggregate, honouring the
+/// configured cap on captured example failures.
+fn record_sample_outcome(
+    aggregate: &mut SampleAggregate,
+    outcome: &TrialOutcome,
+    max_example_failures: u32,
+) {
+    if outcome.is_success() {
+        aggregate.record_success(outcome.elapsed());
+    } else if let Some(violation) = outcome.violation() {
+        aggregate.record_failure(violation, outcome.elapsed(), max_example_failures);
+    }
+}
+
+/// Builds the cost summary for a completed run, attaching the
+/// run-scoped snapshot when a shared budget participated.
+fn build_cost_summary(
+    total_elapsed: Duration,
+    total_tokens: u64,
+    samples_executed: u32,
+    run_budget: Option<&RunBudget>,
+) -> CostSummary {
+    run_budget.map_or_else(
+        || CostSummary::new(total_elapsed, total_tokens, samples_executed),
+        |rb| {
+            CostSummary::new(total_elapsed, total_tokens, samples_executed)
+                .with_run_scoped(rb.snapshot())
+        },
+    )
 }
 
 /// Computes the integer number of successes needed to meet a minimum
@@ -649,5 +700,172 @@ mod tests {
             b.summary().termination().reason(),
             &TerminationReason::RunTokenBudgetExhausted
         );
+    }
+
+    // --- Isolated coverage for the private helpers extracted from `run` ---
+
+    mod check_pre_sample_budgets {
+        use super::*;
+
+        #[test]
+        fn returns_none_when_no_budgets_configured() {
+            let config = ExecutionConfig::new(10);
+            let recorder = TokenRecorder::new();
+            let start = Instant::now();
+
+            assert!(check_pre_sample_budgets(0, &config, &recorder, None, start).is_none());
+        }
+
+        #[test]
+        fn prefers_run_scoped_time_over_method_level() {
+            // Both scopes are about to exhaust; the run-scoped cause
+            // must win because it is the broader constraint.
+            let config = ExecutionConfig::new(10).with_time_budget(Duration::from_millis(1));
+            let recorder = TokenRecorder::new();
+            let run_budget = RunBudget::new(Some(Duration::from_millis(1)), None);
+            std::thread::sleep(Duration::from_millis(5));
+            let start = Instant::now() - Duration::from_millis(10);
+
+            let reason = check_pre_sample_budgets(0, &config, &recorder, Some(&run_budget), start);
+            assert_eq!(reason, Some(TerminationReason::RunTimeBudgetExhausted));
+        }
+
+        #[test]
+        fn prefers_run_scoped_tokens_over_method_level() {
+            let config = ExecutionConfig::new(10)
+                .with_static_token_charge(50)
+                .with_token_budget(50);
+            let recorder = TokenRecorder::new();
+            let run_budget = RunBudget::new(None, Some(10));
+
+            let reason =
+                check_pre_sample_budgets(0, &config, &recorder, Some(&run_budget), Instant::now());
+            assert_eq!(reason, Some(TerminationReason::RunTokenBudgetExhausted));
+        }
+
+        #[test]
+        fn reports_method_level_time_when_run_scoped_clear() {
+            let config = ExecutionConfig::new(10).with_time_budget(Duration::from_millis(1));
+            let recorder = TokenRecorder::new();
+            let start = Instant::now() - Duration::from_millis(10);
+
+            let reason = check_pre_sample_budgets(0, &config, &recorder, None, start);
+            assert_eq!(reason, Some(TerminationReason::TimeBudgetExhausted));
+        }
+
+        #[test]
+        fn reports_method_level_tokens_when_consumed_exceeds_budget() {
+            let config = ExecutionConfig::new(10).with_token_budget(100);
+            let recorder = TokenRecorder::new();
+            recorder.record(100);
+
+            let reason = check_pre_sample_budgets(0, &config, &recorder, None, Instant::now());
+            assert_eq!(reason, Some(TerminationReason::TokenBudgetExhausted));
+        }
+    }
+
+    mod record_post_trial_consumption {
+        use super::*;
+
+        #[test]
+        fn records_static_charge_when_configured() {
+            let config = ExecutionConfig::new(1).with_static_token_charge(75);
+            let recorder = TokenRecorder::new();
+
+            record_post_trial_consumption(&config, &recorder, None, 0);
+
+            assert_eq!(recorder.total(), 75);
+        }
+
+        #[test]
+        fn no_op_on_recorder_when_no_static_charge() {
+            let config = ExecutionConfig::new(1);
+            let recorder = TokenRecorder::new();
+            recorder.record(20); // dynamic charge already recorded by the trial
+
+            record_post_trial_consumption(&config, &recorder, None, 0);
+
+            assert_eq!(recorder.total(), 20);
+        }
+
+        #[test]
+        fn mirrors_total_delta_into_run_budget() {
+            let config = ExecutionConfig::new(1).with_static_token_charge(30);
+            let recorder = TokenRecorder::new();
+            // Simulate a trial that recorded 10 dynamic tokens itself.
+            recorder.record(10);
+            let tokens_before = 0; // snapshot captured before the trial ran
+            let run_budget = RunBudget::new(None, Some(1_000));
+
+            record_post_trial_consumption(&config, &recorder, Some(&run_budget), tokens_before);
+
+            // 10 dynamic + 30 static = 40 mirrored into the run-scoped budget.
+            assert_eq!(run_budget.tokens_consumed(), 40);
+        }
+
+        #[test]
+        fn saturating_delta_protects_against_non_monotonic_recorder() {
+            // Defensive: tokens_before_trial greater than current total
+            // (a clone/reset path) must not panic or underflow.
+            let config = ExecutionConfig::new(1);
+            let recorder = TokenRecorder::new();
+            let run_budget = RunBudget::new(None, Some(1_000));
+
+            record_post_trial_consumption(&config, &recorder, Some(&run_budget), 500);
+
+            assert_eq!(run_budget.tokens_consumed(), 0);
+        }
+    }
+
+    mod record_sample_outcome {
+        use super::*;
+
+        #[test]
+        fn success_increments_successes() {
+            let mut aggregate = SampleAggregate::new();
+            let outcome = TrialOutcome::success(Duration::from_millis(3));
+
+            record_sample_outcome(&mut aggregate, &outcome, 5);
+
+            assert_eq!(aggregate.successes(), 1);
+            assert_eq!(aggregate.failures(), 0);
+        }
+
+        #[test]
+        fn failure_records_and_caps_example_list() {
+            let mut aggregate = SampleAggregate::new();
+            let violation = ContractViolation::new("check", "forced");
+            let outcome = TrialOutcome::failure(violation, Duration::from_millis(1));
+
+            record_sample_outcome(&mut aggregate, &outcome, 2);
+            record_sample_outcome(&mut aggregate, &outcome, 2);
+            record_sample_outcome(&mut aggregate, &outcome, 2);
+
+            assert_eq!(aggregate.failures(), 3);
+            assert_eq!(aggregate.example_failures().len(), 2);
+        }
+    }
+
+    mod build_cost_summary {
+        use super::*;
+
+        #[test]
+        fn omits_run_scoped_snapshot_without_budget() {
+            let cost = build_cost_summary(Duration::from_millis(100), 500, 10, None);
+
+            assert!(cost.run_scoped().is_none());
+        }
+
+        #[test]
+        fn attaches_snapshot_when_run_budget_present() {
+            let run_budget = RunBudget::new(None, Some(1_000));
+            run_budget.record_tokens(250);
+
+            let cost = build_cost_summary(Duration::from_millis(100), 500, 10, Some(&run_budget));
+
+            let snapshot = cost.run_scoped().expect("snapshot expected");
+            assert_eq!(snapshot.tokens_consumed(), 250);
+            assert_eq!(snapshot.token_budget(), Some(1_000));
+        }
     }
 }
