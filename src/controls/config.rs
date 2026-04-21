@@ -285,8 +285,14 @@ impl PacingConfig {
     }
 
     /// Sets the minimum milliseconds between samples.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `ms` is zero. A zero minimum is equivalent to no
+    /// constraint and almost always indicates a configuration error.
     #[must_use]
-    pub const fn min_ms_per_sample(mut self, ms: u64) -> Self {
+    pub fn min_ms_per_sample(mut self, ms: u64) -> Self {
+        assert!(ms > 0, "min_ms_per_sample must be positive, got 0");
         self.min_ms_per_sample = Some(ms);
         self
     }
@@ -488,5 +494,11 @@ mod tests {
             .min_ms_per_sample(100)
             .max_requests_per_second(2.0); // 500ms
         assert_eq!(pacing.effective_delay_ms(), 500);
+    }
+
+    #[test]
+    #[should_panic(expected = "min_ms_per_sample must be positive")]
+    fn min_ms_per_sample_rejects_zero() {
+        let _ = PacingConfig::new().min_ms_per_sample(0);
     }
 }
