@@ -547,6 +547,18 @@ mod tests {
     }
 
     #[test]
+    #[should_panic(expected = "max requests per second must be positive")]
+    fn max_requests_per_second_rejects_zero() {
+        let _ = PacingConfig::new().max_requests_per_second(0.0);
+    }
+
+    #[test]
+    #[should_panic(expected = "max requests per minute must be positive")]
+    fn max_requests_per_minute_rejects_zero() {
+        let _ = PacingConfig::new().max_requests_per_minute(0.0);
+    }
+
+    #[test]
     fn fractional_rps_below_one_yields_interval_longer_than_one_second() {
         // 0.5 rps → one request every 2 seconds = 2000ms.
         let pacing = PacingConfig::new().max_requests_per_second(0.5);
