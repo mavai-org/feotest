@@ -7,7 +7,7 @@ use std::time::Duration;
 
 use feotest::controls::PacingConfig;
 use feotest::model::{
-    CostSummary, ExpirationInfo, ExpirationStatus, ExecutionSummary, PacingSummary,
+    CostSummary, ExecutionSummary, ExpirationInfo, ExpirationStatus, PacingSummary,
     TerminationInfo, TerminationReason, TestIdentity, TestIntent, ThresholdOrigin, Warning,
 };
 use feotest::reporting::VerdictXmlWriter;
@@ -53,9 +53,7 @@ fn full_record() -> VerdictRecord {
         0.9200,
     );
 
-    let pacing = PacingSummary::from_config(
-        &PacingConfig::new().with_max_requests_per_second(5.0),
-    );
+    let pacing = PacingSummary::from_config(&PacingConfig::new().with_max_requests_per_second(5.0));
 
     VerdictRecord::builder(
         TestIdentity::new("full-service").with_test_name("test_everything"),

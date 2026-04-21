@@ -326,16 +326,16 @@ fn write_provenance(w: &mut String, record: &VerdictRecord) {
 
     if let Some(exp) = prov.expiration() {
         writeln!(w, ">").unwrap();
-        write!(
-            w,
-            "    <expiration status=\"{}\"",
-            exp.status().xml_name()
-        )
-        .unwrap();
+        write!(w, "    <expiration status=\"{}\"", exp.status().xml_name()).unwrap();
         if let Some(at) = exp.expires_at() {
             write!(w, " expires-at=\"{}\"", escape_attr(at)).unwrap();
         }
-        write!(w, " requires-warning=\"{}\"", exp.status().requires_warning()).unwrap();
+        write!(
+            w,
+            " requires-warning=\"{}\"",
+            exp.status().requires_warning()
+        )
+        .unwrap();
         writeln!(w, "/>").unwrap();
         writeln!(w, "  </provenance>").unwrap();
     } else {
@@ -487,13 +487,13 @@ fn escape_text(text: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::controls::PacingConfig;
     use crate::latency::dimension::{EvaluationStatus, LatencyDimension, LatencyEvaluation};
     use crate::latency::enforcement::LatencyEnforcementMode;
     use crate::latency::percentile::Percentile;
     use crate::latency::resolver::ThresholdProvenance;
-    use crate::controls::PacingConfig;
     use crate::model::{
-        CostSummary, ExpirationInfo, ExpirationStatus, ExecutionSummary, PacingSummary,
+        CostSummary, ExecutionSummary, ExpirationInfo, ExpirationStatus, PacingSummary,
         TerminationInfo, TerminationReason, TestIdentity, TestIntent, ThresholdOrigin, Warning,
     };
     use crate::verdict::{
@@ -844,10 +844,9 @@ mod tests {
         let pacing_config = PacingConfig::new().with_max_requests_per_second(5.0);
         let pacing_summary = PacingSummary::from_config(&pacing_config);
 
-        let analysis = StatisticalAnalysis::new(
-            0.95, 0.022, 0.907, 0.993, 0.900, ThresholdOrigin::Empirical,
-        )
-        .with_test_results(2.294, 0.011);
+        let analysis =
+            StatisticalAnalysis::new(0.95, 0.022, 0.907, 0.993, 0.900, ThresholdOrigin::Empirical)
+                .with_test_results(2.294, 0.011);
 
         let provenance = SpecProvenance::new(ThresholdOrigin::Empirical)
             .with_spec_filename("full-service.yaml")
