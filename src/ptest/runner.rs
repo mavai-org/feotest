@@ -177,8 +177,9 @@ where
     let mut verdict = compute_stats_verdict(summary, &derived_threshold);
     verdict = apply_budget_exhaustion_policy(summary, &config, verdict, &mut warnings);
 
-    let (verdict, expiration_info) = apply_expiration_policy(
-        baseline_spec.as_ref(),
+    let expiration_info = baseline_spec.as_ref().map(crate::spec::expiration::evaluate);
+    verdict = apply_expiration_policy(
+        expiration_info.as_ref(),
         criteria.fail_on_expired_baseline,
         verdict,
         &mut warnings,
@@ -392,37 +393,35 @@ fn apply_budget_exhaustion_policy(
     }
 }
 
-/// Computes the expiration info for the resolved baseline and, when
-/// the baseline is expired, either forces `Verdict::Fail` (if the
-/// caller opted in via `fail_on_expired`) or emits an informational
-/// warning. Returns the (possibly updated) verdict alongside the
-/// expiration info so downstream provenance can surface it.
+/// Given the baseline's expiration info, adjusts the verdict and emits
+/// a warning when expired. When `fail_on_expired` is set, an expired
+/// baseline forces `Verdict::Fail`; otherwise the verdict passes
+/// through with an informational warning. Non-expired (or absent)
+/// expiration info is a no-op.
 fn apply_expiration_policy(
-    baseline_spec: Option<&BaselineSpec>,
+    expiration_info: Option<&ExpirationInfo>,
     fail_on_expired: bool,
     verdict: Verdict,
     warnings: &mut Vec<Warning>,
-) -> (Verdict, Option<ExpirationInfo>) {
-    let expiration_info = baseline_spec.map(crate::spec::expiration::evaluate);
+) -> Verdict {
     let expired = expiration_info
-        .as_ref()
         .is_some_and(|info| matches!(info.status(), crate::model::ExpirationStatus::Expired));
 
     if !expired {
-        return (verdict, expiration_info);
+        return verdict;
     }
     if fail_on_expired {
         warnings.push(Warning::new(
             "BASELINE_EXPIRED",
             "baseline has expired; failing per fail_on_expired_baseline",
         ));
-        (Verdict::Fail, expiration_info)
+        Verdict::Fail
     } else {
         warnings.push(Warning::new(
             "BASELINE_EXPIRED",
             "baseline has expired; re-run the measure experiment to refresh it",
         ));
-        (verdict, expiration_info)
+        verdict
     }
 }
 
@@ -1284,5 +1283,282 @@ mod tests {
 
         assert_eq!(verdict, Verdict::Pass);
         assert!(warnings.is_empty());
+    }
+
+    // --- enforce_feasibility ---
+
+    fn feasible_result() -> FeasibilityResult {
+        use crate::statistics::types::ConfidenceLevel;
+        feasibility::feasibility_check(1000, 0.50, ConfidenceLevel::new(0.95))
+    }
+
+    fn infeasible_result() -> FeasibilityResult {
+        use crate::statistics::types::ConfidenceLevel;
+        // 2 samples against a 99% target at 99% confidence is nowhere near
+        // enough to prove the proportion; Wilson lower-bound machinery
+        // reports this as infeasible.
+        feasibility::feasibility_check(2, 0.99, ConfidenceLevel::new(0.99))
+    }
+
+    #[test]
+    fn enforce_feasibility_feasible_is_no_op() {
+        let feas = feasible_result();
+        assert!(feas.feasible());
+        let mut warnings = Vec::new();
+        enforce_feasibility("uc", TestIntent::Verification, &feas, &mut warnings);
+        assert!(warnings.is_empty());
+    }
+
+    #[test]
+    fn enforce_feasibility_smoke_infeasible_warns_undersized() {
+        let feas = infeasible_result();
+        assert!(!feas.feasible());
+        let mut warnings = Vec::new();
+        enforce_feasibility("uc", TestIntent::Smoke, &feas, &mut warnings);
+        assert_eq!(warnings.len(), 1);
+        assert_eq!(warnings[0].code(), "UNDERSIZED");
+    }
+
+    #[test]
+    #[should_panic(expected = "Infeasible")]
+    fn enforce_feasibility_verification_infeasible_panics() {
+        let feas = infeasible_result();
+        let mut warnings = Vec::new();
+        enforce_feasibility("uc", TestIntent::Verification, &feas, &mut warnings);
+    }
+
+    // --- compute_stats_verdict ---
+
+    fn make_derived_threshold(value: f64) -> DerivedThreshold {
+        use crate::statistics::types::{ConfidenceLevel, DerivationContext, OperationalApproach};
+        let cl = ConfidenceLevel::new(0.95);
+        let ctx = DerivationContext::new(0.9, 100, 100, cl);
+        DerivedThreshold::new(value, OperationalApproach::SampleSizeFirst, ctx, true)
+    }
+
+    #[test]
+    fn compute_stats_verdict_zero_samples_fails() {
+        let summary = make_summary(TerminationReason::Completed, 0, 100, Duration::ZERO, 0);
+        let threshold = make_derived_threshold(0.50);
+        assert_eq!(compute_stats_verdict(&summary, &threshold), Verdict::Fail);
+    }
+
+    #[test]
+    fn compute_stats_verdict_passes_when_stats_pass() {
+        // 100 successes out of 100 against a 0.10 threshold is clearly a pass.
+        let summary = make_summary(
+            TerminationReason::Completed,
+            100,
+            100,
+            Duration::from_millis(10),
+            0,
+        );
+        let threshold = make_derived_threshold(0.10);
+        assert_eq!(compute_stats_verdict(&summary, &threshold), Verdict::Pass);
+    }
+
+    #[test]
+    fn compute_stats_verdict_fails_when_stats_fail() {
+        // 10 successes out of 50 (20% observed) against a 0.95 threshold:
+        // the z-test rejects the null, so the verdict is Fail.
+        use crate::model::{CostSummary, TerminationInfo};
+        let summary = ExecutionSummary::new(
+            50,
+            50,
+            10,
+            40,
+            TerminationInfo::new(TerminationReason::Completed),
+            CostSummary::new(Duration::ZERO, 0, 50),
+        );
+        let threshold = make_derived_threshold(0.95);
+        assert_eq!(compute_stats_verdict(&summary, &threshold), Verdict::Fail);
+    }
+
+    // --- apply_expiration_policy ---
+
+    fn make_expiration(status: crate::model::ExpirationStatus) -> ExpirationInfo {
+        ExpirationInfo::new(status, Some("2026-01-01T00:00:00Z".into()))
+    }
+
+    #[test]
+    fn apply_expiration_policy_none_info_passes_through() {
+        let mut warnings = Vec::new();
+        let verdict = apply_expiration_policy(None, true, Verdict::Pass, &mut warnings);
+        assert_eq!(verdict, Verdict::Pass);
+        assert!(warnings.is_empty());
+    }
+
+    #[test]
+    fn apply_expiration_policy_not_expired_passes_through() {
+        let info = make_expiration(crate::model::ExpirationStatus::Valid);
+        let mut warnings = Vec::new();
+        let verdict = apply_expiration_policy(Some(&info), true, Verdict::Pass, &mut warnings);
+        assert_eq!(verdict, Verdict::Pass);
+        assert!(warnings.is_empty());
+    }
+
+    #[test]
+    fn apply_expiration_policy_expired_warn_only_preserves_verdict() {
+        let info = make_expiration(crate::model::ExpirationStatus::Expired);
+        let mut warnings = Vec::new();
+        let verdict = apply_expiration_policy(Some(&info), false, Verdict::Pass, &mut warnings);
+        assert_eq!(verdict, Verdict::Pass);
+        assert_eq!(warnings.len(), 1);
+        assert_eq!(warnings[0].code(), "BASELINE_EXPIRED");
+        assert!(warnings[0].message().contains("re-run"));
+    }
+
+    #[test]
+    fn apply_expiration_policy_expired_fail_forces_fail() {
+        let info = make_expiration(crate::model::ExpirationStatus::Expired);
+        let mut warnings = Vec::new();
+        let verdict = apply_expiration_policy(Some(&info), true, Verdict::Pass, &mut warnings);
+        assert_eq!(verdict, Verdict::Fail);
+        assert_eq!(warnings[0].code(), "BASELINE_EXPIRED");
+        assert!(warnings[0].message().contains("failing per"));
+    }
+
+    // --- record_smoke_normative_warning ---
+
+    fn make_criteria(intent: TestIntent, origin: ThresholdOrigin) -> AssessmentCriteria {
+        AssessmentCriteria {
+            approach: ThresholdApproach::ThresholdFirst {
+                samples: 100,
+                min_pass_rate: 0.90,
+            },
+            intent,
+            threshold_origin: origin,
+            contract_ref: None,
+            latency: LatencyConfig::default(),
+            fail_on_expired_baseline: false,
+            on_budget_exhausted: None,
+        }
+    }
+
+    #[test]
+    fn record_smoke_normative_warning_fires_on_smoke_plus_normative() {
+        let criteria = make_criteria(TestIntent::Smoke, ThresholdOrigin::Sla);
+        let mut warnings = Vec::new();
+        record_smoke_normative_warning(&criteria, &mut warnings);
+        assert_eq!(warnings.len(), 1);
+        assert_eq!(warnings[0].code(), "SMOKE_NORMATIVE");
+    }
+
+    #[test]
+    fn record_smoke_normative_warning_silent_on_verification() {
+        let criteria = make_criteria(TestIntent::Verification, ThresholdOrigin::Sla);
+        let mut warnings = Vec::new();
+        record_smoke_normative_warning(&criteria, &mut warnings);
+        assert!(warnings.is_empty());
+    }
+
+    #[test]
+    fn record_smoke_normative_warning_silent_on_non_normative_origin() {
+        let criteria = make_criteria(TestIntent::Smoke, ThresholdOrigin::Empirical);
+        let mut warnings = Vec::new();
+        record_smoke_normative_warning(&criteria, &mut warnings);
+        assert!(warnings.is_empty());
+    }
+
+    // --- consumption_phrase ---
+
+    #[test]
+    fn consumption_phrase_time_reports_duration() {
+        let summary = make_summary(
+            TerminationReason::TimeBudgetExhausted,
+            5,
+            100,
+            Duration::from_millis(23),
+            0,
+        );
+        let config = ExecutionConfig::new(100).with_time_budget(Duration::from_millis(20));
+        let phrase = consumption_phrase(summary.termination().reason(), &summary, &config);
+        assert!(phrase.contains("23ms"), "phrase: {phrase}");
+        assert!(phrase.contains("of 20ms"), "phrase: {phrase}");
+    }
+
+    #[test]
+    fn consumption_phrase_token_reports_tokens() {
+        let summary = make_summary(
+            TerminationReason::TokenBudgetExhausted,
+            3,
+            100,
+            Duration::ZERO,
+            400,
+        );
+        let config = ExecutionConfig::new(100).with_token_budget(300);
+        let phrase = consumption_phrase(summary.termination().reason(), &summary, &config);
+        assert!(phrase.contains("400"), "phrase: {phrase}");
+        assert!(phrase.contains("of 300 tokens"), "phrase: {phrase}");
+    }
+
+    #[test]
+    fn consumption_phrase_non_budget_termination_empty() {
+        let summary = make_summary(
+            TerminationReason::Completed,
+            100,
+            100,
+            Duration::from_millis(50),
+            0,
+        );
+        let config = ExecutionConfig::new(100);
+        let phrase = consumption_phrase(summary.termination().reason(), &summary, &config);
+        assert!(phrase.is_empty(), "phrase: {phrase}");
+    }
+
+    // --- synthesise_execution_config ---
+
+    #[test]
+    fn synthesise_uses_override_when_present() {
+        let override_config = ExecutionConfig::new(50)
+            .with_time_budget(Duration::from_secs(5))
+            .with_on_budget_exhausted(BudgetExhaustedBehavior::Fail);
+        let criteria = make_criteria(TestIntent::Verification, ThresholdOrigin::Empirical);
+        let threshold = make_derived_threshold(0.50);
+        let feas = feasible_result();
+
+        let config = synthesise_execution_config(
+            Some(&override_config),
+            &criteria,
+            100, // would differ from override's 50 if synthesis ignored the override
+            &threshold,
+            &feas,
+        );
+
+        assert_eq!(config.samples(), 50);
+        assert_eq!(config.time_budget(), Some(Duration::from_secs(5)));
+        assert_eq!(config.on_budget_exhausted(), BudgetExhaustedBehavior::Fail);
+    }
+
+    #[test]
+    fn synthesise_applies_criteria_on_budget_exhausted_when_no_override() {
+        let mut criteria = make_criteria(TestIntent::Verification, ThresholdOrigin::Empirical);
+        criteria.on_budget_exhausted = Some(BudgetExhaustedBehavior::EvaluatePartial);
+        let threshold = make_derived_threshold(0.50);
+        let feas = feasible_result();
+
+        let config = synthesise_execution_config(None, &criteria, 100, &threshold, &feas);
+
+        assert_eq!(config.samples(), 100);
+        assert_eq!(
+            config.on_budget_exhausted(),
+            BudgetExhaustedBehavior::EvaluatePartial
+        );
+    }
+
+    #[test]
+    fn synthesise_override_wins_over_criteria_on_budget_exhausted() {
+        let override_config = ExecutionConfig::new(100)
+            .with_on_budget_exhausted(BudgetExhaustedBehavior::Fail);
+        let mut criteria = make_criteria(TestIntent::Verification, ThresholdOrigin::Empirical);
+        criteria.on_budget_exhausted = Some(BudgetExhaustedBehavior::EvaluatePartial);
+        let threshold = make_derived_threshold(0.50);
+        let feas = feasible_result();
+
+        let config =
+            synthesise_execution_config(Some(&override_config), &criteria, 100, &threshold, &feas);
+
+        // Override wins.
+        assert_eq!(config.on_budget_exhausted(), BudgetExhaustedBehavior::Fail);
     }
 }
