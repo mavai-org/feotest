@@ -1,0 +1,12 @@
+# Clippy thresholds for feotest.
+#
+# Pinned explicitly here so future clippy default changes cannot
+# silently shift the project's policy. The values are aligned with
+# the "Short, cohesive methods" and "No escape hatches for method
+# length or complexity" rules in CLAUDE.md — the latter forbids
+# #[allow(clippy::too_many_lines)] / #[allow(clippy::cognitive_complexity)]
+# attributes, so clippy firing these is a trigger for refactoring,
+# not suppression.
+
+too-many-lines-threshold = 100
+cognitive-complexity-threshold = 20
