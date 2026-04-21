@@ -194,10 +194,7 @@ where
     /// Panics if `samples` is zero.
     #[must_use]
     pub fn with_samples_per_iteration(mut self, samples: u32) -> Self {
-        assert!(
-            samples > 0,
-            "samples_per_iteration must be positive, got 0"
-        );
+        assert!(samples > 0, "samples_per_iteration must be positive, got 0");
         self.samples_per_iteration = samples;
         self
     }
@@ -221,10 +218,7 @@ where
     /// Panics if `window` is zero.
     #[must_use]
     pub fn with_no_improvement_window(mut self, window: u32) -> Self {
-        assert!(
-            window > 0,
-            "no_improvement_window must be positive, got 0"
-        );
+        assert!(window > 0, "no_improvement_window must be positive, got 0");
         self.no_improvement_window = window;
         self
     }
@@ -252,7 +246,13 @@ where
             // Run samples for this iteration
             let config = ExecutionConfig::new(self.samples_per_iteration);
             let recorder = TokenRecorder::new();
-            let result = ExecutionEngine::run(&config, self.inputs, &recorder, &mut self.trial);
+            let result = ExecutionEngine::run(
+                &config,
+                self.inputs,
+                &recorder,
+                crate::controls::run::current(),
+                &mut self.trial,
+            );
 
             let score = self.scorer.score(&result);
 
@@ -727,7 +727,9 @@ mod tests {
 
     // --- Precondition tests ---
 
-    fn dummy_experiment(inputs: &[String]) -> OptimizeExperiment<'_, impl FnMut(&str) -> TrialOutcome> {
+    fn dummy_experiment(
+        inputs: &[String],
+    ) -> OptimizeExperiment<'_, impl FnMut(&str) -> TrialOutcome> {
         let uc = TestUc("precondition-test");
         OptimizeExperiment::new(
             &uc,

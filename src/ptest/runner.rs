@@ -169,7 +169,13 @@ where
     );
 
     let token_recorder = TokenRecorder::new();
-    let exec_result = ExecutionEngine::run(&config, inputs, &token_recorder, trial);
+    let exec_result = ExecutionEngine::run(
+        &config,
+        inputs,
+        &token_recorder,
+        crate::controls::run::current(),
+        trial,
+    );
 
     let summary = exec_result.summary();
     let aggregate = exec_result.aggregate();
@@ -177,7 +183,9 @@ where
     let mut verdict = compute_stats_verdict(summary, &derived_threshold);
     verdict = apply_budget_exhaustion_policy(summary, &config, verdict, &mut warnings);
 
-    let expiration_info = baseline_spec.as_ref().map(crate::spec::expiration::evaluate);
+    let expiration_info = baseline_spec
+        .as_ref()
+        .map(crate::spec::expiration::evaluate);
     verdict = apply_expiration_policy(
         expiration_info.as_ref(),
         criteria.fail_on_expired_baseline,
@@ -350,6 +358,8 @@ fn apply_budget_exhaustion_policy(
     let budget_name = match summary.termination().reason() {
         TerminationReason::TimeBudgetExhausted => "time",
         TerminationReason::TokenBudgetExhausted => "token",
+        TerminationReason::RunTimeBudgetExhausted => "run-scoped time",
+        TerminationReason::RunTokenBudgetExhausted => "run-scoped token",
         _ => return verdict,
     };
     let executed = summary.samples_executed();
@@ -451,10 +461,13 @@ fn build_baseline_provenance(spec: &BaselineSpec) -> BaselineProvenance {
     )
 }
 
-/// Renders a "consumed X of Y" phrase for the exhausted budget, pulling
-/// actuals from the cost summary and the configured ceiling from the
-/// execution config. Returns an empty string for non-budget termination
-/// reasons — this helper is only called in the budget-exhausted branch.
+/// Renders a "consumed X of Y" phrase for the exhausted budget. Method-
+/// level variants draw actuals from the cost summary and the configured
+/// ceiling from the execution config; run-scoped variants draw both
+/// consumption and cap from the run-scoped snapshot stamped onto the
+/// cost summary at termination time. Returns an empty string for
+/// non-budget termination reasons — this helper is only called in the
+/// budget-exhausted branch.
 fn consumption_phrase(
     reason: &TerminationReason,
     summary: &crate::model::ExecutionSummary,
@@ -469,6 +482,24 @@ fn consumption_phrase(
         TerminationReason::TokenBudgetExhausted => {
             let consumed = summary.cost().total_tokens();
             let budget = config.token_budget().unwrap_or(0);
+            format!("consumed {consumed} of {budget} tokens")
+        }
+        TerminationReason::RunTimeBudgetExhausted => {
+            let snapshot = summary
+                .cost()
+                .run_scoped()
+                .expect("run-scoped termination implies snapshot presence");
+            let consumed = snapshot.time_consumed();
+            let budget = snapshot.time_budget().unwrap_or_default();
+            format!("consumed {consumed:?} of {budget:?}")
+        }
+        TerminationReason::RunTokenBudgetExhausted => {
+            let snapshot = summary
+                .cost()
+                .run_scoped()
+                .expect("run-scoped termination implies snapshot presence");
+            let consumed = snapshot.tokens_consumed();
+            let budget = snapshot.token_budget().unwrap_or(0);
             format!("consumed {consumed} of {budget} tokens")
         }
         _ => String::new(),
@@ -1201,6 +1232,27 @@ mod tests {
         )
     }
 
+    fn make_summary_with_run_snapshot(
+        reason: TerminationReason,
+        samples_executed: u32,
+        samples_planned: u32,
+        time_consumed: Duration,
+        tokens_consumed: u64,
+        snapshot: crate::model::RunScopedSnapshot,
+    ) -> ExecutionSummary {
+        use crate::model::{CostSummary, TerminationInfo};
+        let cost = CostSummary::new(time_consumed, tokens_consumed, samples_executed)
+            .with_run_scoped(snapshot);
+        ExecutionSummary::new(
+            samples_planned,
+            samples_executed,
+            samples_executed,
+            0,
+            TerminationInfo::new(reason),
+            cost,
+        )
+    }
+
     #[test]
     fn apply_budget_exhaustion_policy_fail_forces_verdict_fail() {
         let summary = make_summary(
@@ -1506,6 +1558,137 @@ mod tests {
         assert!(phrase.is_empty(), "phrase: {phrase}");
     }
 
+    #[test]
+    fn consumption_phrase_run_scoped_time_reports_from_snapshot() {
+        use crate::model::RunScopedSnapshot;
+        let summary = make_summary_with_run_snapshot(
+            TerminationReason::RunTimeBudgetExhausted,
+            2,
+            100,
+            Duration::from_millis(7),
+            0,
+            RunScopedSnapshot::new(
+                Some(Duration::from_secs(10)),
+                Duration::from_secs(11),
+                None,
+                0,
+            ),
+        );
+        let config = ExecutionConfig::new(100);
+        let phrase = consumption_phrase(summary.termination().reason(), &summary, &config);
+        assert!(phrase.contains("11s"), "phrase: {phrase}");
+        assert!(phrase.contains("of 10s"), "phrase: {phrase}");
+    }
+
+    #[test]
+    fn consumption_phrase_run_scoped_token_reports_from_snapshot() {
+        use crate::model::RunScopedSnapshot;
+        let summary = make_summary_with_run_snapshot(
+            TerminationReason::RunTokenBudgetExhausted,
+            3,
+            100,
+            Duration::ZERO,
+            600,
+            RunScopedSnapshot::new(None, Duration::ZERO, Some(5_000), 5_200),
+        );
+        let config = ExecutionConfig::new(100);
+        let phrase = consumption_phrase(summary.termination().reason(), &summary, &config);
+        assert!(phrase.contains("5200"), "phrase: {phrase}");
+        assert!(phrase.contains("of 5000 tokens"), "phrase: {phrase}");
+    }
+
+    #[test]
+    fn apply_budget_exhaustion_policy_run_scoped_time_fail_emits_warning() {
+        use crate::model::RunScopedSnapshot;
+        let summary = make_summary_with_run_snapshot(
+            TerminationReason::RunTimeBudgetExhausted,
+            15,
+            100,
+            Duration::from_millis(4),
+            0,
+            RunScopedSnapshot::new(
+                Some(Duration::from_secs(5)),
+                Duration::from_secs(6),
+                None,
+                0,
+            ),
+        );
+        let config =
+            ExecutionConfig::new(100).with_on_budget_exhausted(BudgetExhaustedBehavior::Fail);
+        let mut warnings = Vec::new();
+
+        let verdict =
+            apply_budget_exhaustion_policy(&summary, &config, Verdict::Pass, &mut warnings);
+
+        assert_eq!(verdict, Verdict::Fail);
+        assert_eq!(warnings[0].code(), "BUDGET_EXHAUSTED");
+        let msg = warnings[0].message();
+        assert!(
+            msg.contains("run-scoped time budget exhausted"),
+            "message: {msg}"
+        );
+        assert!(msg.contains("/100 samples"), "missing sample ratio: {msg}");
+        assert!(msg.contains("of 5s"), "missing consumption: {msg}");
+    }
+
+    #[test]
+    fn apply_budget_exhaustion_policy_run_scoped_tokens_partial_preserves_verdict() {
+        use crate::model::RunScopedSnapshot;
+        let summary = make_summary_with_run_snapshot(
+            TerminationReason::RunTokenBudgetExhausted,
+            20,
+            100,
+            Duration::ZERO,
+            2_000,
+            RunScopedSnapshot::new(None, Duration::ZERO, Some(10_000), 10_400),
+        );
+        let config = ExecutionConfig::new(100)
+            .with_on_budget_exhausted(BudgetExhaustedBehavior::EvaluatePartial);
+        let mut warnings = Vec::new();
+
+        let verdict =
+            apply_budget_exhaustion_policy(&summary, &config, Verdict::Pass, &mut warnings);
+
+        assert_eq!(verdict, Verdict::Pass);
+        assert_eq!(warnings[0].code(), "BUDGET_EXHAUSTED_PARTIAL");
+        let msg = warnings[0].message();
+        assert!(
+            msg.contains("run-scoped token budget exhausted"),
+            "message: {msg}"
+        );
+        assert!(msg.contains("20/100 samples"), "sample ratio wrong: {msg}");
+        assert!(msg.contains("of 10000 tokens"), "consumption wrong: {msg}");
+    }
+
+    #[test]
+    fn apply_budget_exhaustion_policy_run_scoped_zero_samples_fails() {
+        use crate::model::RunScopedSnapshot;
+        let summary = make_summary_with_run_snapshot(
+            TerminationReason::RunTokenBudgetExhausted,
+            0,
+            50,
+            Duration::ZERO,
+            0,
+            RunScopedSnapshot::new(None, Duration::ZERO, Some(1_000), 1_000),
+        );
+        let config = ExecutionConfig::new(50)
+            .with_on_budget_exhausted(BudgetExhaustedBehavior::EvaluatePartial);
+        let mut warnings = Vec::new();
+
+        let verdict =
+            apply_budget_exhaustion_policy(&summary, &config, Verdict::Pass, &mut warnings);
+
+        assert_eq!(verdict, Verdict::Fail);
+        assert_eq!(warnings[0].code(), "BUDGET_EXHAUSTED_NO_SAMPLES");
+        assert!(
+            warnings[0]
+                .message()
+                .contains("run-scoped token budget exhausted"),
+            "message: {}",
+            warnings[0].message()
+        );
+    }
+
     // --- synthesise_execution_config ---
 
     #[test]
@@ -1548,8 +1731,8 @@ mod tests {
 
     #[test]
     fn synthesise_override_wins_over_criteria_on_budget_exhausted() {
-        let override_config = ExecutionConfig::new(100)
-            .with_on_budget_exhausted(BudgetExhaustedBehavior::Fail);
+        let override_config =
+            ExecutionConfig::new(100).with_on_budget_exhausted(BudgetExhaustedBehavior::Fail);
         let mut criteria = make_criteria(TestIntent::Verification, ThresholdOrigin::Empirical);
         criteria.on_budget_exhausted = Some(BudgetExhaustedBehavior::EvaluatePartial);
         let threshold = make_derived_threshold(0.50);

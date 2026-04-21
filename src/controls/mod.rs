@@ -5,7 +5,9 @@
 //! and a thread-safe token recorder for dynamic token tracking.
 
 mod config;
+pub mod run;
 mod tokens;
 
 pub use config::{ExecutionConfig, PacingConfig};
+pub use run::RunBudget;
 pub use tokens::TokenRecorder;

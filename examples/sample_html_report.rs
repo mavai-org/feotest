@@ -8,7 +8,7 @@ use std::time::Duration;
 
 use feotest::controls::PacingConfig;
 use feotest::model::{
-    CostSummary, ExpirationInfo, ExpirationStatus, ExecutionSummary, PacingSummary,
+    CostSummary, ExecutionSummary, ExpirationInfo, ExpirationStatus, PacingSummary,
     TerminationInfo, TerminationReason, TestIdentity, TestIntent, ThresholdOrigin, Warning,
 };
 use feotest::reporting::HtmlReportWriter;
@@ -98,9 +98,8 @@ fn full_pass_record() -> VerdictRecord {
 }
 
 fn fail_record() -> VerdictRecord {
-    let analysis =
-        StatisticalAnalysis::new(0.95, 0.040, 0.722, 0.878, 0.900, ThresholdOrigin::Sla)
-            .with_test_results(-1.50, 0.933);
+    let analysis = StatisticalAnalysis::new(0.95, 0.040, 0.722, 0.878, 0.900, ThresholdOrigin::Sla)
+        .with_test_results(-1.50, 0.933);
 
     let provenance = SpecProvenance::new(ThresholdOrigin::Sla)
         .with_contract_ref("Payment SLA v1.0 §2.4")
@@ -109,17 +108,11 @@ fn fail_record() -> VerdictRecord {
             Some("2026-05-01T00:00:00Z".into()),
         ));
 
-    let pacing = PacingSummary::from_config(
-        &PacingConfig::new().with_max_requests_per_second(5.0),
-    );
+    let pacing = PacingSummary::from_config(&PacingConfig::new().with_max_requests_per_second(5.0));
 
     let covariates = CovariateStatus::new(
         false,
-        vec![Misalignment::new(
-            "api_version",
-            "2026-03-01",
-            "2026-04-15",
-        )],
+        vec![Misalignment::new("api_version", "2026-03-01", "2026-04-15")],
         vec![
             ("provider".to_string(), "stripe".to_string()),
             ("api_version".to_string(), "2026-03-01".to_string()),

@@ -591,6 +591,58 @@ let record = ProbabilisticTest::new("my-service", &inputs, trial)
     .run();
 ```
 
+#### Run-scoped budgets
+
+A run-scoped budget caps cumulative time or tokens across every test in
+a single `cargo test` invocation, on top of any per-method budgets the
+individual tests carry. Configure it with environment variables:
+
+```bash
+FEOTEST_RUN_TIME_BUDGET_MS=600000 \
+FEOTEST_RUN_TOKEN_BUDGET=1000000 \
+    cargo test
+```
+
+Either variable may be set independently; absence of both leaves the run
+uncapped at this scope.
+
+Enrolment is opt-out: when a run-scoped budget is configured, every test
+the framework executes is automatically subject to it. Tests do not
+declare enrolment or reference the run budget in their own
+configuration. Removing the environment variable removes the cap; no
+code change is needed.
+
+Per-method and run-scoped budgets compose by first-exhausted-wins. A
+test whose own time budget exhausts before the run budget terminates
+with the existing per-method exhaustion warning; a test whose run budget
+exhausts first terminates with a run-scoped variant of the same warning.
+The exhaustion behaviour policy (`Fail` vs `EvaluatePartial`) applies
+identically to both.
+
+A test that begins execution after the run budget is already exhausted
+short-circuits to zero samples and emits `BUDGET_EXHAUSTED_NO_SAMPLES`.
+Tests already mid-flight terminate at their next per-sample check;
+`feotest` cannot abort a trial that has already started.
+
+For programmatic configuration — for example, a custom test harness that
+derives the budget from a CI parameter — set the budget once before the
+first test runs:
+
+```rust
+use std::time::Duration;
+use feotest::RunBudget;
+
+feotest::controls::run::init(
+    RunBudget::new(Some(Duration::from_secs(600)), Some(1_000_000)),
+)
+.expect("run budget already initialised");
+```
+
+`init` errors if the run budget has already been materialised — either
+by a prior `init` call or by a test that already consulted the
+environment. The budget is set once per process and frozen for the
+remainder of the run.
+
 ### Token tracking
 
 Trial closures can report token consumption via a `TokenRecorder`:

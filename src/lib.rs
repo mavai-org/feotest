@@ -43,5 +43,6 @@ pub mod statistics;
 pub mod usecase;
 pub mod verdict;
 
+pub use controls::RunBudget;
 pub use feotest_macros::probabilistic_test;
 pub use model::BudgetExhaustedBehavior;

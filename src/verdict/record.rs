@@ -2,8 +2,8 @@
 
 use crate::latency::LatencyDimension;
 use crate::model::{
-    ExpirationInfo, ExecutionSummary, PacingSummary, TerminationReason, TestIdentity, TestIntent,
-    ThresholdOrigin, Warning,
+    ExecutionSummary, ExpirationInfo, PacingSummary, TestIdentity, TestIntent, ThresholdOrigin,
+    Warning,
 };
 use crate::verdict::Verdict;
 
@@ -736,10 +736,7 @@ fn derive_verdict_reason(
     functional: &FunctionalDimension,
     analysis: Option<&StatisticalAnalysis>,
 ) -> String {
-    let is_budget_exhausted = matches!(
-        execution.termination().reason(),
-        TerminationReason::TimeBudgetExhausted | TerminationReason::TokenBudgetExhausted
-    );
+    let is_budget_exhausted = execution.termination().reason().is_budget_exhausted();
 
     match verdict {
         Verdict::Pass => {
@@ -1060,12 +1057,11 @@ mod tests {
         use crate::controls::PacingConfig;
         use crate::model::{ExpirationInfo, ExpirationStatus, PacingSummary};
 
-        let pacing = PacingSummary::from_config(
-            &PacingConfig::new().with_max_requests_per_second(10.0),
-        );
+        let pacing =
+            PacingSummary::from_config(&PacingConfig::new().with_max_requests_per_second(10.0));
 
-        let provenance = SpecProvenance::new(ThresholdOrigin::Empirical)
-            .with_expiration(ExpirationInfo::new(
+        let provenance =
+            SpecProvenance::new(ThresholdOrigin::Empirical).with_expiration(ExpirationInfo::new(
                 ExpirationStatus::ExpiringSoon,
                 Some("2026-06-01T00:00:00Z".into()),
             ));
