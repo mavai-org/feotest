@@ -59,15 +59,30 @@ impl ExecutionConfig {
     }
 
     /// Sets the time budget.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `budget` is zero. A non-positive budget has no meaningful
+    /// behaviour — no sample could ever run.
     #[must_use]
-    pub const fn with_time_budget(mut self, budget: Duration) -> Self {
+    pub fn with_time_budget(mut self, budget: Duration) -> Self {
+        assert!(
+            !budget.is_zero(),
+            "time_budget must be positive, got {budget:?}"
+        );
         self.time_budget = Some(budget);
         self
     }
 
     /// Sets the token budget.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `budget` is zero. A non-positive budget has no meaningful
+    /// behaviour — no sample could ever run.
     #[must_use]
-    pub const fn with_token_budget(mut self, budget: u64) -> Self {
+    pub fn with_token_budget(mut self, budget: u64) -> Self {
+        assert!(budget > 0, "token_budget must be positive, got 0");
         self.token_budget = Some(budget);
         self
     }
@@ -152,15 +167,28 @@ impl ExecutionConfig {
     // --- Internal helpers for experiment builders ---
 
     /// Sets the time budget on this config (consuming and returning it).
+    ///
+    /// # Panics
+    ///
+    /// Panics if `budget` is zero.
     #[must_use]
-    pub(crate) const fn set_time_budget(mut self, budget: Duration) -> Self {
+    pub(crate) fn set_time_budget(mut self, budget: Duration) -> Self {
+        assert!(
+            !budget.is_zero(),
+            "time_budget must be positive, got {budget:?}"
+        );
         self.time_budget = Some(budget);
         self
     }
 
     /// Sets the token budget on this config (consuming and returning it).
+    ///
+    /// # Panics
+    ///
+    /// Panics if `budget` is zero.
     #[must_use]
-    pub(crate) const fn set_token_budget(mut self, budget: u64) -> Self {
+    pub(crate) fn set_token_budget(mut self, budget: u64) -> Self {
+        assert!(budget > 0, "token_budget must be positive, got 0");
         self.token_budget = Some(budget);
         self
     }
@@ -374,6 +402,18 @@ mod tests {
     #[should_panic(expected = "sample count must be positive")]
     fn rejects_zero_samples() {
         ExecutionConfig::new(0);
+    }
+
+    #[test]
+    #[should_panic(expected = "time_budget must be positive")]
+    fn rejects_zero_time_budget() {
+        ExecutionConfig::new(100).with_time_budget(Duration::ZERO);
+    }
+
+    #[test]
+    #[should_panic(expected = "token_budget must be positive")]
+    fn rejects_zero_token_budget() {
+        ExecutionConfig::new(100).with_token_budget(0);
     }
 
     #[test]

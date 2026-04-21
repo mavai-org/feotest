@@ -139,8 +139,12 @@ where
     /// Sets the time budget for the experiment.
     ///
     /// The execution engine will stop once this wall-clock duration has elapsed.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `duration` is zero.
     #[must_use]
-    pub const fn time_budget(mut self, duration: std::time::Duration) -> Self {
+    pub fn time_budget(mut self, duration: std::time::Duration) -> Self {
         self.config = ExecutionConfig::set_time_budget(self.config, duration);
         self
     }
@@ -148,8 +152,12 @@ where
     /// Sets the token budget for the experiment.
     ///
     /// The execution engine will stop once this many tokens have been consumed.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `budget` is zero.
     #[must_use]
-    pub const fn token_budget(mut self, budget: u64) -> Self {
+    pub fn token_budget(mut self, budget: u64) -> Self {
         self.config = ExecutionConfig::set_token_budget(self.config, budget);
         self
     }
