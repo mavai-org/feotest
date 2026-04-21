@@ -154,8 +154,10 @@ fn rule4_confidence_first_requires_baseline_rate(config: &MacroConfig) {
         return;
     }
 
-    // A baseline rate can come from the baseline spec OR an explicit threshold
-    if config.has_baseline || config.threshold.is_some() {
+    // Only baseline presence matters here. A CF config carrying an explicit
+    // threshold is already an over-specification that Rule 5 rejects, so we
+    // do not need a `threshold.is_some()` escape hatch in this rule.
+    if config.has_baseline {
         return;
     }
 
@@ -342,14 +344,40 @@ mod tests {
     }
 
     #[test]
-    fn baseline_with_normative_threshold_allowed() {
+    fn baseline_with_sla_threshold_allowed() {
         let config = MacroConfig {
             samples: Some(100),
             threshold: Some(0.95),
             threshold_origin: ThresholdOrigin::Sla,
             has_baseline: true,
             baseline_rate: Some(0.92),
-            ..base_config("normative_override")
+            ..base_config("normative_override_sla")
+        };
+        validate(&config);
+    }
+
+    #[test]
+    fn baseline_with_slo_threshold_allowed() {
+        let config = MacroConfig {
+            samples: Some(100),
+            threshold: Some(0.95),
+            threshold_origin: ThresholdOrigin::Slo,
+            has_baseline: true,
+            baseline_rate: Some(0.92),
+            ..base_config("normative_override_slo")
+        };
+        validate(&config);
+    }
+
+    #[test]
+    fn baseline_with_policy_threshold_allowed() {
+        let config = MacroConfig {
+            samples: Some(100),
+            threshold: Some(0.95),
+            threshold_origin: ThresholdOrigin::Policy,
+            has_baseline: true,
+            baseline_rate: Some(0.92),
+            ..base_config("normative_override_policy")
         };
         validate(&config);
     }

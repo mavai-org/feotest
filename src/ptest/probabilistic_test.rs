@@ -260,9 +260,12 @@ where
         let approach = self.detect_approach();
         crate::ptest::builder::validate_approach_bounds(&approach);
 
-        // Coherence validation (PT13) — covers rules that detect_approach() does not
-        let has_baseline =
-            self.baseline_path.is_some() || self.baseline_dir.is_some() || self.threshold.is_none(); // threshold-less approaches auto-resolve a baseline
+        // Resolver is built up-front so coherence validation can ask the
+        // filesystem whether a baseline actually exists, rather than
+        // optimistically assuming one will be there.
+        let spec_resolver = self.build_spec_resolver();
+        let has_baseline = self.check_baseline_available(spec_resolver.as_ref());
+
         let config = crate::ptest::builder::macro_config_from_approach(
             &self.use_case_id,
             &approach,
@@ -271,7 +274,6 @@ where
         );
         crate::ptest::validation::validate(&config);
 
-        let spec_resolver = self.build_spec_resolver();
         let transparent_stats = self.transparent_stats;
 
         let config_overrides = self.build_execution_config(&approach);
@@ -474,10 +476,15 @@ where
     fn build_spec_resolver(&self) -> Option<SpecResolver> {
         // A resolver is needed when:
         // - there is no explicit threshold (baseline required for derivation), OR
-        // - covariates are declared (baseline must be loaded for integrity verification)
+        // - covariates are declared (baseline must be loaded for integrity verification), OR
+        // - the user explicitly asked for one by supplying a baseline path or directory.
+        //
+        // The last case lets coherence validation honestly detect a baseline
+        // + explicit threshold conflict through the simplified API.
         let needs_baseline = self.threshold.is_none();
         let has_covariates = self.covariate_context.is_some();
-        if !needs_baseline && !has_covariates && self.baseline_path.is_none() {
+        let user_specified_location = self.baseline_path.is_some() || self.baseline_dir.is_some();
+        if !needs_baseline && !has_covariates && !user_specified_location {
             return None;
         }
 
@@ -496,6 +503,30 @@ where
         let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").unwrap_or_else(|_| ".".to_string());
         let default_dir = PathBuf::from(manifest_dir).join("tests").join("baselines");
         Some(SpecResolver::with_dir(default_dir))
+    }
+
+    /// Reports whether a baseline spec is actually resolvable.
+    ///
+    /// Coherence validation relies on this being truthful: a threshold-less
+    /// approach with no baseline on disk must fail early with the
+    /// `REQUIRES_BASELINE[_RATE]` diagnostic, not cryptically inside the
+    /// runner. Any resolution warnings surfaced here are discarded; the
+    /// runner performs its own resolution and reports from there.
+    fn check_baseline_available(&self, resolver: Option<&SpecResolver>) -> bool {
+        let Some(resolver) = resolver else {
+            return false;
+        };
+        if let Some(ref path) = self.baseline_path {
+            return SpecResolver::resolve_file(path).is_ok();
+        }
+        let mut warnings = Vec::new();
+        crate::ptest::baseline::resolve(
+            resolver,
+            &self.use_case_id,
+            self.covariate_context.as_ref(),
+            &mut warnings,
+        )
+        .is_some()
     }
 
     /// Builds `ExecutionConfig` from the approach and optional overrides.
@@ -530,7 +561,7 @@ where
     }
 }
 
-/// Writes a verdict record to `target/feotest/xml/` as RP07 verdict XML.
+/// Writes a verdict record to `target/feotest/xml/` as verdict XML.
 ///
 /// Failures are silently ignored — verdict XML is a diagnostic side-effect,
 /// not a test-critical path. A warning is printed to stderr if the write
@@ -863,5 +894,75 @@ mod tests {
             .pacing(crate::controls::PacingConfig::new().with_min_ms_per_sample(10));
         let approach = pt.detect_approach();
         assert!(pt.build_execution_config(&approach).is_some());
+    }
+
+    // --- Coherence rules through the simplified API ---
+
+    struct NamedUseCase(&'static str);
+    impl crate::usecase::UseCase for NamedUseCase {
+        fn id(&self) -> &str {
+            self.0
+        }
+    }
+
+    #[test]
+    #[should_panic(expected = "REQUIRES_BASELINE")]
+    fn panics_sample_size_first_without_baseline() {
+        let dir = tempfile::tempdir().unwrap();
+        let inputs = vec!["input".to_string()];
+        ProbabilisticTest::new("coherence-ssf-missing", &inputs, always_succeeds)
+            .samples(200)
+            .confidence(0.95)
+            .baseline_dir(dir.path())
+            .run();
+    }
+
+    #[test]
+    #[should_panic(expected = "REQUIRES_BASELINE_RATE")]
+    fn panics_confidence_first_without_baseline() {
+        let dir = tempfile::tempdir().unwrap();
+        let inputs = vec!["input".to_string()];
+        ProbabilisticTest::new("coherence-cf-missing", &inputs, always_succeeds)
+            .confidence(0.95)
+            .min_detectable_effect(0.05)
+            .power(0.80)
+            .baseline_dir(dir.path())
+            .run();
+    }
+
+    #[test]
+    #[should_panic(expected = "CONFLICT")]
+    fn panics_conflict_non_normative_origin() {
+        let dir = tempfile::tempdir().unwrap();
+        let uc = NamedUseCase("coherence-conflict");
+        let inputs = vec!["input".to_string()];
+        crate::experiment::MeasureExperiment::new(&uc, 200, &inputs, always_succeeds)
+            .with_spec_resolver(crate::spec::SpecResolver::with_dir(dir.path()))
+            .run();
+
+        ProbabilisticTest::new("coherence-conflict", &inputs, always_succeeds)
+            .samples(100)
+            .threshold(0.90)
+            .threshold_origin(ThresholdOrigin::Empirical)
+            .baseline_dir(dir.path())
+            .run();
+    }
+
+    #[test]
+    fn accepts_normative_override_sla() {
+        let dir = tempfile::tempdir().unwrap();
+        let uc = NamedUseCase("coherence-normative-sla");
+        let inputs = vec!["input".to_string()];
+        crate::experiment::MeasureExperiment::new(&uc, 200, &inputs, always_succeeds)
+            .with_spec_resolver(crate::spec::SpecResolver::with_dir(dir.path()))
+            .run();
+
+        let record = ProbabilisticTest::new("coherence-normative-sla", &inputs, always_succeeds)
+            .samples(100)
+            .threshold(0.95)
+            .threshold_origin(ThresholdOrigin::Sla)
+            .baseline_dir(dir.path())
+            .run();
+        assert_eq!(record.verdict(), Verdict::Pass);
     }
 }
