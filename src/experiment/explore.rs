@@ -239,8 +239,13 @@ where
                 outcome
             };
 
-            let execution =
-                ExecutionEngine::run(&exec_config, self.inputs, &recorder, None, &mut trial_fn);
+            let execution = ExecutionEngine::run(
+                &exec_config,
+                self.inputs,
+                &recorder,
+                crate::controls::run::current(),
+                &mut trial_fn,
+            );
 
             results.push(ConfigResult {
                 name: name.clone(),

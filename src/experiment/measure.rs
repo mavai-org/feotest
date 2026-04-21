@@ -205,7 +205,7 @@ where
             &self.config,
             self.inputs,
             &token_recorder,
-            None,
+            crate::controls::run::current(),
             &mut self.trial,
         );
 

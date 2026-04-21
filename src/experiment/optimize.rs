@@ -246,8 +246,13 @@ where
             // Run samples for this iteration
             let config = ExecutionConfig::new(self.samples_per_iteration);
             let recorder = TokenRecorder::new();
-            let result =
-                ExecutionEngine::run(&config, self.inputs, &recorder, None, &mut self.trial);
+            let result = ExecutionEngine::run(
+                &config,
+                self.inputs,
+                &recorder,
+                crate::controls::run::current(),
+                &mut self.trial,
+            );
 
             let score = self.scorer.score(&result);
 

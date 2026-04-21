@@ -169,7 +169,13 @@ where
     );
 
     let token_recorder = TokenRecorder::new();
-    let exec_result = ExecutionEngine::run(&config, inputs, &token_recorder, None, trial);
+    let exec_result = ExecutionEngine::run(
+        &config,
+        inputs,
+        &token_recorder,
+        crate::controls::run::current(),
+        trial,
+    );
 
     let summary = exec_result.summary();
     let aggregate = exec_result.aggregate();

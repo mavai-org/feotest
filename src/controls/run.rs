@@ -12,6 +12,9 @@
 //! sample, and the first to be exhausted stops the test.
 
 use std::env;
+use std::error::Error;
+use std::fmt;
+use std::sync::OnceLock;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
@@ -176,6 +179,60 @@ fn parse_positive_u64(raw: &str, name: &str) -> u64 {
     assert!(n > 0, "{name} must be a positive integer, got 0");
     n
 }
+
+// ---------------------------------------------------------------------------
+// Process-global singleton
+// ---------------------------------------------------------------------------
+
+/// The process-wide run budget. `current()` lazily populates it from
+/// the environment on first access; `init` populates it explicitly from
+/// source. Whichever path wins first freezes the value for the process
+/// lifetime.
+static RUN_BUDGET: OnceLock<Option<RunBudget>> = OnceLock::new();
+
+/// Returns the process-global run budget if one is configured.
+///
+/// Initialises the singleton from environment variables on the first
+/// call if [`init`] has not already populated it. Returns `None` when
+/// neither [`TIME_BUDGET_ENV`] nor [`TOKEN_BUDGET_ENV`] is set in the
+/// environment and no in-source initialisation has occurred.
+#[must_use]
+pub fn current() -> Option<&'static RunBudget> {
+    RUN_BUDGET.get_or_init(RunBudget::from_environment).as_ref()
+}
+
+/// Sets the process-global run budget from an explicit value.
+///
+/// Intended for test-support code that wants a known budget without
+/// depending on the environment. Must be called before any test reads
+/// [`current`]; once the singleton has been materialised (via either
+/// path) this function returns [`AlreadyInitialisedError`] and the
+/// supplied budget is discarded. The caller should treat that error
+/// as "too late" rather than retry.
+///
+/// # Errors
+///
+/// Returns [`AlreadyInitialisedError`] if the process-global budget
+/// has already been populated by a prior call to this function or by
+/// an earlier call to [`current`].
+pub fn init(budget: RunBudget) -> Result<(), AlreadyInitialisedError> {
+    RUN_BUDGET
+        .set(Some(budget))
+        .map_err(|_| AlreadyInitialisedError)
+}
+
+/// Returned by [`init`] when the process-global budget has already
+/// been installed and cannot be replaced.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AlreadyInitialisedError;
+
+impl fmt::Display for AlreadyInitialisedError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("run-scoped budget already initialised for this process")
+    }
+}
+
+impl Error for AlreadyInitialisedError {}
 
 #[cfg(test)]
 mod tests {
