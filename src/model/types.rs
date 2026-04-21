@@ -490,8 +490,8 @@ impl PacingSummary {
             f64::INFINITY
         };
         Self {
-            max_rps: config.max_requests_per_second().unwrap_or(0.0),
-            max_rpm: config.max_requests_per_minute().unwrap_or(0.0),
+            max_rps: config.configured_max_requests_per_second().unwrap_or(0.0),
+            max_rpm: config.configured_max_requests_per_minute().unwrap_or(0.0),
             max_concurrent: 1,
             effective_min_delay_ms: effective_delay,
             effective_concurrency: 1,
@@ -655,8 +655,8 @@ mod tests {
     #[test]
     fn pacing_summary_from_config() {
         let config = PacingConfig::new()
-            .with_max_requests_per_second(5.0)
-            .with_max_requests_per_minute(120.0);
+            .max_requests_per_second(5.0)
+            .max_requests_per_minute(120.0);
         let summary = PacingSummary::from_config(&config);
 
         assert!((summary.max_rps() - 5.0).abs() < 1e-10);

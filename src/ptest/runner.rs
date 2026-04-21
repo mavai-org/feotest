@@ -230,7 +230,7 @@ where
     if let Some(bp) = baseline_prov {
         builder = builder.baseline_provenance(bp);
     }
-    if let Some(pacing) = config.pacing() {
+    if let Some(pacing) = config.pacing_config() {
         builder = builder.pacing(PacingSummary::from_config(pacing));
     }
     if let Some(dim) = latency_dimension {

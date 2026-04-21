@@ -666,10 +666,29 @@ Rate-limiting prevents overwhelming the service under test:
 use feotest::controls::PacingConfig;
 
 let pacing = PacingConfig::new()
-    .with_max_requests_per_second(5.0)
-    .with_max_requests_per_minute(120.0);
-// Most restrictive constraint wins: 200ms between requests
+    .max_requests_per_second(5.0)
+    .min_ms_per_sample(100);
+// Floors compose most-restrictive-wins: 5 rps → 200ms, 100ms min →
+// effective delay = 200ms.
 ```
+
+No pacing delay is applied before the first sample; the delay is
+inserted between each sample and the next.
+
+#### Capping the delay
+
+For runs where aggressive rate composition could stall progress,
+`max_delay_per_sample` caps the proactive pacing delay from above:
+
+```rust
+let pacing = PacingConfig::new()
+    .max_requests_per_second(1.0)     // 1000ms floor
+    .max_delay_per_sample(100);       // cap at 100ms
+// Effective delay: min(1000, 100) = 100ms.
+```
+
+The cap only activates when a floor is configured — a cap alone
+leaves the run unpaced.
 
 ---
 

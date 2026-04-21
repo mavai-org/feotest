@@ -781,8 +781,8 @@ mod tests {
     #[test]
     fn xml_with_pacing() {
         let pacing_config = PacingConfig::new()
-            .with_max_requests_per_second(10.0)
-            .with_max_requests_per_minute(300.0);
+            .max_requests_per_second(10.0)
+            .max_requests_per_minute(300.0);
         let pacing_summary = PacingSummary::from_config(&pacing_config);
 
         let record = VerdictRecord::builder(
@@ -841,7 +841,7 @@ mod tests {
 
     #[test]
     fn xml_full_record() {
-        let pacing_config = PacingConfig::new().with_max_requests_per_second(5.0);
+        let pacing_config = PacingConfig::new().max_requests_per_second(5.0);
         let pacing_summary = PacingSummary::from_config(&pacing_config);
 
         let analysis =
