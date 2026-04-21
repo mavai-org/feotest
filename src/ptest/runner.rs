@@ -229,11 +229,15 @@ where
     if let Some(budget_name) = budget_name {
         let executed = summary.samples_executed();
         let planned = summary.samples_planned();
+        let consumption = consumption_phrase(summary.termination().reason(), summary, &config);
         if executed == 0 {
             verdict = Verdict::Fail;
             warnings.push(Warning::new(
                 "BUDGET_EXHAUSTED_NO_SAMPLES",
-                format!("{budget_name} budget exhausted before any sample completed"),
+                format!(
+                    "{budget_name} budget exhausted before any sample completed \
+                     ({consumption})"
+                ),
             ));
         } else {
             match config.on_budget_exhausted() {
@@ -242,8 +246,9 @@ where
                     warnings.push(Warning::new(
                         "BUDGET_EXHAUSTED",
                         format!(
-                            "{budget_name} budget exhausted; completed {executed}/{planned} \
-                             samples; failing per budget exhaustion policy"
+                            "{budget_name} budget exhausted ({consumption}); \
+                             completed {executed}/{planned} samples; failing per \
+                             budget exhaustion policy"
                         ),
                     ));
                 }
@@ -251,8 +256,9 @@ where
                     warnings.push(Warning::new(
                         "BUDGET_EXHAUSTED_PARTIAL",
                         format!(
-                            "{budget_name} budget exhausted; completed {executed}/{planned} \
-                             samples; evaluating partial results with reduced statistical power"
+                            "{budget_name} budget exhausted ({consumption}); \
+                             completed {executed}/{planned} samples; evaluating \
+                             partial results"
                         ),
                     ));
                 }
@@ -343,6 +349,30 @@ where
     ProbabilisticTestResult {
         verdict_record: builder.build(),
         approach: criteria.approach.clone(),
+    }
+}
+
+/// Renders a "consumed X of Y" phrase for the exhausted budget, pulling
+/// actuals from the cost summary and the configured ceiling from the
+/// execution config. Returns an empty string for non-budget termination
+/// reasons — this helper is only called in the budget-exhausted branch.
+fn consumption_phrase(
+    reason: &TerminationReason,
+    summary: &crate::model::ExecutionSummary,
+    config: &ExecutionConfig,
+) -> String {
+    match reason {
+        TerminationReason::TimeBudgetExhausted => {
+            let consumed = summary.cost().total_time();
+            let budget = config.time_budget().unwrap_or_default();
+            format!("consumed {consumed:?} of {budget:?}")
+        }
+        TerminationReason::TokenBudgetExhausted => {
+            let consumed = summary.cost().total_tokens();
+            let budget = config.token_budget().unwrap_or(0);
+            format!("consumed {consumed} of {budget} tokens")
+        }
+        _ => String::new(),
     }
 }
 
@@ -881,7 +911,10 @@ mod tests {
         let record = result.verdict_record();
         assert_eq!(record.verdict(), Verdict::Fail);
         let w = warning_with_code(record, "BUDGET_EXHAUSTED").expect("BUDGET_EXHAUSTED warning");
-        assert!(w.message().contains("time"), "message: {}", w.message());
+        let msg = w.message();
+        assert!(msg.contains("time"), "message: {msg}");
+        assert!(msg.contains("consumed"), "missing consumption phrase: {msg}");
+        assert!(msg.contains("/100 samples"), "missing sample ratio: {msg}");
     }
 
     #[test]
@@ -903,7 +936,11 @@ mod tests {
         let record = result.verdict_record();
         assert_eq!(record.verdict(), Verdict::Fail);
         let w = warning_with_code(record, "BUDGET_EXHAUSTED").expect("BUDGET_EXHAUSTED warning");
-        assert!(w.message().contains("token"), "message: {}", w.message());
+        let msg = w.message();
+        assert!(msg.contains("token"), "message: {msg}");
+        assert!(msg.contains("consumed"), "missing consumption phrase: {msg}");
+        assert!(msg.contains("of 300 tokens"), "missing budget ceiling: {msg}");
+        assert!(msg.contains("/100 samples"), "missing sample ratio: {msg}");
     }
 
     #[test]
@@ -926,7 +963,10 @@ mod tests {
         assert_eq!(record.verdict(), Verdict::Pass);
         let w = warning_with_code(record, "BUDGET_EXHAUSTED_PARTIAL")
             .expect("BUDGET_EXHAUSTED_PARTIAL warning");
-        assert!(w.message().contains("time"), "message: {}", w.message());
+        let msg = w.message();
+        assert!(msg.contains("time"), "message: {msg}");
+        assert!(msg.contains("consumed"), "missing consumption phrase: {msg}");
+        assert!(msg.contains("/100 samples"), "missing sample ratio: {msg}");
     }
 
     #[test]
@@ -949,7 +989,11 @@ mod tests {
         assert_eq!(record.verdict(), Verdict::Pass);
         let w = warning_with_code(record, "BUDGET_EXHAUSTED_PARTIAL")
             .expect("BUDGET_EXHAUSTED_PARTIAL warning");
-        assert!(w.message().contains("token"), "message: {}", w.message());
+        let msg = w.message();
+        assert!(msg.contains("token"), "message: {msg}");
+        assert!(msg.contains("consumed"), "missing consumption phrase: {msg}");
+        assert!(msg.contains("of 300 tokens"), "missing budget ceiling: {msg}");
+        assert!(msg.contains("/100 samples"), "missing sample ratio: {msg}");
     }
 
     #[test]
@@ -973,11 +1017,15 @@ mod tests {
 
         let record = result.verdict_record();
         assert_eq!(record.verdict(), Verdict::Fail);
-        assert!(
-            warning_with_code(record, "BUDGET_EXHAUSTED_NO_SAMPLES").is_some(),
-            "expected BUDGET_EXHAUSTED_NO_SAMPLES warning, got {:?}",
-            record.warnings()
-        );
+        let w = warning_with_code(record, "BUDGET_EXHAUSTED_NO_SAMPLES").unwrap_or_else(|| {
+            panic!(
+                "expected BUDGET_EXHAUSTED_NO_SAMPLES warning, got {:?}",
+                record.warnings()
+            )
+        });
+        let msg = w.message();
+        assert!(msg.contains("consumed"), "missing consumption phrase: {msg}");
+        assert!(msg.contains("of 1ns"), "missing budget ceiling: {msg}");
     }
 
     #[test]
@@ -1001,7 +1049,12 @@ mod tests {
 
         let record = result.verdict_record();
         let w = warning_with_code(record, "BUDGET_EXHAUSTED").expect("BUDGET_EXHAUSTED warning");
-        assert!(w.message().contains("time"), "message: {}", w.message());
-        assert!(!w.message().contains("token"), "message: {}", w.message());
+        let msg = w.message();
+        assert!(msg.contains("time"), "message: {msg}");
+        // "token" appears nowhere — not as the budget name, and not as a unit
+        // since the time path formats Duration rather than a tokens count.
+        assert!(!msg.contains("token"), "message: {msg}");
+        assert!(msg.contains("consumed"), "missing consumption phrase: {msg}");
+        assert!(msg.contains("/100 samples"), "missing sample ratio: {msg}");
     }
 }
