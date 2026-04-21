@@ -154,8 +154,10 @@ fn rule4_confidence_first_requires_baseline_rate(config: &MacroConfig) {
         return;
     }
 
-    // A baseline rate can come from the baseline spec OR an explicit threshold
-    if config.has_baseline || config.threshold.is_some() {
+    // Only baseline presence matters here. A CF config carrying an explicit
+    // threshold is already an over-specification that Rule 5 rejects, so we
+    // do not need a `threshold.is_some()` escape hatch in this rule.
+    if config.has_baseline {
         return;
     }
 
