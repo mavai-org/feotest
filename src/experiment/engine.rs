@@ -86,7 +86,7 @@ impl ExecutionEngine {
                 break;
             }
 
-            apply_pacing(config);
+            apply_pacing(i, config);
 
             let tokens_before = token_recorder.total();
             let input = &inputs[i as usize % inputs.len()];
@@ -180,7 +180,14 @@ fn check_pre_sample_budgets(
 }
 
 /// Sleeps for the configured pacing delay, if any.
-fn apply_pacing(config: &ExecutionConfig) {
+///
+/// Skips the delay entirely before the first sample — pacing is
+/// about the interval *between* sample starts, so nothing precedes
+/// sample zero.
+fn apply_pacing(sample_index: u32, config: &ExecutionConfig) {
+    if sample_index == 0 {
+        return;
+    }
     if let Some(pacing) = config.pacing_config() {
         let delay_ms = pacing.effective_delay_ms();
         if delay_ms > 0 {
@@ -699,6 +706,50 @@ mod tests {
         assert_eq!(
             b.summary().termination().reason(),
             &TerminationReason::RunTokenBudgetExhausted
+        );
+    }
+
+    // --- Pacing (RC08 / RC10) ---
+
+    #[test]
+    fn first_sample_runs_without_pacing_delay() {
+        use crate::controls::PacingConfig;
+        // 500ms pacing floor; a 2-sample run should sleep exactly once
+        // (between samples 0 and 1). Total elapsed therefore must be
+        // ≥ 500ms (one delay) and comfortably < 1000ms (two delays).
+        let config = ExecutionConfig::new(2).pacing(PacingConfig::new().min_ms_per_sample(500));
+        let recorder = TokenRecorder::new();
+        let inputs = vec!["input".to_string()];
+
+        let start = Instant::now();
+        ExecutionEngine::run(&config, &inputs, &recorder, None, always_succeeds);
+        let elapsed = start.elapsed();
+
+        assert!(
+            elapsed >= Duration::from_millis(500),
+            "expected ≥ one pacing delay, got {elapsed:?}"
+        );
+        assert!(
+            elapsed < Duration::from_millis(900),
+            "expected no pre-first-sample delay, got {elapsed:?}"
+        );
+    }
+
+    #[test]
+    fn pacing_delay_applies_between_samples() {
+        use crate::controls::PacingConfig;
+        // 4 samples at 50ms pacing = 3 inter-sample delays = ≥150ms total.
+        let config = ExecutionConfig::new(4).pacing(PacingConfig::new().min_ms_per_sample(50));
+        let recorder = TokenRecorder::new();
+        let inputs = vec!["input".to_string()];
+
+        let start = Instant::now();
+        ExecutionEngine::run(&config, &inputs, &recorder, None, always_succeeds);
+        let elapsed = start.elapsed();
+
+        assert!(
+            elapsed >= Duration::from_millis(150),
+            "expected ≥ (samples-1)*50ms, got {elapsed:?}"
         );
     }
 
