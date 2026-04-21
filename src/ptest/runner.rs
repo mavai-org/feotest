@@ -5,7 +5,10 @@ use crate::experiment::ExecutionEngine;
 use crate::latency::{
     LatencyDimension, LatencyEnforcementMode, LatencyThresholds, enforcement, resolver,
 };
-use crate::model::{PacingSummary, TestIdentity, TestIntent, ThresholdOrigin, TrialOutcome, Warning};
+use crate::model::{
+    BudgetExhaustedBehavior, PacingSummary, TerminationReason, TestIdentity, TestIntent,
+    ThresholdOrigin, TrialOutcome, Warning,
+};
 use crate::ptest::approach;
 use crate::ptest::builder::ThresholdApproach;
 use crate::ptest::diagnostics;
@@ -188,17 +191,63 @@ where
     let summary = exec_result.summary();
     let aggregate = exec_result.aggregate();
 
-    let stats_verdict = evaluator::evaluate(
-        summary.successes(),
-        summary.samples_executed(),
-        &derived_threshold,
-    );
+    // Stats evaluation requires a non-empty sample set; skip when a budget
+    // was exhausted before any sample completed.
+    let stats_passed = if summary.samples_executed() > 0 {
+        evaluator::evaluate(
+            summary.successes(),
+            summary.samples_executed(),
+            &derived_threshold,
+        )
+        .passed()
+    } else {
+        false
+    };
 
-    let mut verdict = if stats_verdict.passed() {
+    let mut verdict = if stats_passed {
         Verdict::Pass
     } else {
         Verdict::Fail
     };
+
+    let budget_name = match summary.termination().reason() {
+        TerminationReason::TimeBudgetExhausted => Some("time"),
+        TerminationReason::TokenBudgetExhausted => Some("token"),
+        _ => None,
+    };
+    if let Some(budget_name) = budget_name {
+        let executed = summary.samples_executed();
+        let planned = summary.samples_planned();
+        if executed == 0 {
+            verdict = Verdict::Fail;
+            warnings.push(Warning::new(
+                "BUDGET_EXHAUSTED_NO_SAMPLES",
+                format!("{budget_name} budget exhausted before any sample completed"),
+            ));
+        } else {
+            match config.on_budget_exhausted() {
+                BudgetExhaustedBehavior::Fail => {
+                    verdict = Verdict::Fail;
+                    warnings.push(Warning::new(
+                        "BUDGET_EXHAUSTED",
+                        format!(
+                            "{budget_name} budget exhausted; completed {executed}/{planned} \
+                             samples; failing per budget exhaustion policy"
+                        ),
+                    ));
+                }
+                BudgetExhaustedBehavior::EvaluatePartial => {
+                    warnings.push(Warning::new(
+                        "BUDGET_EXHAUSTED_PARTIAL",
+                        format!(
+                            "{budget_name} budget exhausted; completed {executed}/{planned} \
+                             samples; evaluating partial results with reduced statistical power"
+                        ),
+                    ));
+                }
+            }
+        }
+    }
 
     let expiration_info = baseline_spec
         .as_ref()
@@ -790,5 +839,158 @@ mod tests {
             .run();
 
         assert!(!result.verdict_record().warnings().is_empty());
+    }
+
+    // --- Budget exhaustion policy ---
+
+    fn slow_success(_input: &str) -> TrialOutcome {
+        std::thread::sleep(Duration::from_millis(5));
+        TrialOutcome::success(Duration::from_millis(5))
+    }
+
+    fn warning_with_code<'a>(record: &'a VerdictRecord, code: &str) -> Option<&'a Warning> {
+        record.warnings().iter().find(|w| w.code() == code)
+    }
+
+    #[test]
+    fn time_budget_fail_policy_forces_verdict_fail() {
+        let inputs = vec!["input".to_string()];
+        let config = ExecutionConfig::new(100)
+            .with_time_budget(Duration::from_millis(20))
+            .with_on_budget_exhausted(BudgetExhaustedBehavior::Fail);
+
+        let result = ProbabilisticTestBuilder::new("time-fail", &inputs, slow_success)
+            .approach(ThresholdApproach::ThresholdFirst {
+                samples: 100,
+                min_pass_rate: 0.10,
+            })
+            .execution_config(config)
+            .run();
+
+        let record = result.verdict_record();
+        assert_eq!(record.verdict(), Verdict::Fail);
+        let w = warning_with_code(record, "BUDGET_EXHAUSTED").expect("BUDGET_EXHAUSTED warning");
+        assert!(w.message().contains("time"), "message: {}", w.message());
+    }
+
+    #[test]
+    fn token_budget_fail_policy_forces_verdict_fail() {
+        let inputs = vec!["input".to_string()];
+        let config = ExecutionConfig::new(100)
+            .with_static_token_charge(100)
+            .with_token_budget(300)
+            .with_on_budget_exhausted(BudgetExhaustedBehavior::Fail);
+
+        let result = ProbabilisticTestBuilder::new("token-fail", &inputs, always_succeeds)
+            .approach(ThresholdApproach::ThresholdFirst {
+                samples: 100,
+                min_pass_rate: 0.10,
+            })
+            .execution_config(config)
+            .run();
+
+        let record = result.verdict_record();
+        assert_eq!(record.verdict(), Verdict::Fail);
+        let w = warning_with_code(record, "BUDGET_EXHAUSTED").expect("BUDGET_EXHAUSTED warning");
+        assert!(w.message().contains("token"), "message: {}", w.message());
+    }
+
+    #[test]
+    fn time_budget_evaluate_partial_preserves_stats_verdict() {
+        let inputs = vec!["input".to_string()];
+        let config = ExecutionConfig::new(100)
+            .with_time_budget(Duration::from_millis(20))
+            .with_on_budget_exhausted(BudgetExhaustedBehavior::EvaluatePartial);
+
+        let result = ProbabilisticTestBuilder::new("time-partial", &inputs, slow_success)
+            .approach(ThresholdApproach::ThresholdFirst {
+                samples: 100,
+                min_pass_rate: 0.10,
+            })
+            .execution_config(config)
+            .run();
+
+        let record = result.verdict_record();
+        // With pass rate 100% against threshold 0.10, the partial result passes.
+        assert_eq!(record.verdict(), Verdict::Pass);
+        let w = warning_with_code(record, "BUDGET_EXHAUSTED_PARTIAL")
+            .expect("BUDGET_EXHAUSTED_PARTIAL warning");
+        assert!(w.message().contains("time"), "message: {}", w.message());
+    }
+
+    #[test]
+    fn token_budget_evaluate_partial_preserves_stats_verdict() {
+        let inputs = vec!["input".to_string()];
+        let config = ExecutionConfig::new(100)
+            .with_static_token_charge(100)
+            .with_token_budget(300)
+            .with_on_budget_exhausted(BudgetExhaustedBehavior::EvaluatePartial);
+
+        let result = ProbabilisticTestBuilder::new("token-partial", &inputs, always_succeeds)
+            .approach(ThresholdApproach::ThresholdFirst {
+                samples: 100,
+                min_pass_rate: 0.10,
+            })
+            .execution_config(config)
+            .run();
+
+        let record = result.verdict_record();
+        assert_eq!(record.verdict(), Verdict::Pass);
+        let w = warning_with_code(record, "BUDGET_EXHAUSTED_PARTIAL")
+            .expect("BUDGET_EXHAUSTED_PARTIAL warning");
+        assert!(w.message().contains("token"), "message: {}", w.message());
+    }
+
+    #[test]
+    fn zero_samples_forces_fail_regardless_of_policy() {
+        // A time budget of one nanosecond is exhausted by the cycles spent
+        // between the Instant::now() reading and the first pre-sample check.
+        // EvaluatePartial is chosen to prove the zero-samples rule overrides
+        // the policy, not the policy doing the work.
+        let inputs = vec!["input".to_string()];
+        let config = ExecutionConfig::new(100)
+            .with_time_budget(Duration::from_nanos(1))
+            .with_on_budget_exhausted(BudgetExhaustedBehavior::EvaluatePartial);
+
+        let result = ProbabilisticTestBuilder::new("zero-samples", &inputs, always_succeeds)
+            .approach(ThresholdApproach::ThresholdFirst {
+                samples: 100,
+                min_pass_rate: 0.10,
+            })
+            .execution_config(config)
+            .run();
+
+        let record = result.verdict_record();
+        assert_eq!(record.verdict(), Verdict::Fail);
+        assert!(
+            warning_with_code(record, "BUDGET_EXHAUSTED_NO_SAMPLES").is_some(),
+            "expected BUDGET_EXHAUSTED_NO_SAMPLES warning, got {:?}",
+            record.warnings()
+        );
+    }
+
+    #[test]
+    fn first_exhausted_wins_time_over_token() {
+        // Time budget is tight; token budget is loose enough to not fire.
+        // Warning must name "time", not "token".
+        let inputs = vec!["input".to_string()];
+        let config = ExecutionConfig::new(100)
+            .with_time_budget(Duration::from_millis(20))
+            .with_static_token_charge(100)
+            .with_token_budget(100_000)
+            .with_on_budget_exhausted(BudgetExhaustedBehavior::Fail);
+
+        let result = ProbabilisticTestBuilder::new("time-wins", &inputs, slow_success)
+            .approach(ThresholdApproach::ThresholdFirst {
+                samples: 100,
+                min_pass_rate: 0.10,
+            })
+            .execution_config(config)
+            .run();
+
+        let record = result.verdict_record();
+        let w = warning_with_code(record, "BUDGET_EXHAUSTED").expect("BUDGET_EXHAUSTED warning");
+        assert!(w.message().contains("time"), "message: {}", w.message());
+        assert!(!w.message().contains("token"), "message: {}", w.message());
     }
 }
