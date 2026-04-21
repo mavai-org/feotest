@@ -6,13 +6,14 @@ use crate::latency::{
     LatencyDimension, LatencyEnforcementMode, LatencyThresholds, enforcement, resolver,
 };
 use crate::model::{
-    BudgetExhaustedBehavior, PacingSummary, TerminationReason, TestIdentity, TestIntent,
-    ThresholdOrigin, TrialOutcome, Warning,
+    BudgetExhaustedBehavior, ExecutionSummary, ExpirationInfo, PacingSummary, TerminationReason,
+    TestIdentity, TestIntent, ThresholdOrigin, TrialOutcome, Warning,
 };
 use crate::ptest::approach;
 use crate::ptest::builder::ThresholdApproach;
 use crate::ptest::diagnostics;
-use crate::spec::SpecResolver;
+use crate::spec::{BaselineSpec, SpecResolver};
+use crate::statistics::types::{DerivedThreshold, FeasibilityResult};
 use crate::statistics::{evaluator, feasibility, proportion};
 use crate::usecase::CovariateContext;
 use crate::verdict::{
@@ -132,7 +133,6 @@ impl ProbabilisticTestResult {
 }
 
 /// Executes a probabilistic test and produces a verdict.
-#[allow(clippy::too_many_lines)]
 pub fn execute<F>(
     use_case_id: &str,
     inputs: &[String],
@@ -146,16 +146,7 @@ where
 {
     let mut warnings: Vec<Warning> = Vec::new();
 
-    let baseline_spec = baseline.pre_resolved_spec.or_else(|| {
-        baseline.spec_resolver.as_ref().and_then(|resolver| {
-            crate::ptest::baseline::resolve(
-                resolver,
-                use_case_id,
-                baseline.covariate_context.as_ref(),
-                &mut warnings,
-            )
-        })
-    });
+    let baseline_spec = resolve_baseline(baseline, use_case_id, &mut warnings);
 
     let (samples, derived_threshold) = approach::resolve_threshold(
         &criteria.approach,
@@ -167,34 +158,15 @@ where
     let feas =
         feasibility::feasibility_check(samples, derived_threshold.value(), resolved_confidence);
 
-    if !feas.feasible() {
-        match criteria.intent {
-            TestIntent::Verification => {
-                panic!(
-                    "\n\n{}\n",
-                    diagnostics::infeasibility_message(use_case_id, &feas, false),
-                );
-            }
-            TestIntent::Smoke => {
-                warnings.push(Warning::new(
-                    "UNDERSIZED",
-                    diagnostics::infeasibility_message(use_case_id, &feas, false),
-                ));
-            }
-        }
-    }
+    enforce_feasibility(use_case_id, criteria.intent, &feas, &mut warnings);
 
-    let config = config_overrides
-        .cloned()
-        .unwrap_or_else(|| {
-            let mut c = ExecutionConfig::new(samples);
-            if let Some(behaviour) = criteria.on_budget_exhausted {
-                c = c.with_on_budget_exhausted(behaviour);
-            }
-            c
-        })
-        .min_pass_rate(derived_threshold.value())
-        .min_samples_for_validity(feas.minimum_samples());
+    let config = synthesise_execution_config(
+        config_overrides,
+        criteria,
+        samples,
+        &derived_threshold,
+        &feas,
+    );
 
     let token_recorder = TokenRecorder::new();
     let exec_result = ExecutionEngine::run(&config, inputs, &token_recorder, trial);
@@ -202,96 +174,17 @@ where
     let summary = exec_result.summary();
     let aggregate = exec_result.aggregate();
 
-    // Stats evaluation requires a non-empty sample set; skip when a budget
-    // was exhausted before any sample completed.
-    let stats_passed = if summary.samples_executed() > 0 {
-        evaluator::evaluate(
-            summary.successes(),
-            summary.samples_executed(),
-            &derived_threshold,
-        )
-        .passed()
-    } else {
-        false
-    };
+    let mut verdict = compute_stats_verdict(summary, &derived_threshold);
+    verdict = apply_budget_exhaustion_policy(summary, &config, verdict, &mut warnings);
 
-    let mut verdict = if stats_passed {
-        Verdict::Pass
-    } else {
-        Verdict::Fail
-    };
+    let (verdict, expiration_info) = apply_expiration_policy(
+        baseline_spec.as_ref(),
+        criteria.fail_on_expired_baseline,
+        verdict,
+        &mut warnings,
+    );
 
-    let budget_name = match summary.termination().reason() {
-        TerminationReason::TimeBudgetExhausted => Some("time"),
-        TerminationReason::TokenBudgetExhausted => Some("token"),
-        _ => None,
-    };
-    if let Some(budget_name) = budget_name {
-        let executed = summary.samples_executed();
-        let planned = summary.samples_planned();
-        let consumption = consumption_phrase(summary.termination().reason(), summary, &config);
-        if executed == 0 {
-            verdict = Verdict::Fail;
-            warnings.push(Warning::new(
-                "BUDGET_EXHAUSTED_NO_SAMPLES",
-                format!(
-                    "{budget_name} budget exhausted before any sample completed \
-                     ({consumption})"
-                ),
-            ));
-        } else {
-            match config.on_budget_exhausted() {
-                BudgetExhaustedBehavior::Fail => {
-                    verdict = Verdict::Fail;
-                    warnings.push(Warning::new(
-                        "BUDGET_EXHAUSTED",
-                        format!(
-                            "{budget_name} budget exhausted ({consumption}); \
-                             completed {executed}/{planned} samples; failing per \
-                             budget exhaustion policy"
-                        ),
-                    ));
-                }
-                BudgetExhaustedBehavior::EvaluatePartial => {
-                    warnings.push(Warning::new(
-                        "BUDGET_EXHAUSTED_PARTIAL",
-                        format!(
-                            "{budget_name} budget exhausted ({consumption}); \
-                             completed {executed}/{planned} samples; evaluating \
-                             partial results"
-                        ),
-                    ));
-                }
-            }
-        }
-    }
-
-    let expiration_info = baseline_spec
-        .as_ref()
-        .map(crate::spec::expiration::evaluate);
-    let baseline_expired = expiration_info
-        .as_ref()
-        .is_some_and(|info| matches!(info.status(), crate::model::ExpirationStatus::Expired));
-
-    if baseline_expired && criteria.fail_on_expired_baseline {
-        verdict = Verdict::Fail;
-        warnings.push(Warning::new(
-            "BASELINE_EXPIRED",
-            "baseline has expired; failing per fail_on_expired_baseline",
-        ));
-    } else if baseline_expired {
-        warnings.push(Warning::new(
-            "BASELINE_EXPIRED",
-            "baseline has expired; re-run the measure experiment to refresh it",
-        ));
-    }
-
-    if criteria.intent == TestIntent::Smoke && criteria.threshold_origin.is_normative() {
-        warnings.push(Warning::new(
-            "SMOKE_NORMATIVE",
-            "Smoke test against normative threshold — verdict is not evidential",
-        ));
-    }
+    record_smoke_normative_warning(criteria, &mut warnings);
 
     let analysis = build_analysis(summary, &derived_threshold, criteria.threshold_origin);
     let provenance = build_provenance(
@@ -313,15 +206,7 @@ where
         &mut warnings,
     );
 
-    let baseline_prov = baseline_spec.as_ref().map(|spec| {
-        BaselineProvenance::new(
-            format!("{}.yaml", spec.use_case_id),
-            spec.generated_at.clone(),
-            spec.execution.samples_executed,
-            spec.statistics.success_rate.observed,
-            spec.requirements.min_pass_rate,
-        )
-    });
+    let baseline_prov = baseline_spec.as_ref().map(build_baseline_provenance);
 
     let identity = TestIdentity::new(use_case_id);
     let mut builder = VerdictRecord::builder(
@@ -350,6 +235,221 @@ where
         verdict_record: builder.build(),
         approach: criteria.approach.clone(),
     }
+}
+
+/// Resolves the baseline spec via the context's pre-resolved slot or
+/// its resolver, whichever is set. Warnings from the resolution path
+/// are pushed into the caller's vec.
+fn resolve_baseline(
+    baseline: BaselineContext,
+    use_case_id: &str,
+    warnings: &mut Vec<Warning>,
+) -> Option<BaselineSpec> {
+    baseline.pre_resolved_spec.or_else(|| {
+        baseline.spec_resolver.as_ref().and_then(|resolver| {
+            crate::ptest::baseline::resolve(
+                resolver,
+                use_case_id,
+                baseline.covariate_context.as_ref(),
+                warnings,
+            )
+        })
+    })
+}
+
+/// Panics (under `Verification` intent) or warns (under `Smoke` intent)
+/// when the configuration is statistically infeasible.
+fn enforce_feasibility(
+    use_case_id: &str,
+    intent: TestIntent,
+    feas: &FeasibilityResult,
+    warnings: &mut Vec<Warning>,
+) {
+    if feas.feasible() {
+        return;
+    }
+    match intent {
+        TestIntent::Verification => {
+            panic!(
+                "\n\n{}\n",
+                diagnostics::infeasibility_message(use_case_id, feas, false),
+            );
+        }
+        TestIntent::Smoke => {
+            warnings.push(Warning::new(
+                "UNDERSIZED",
+                diagnostics::infeasibility_message(use_case_id, feas, false),
+            ));
+        }
+    }
+}
+
+/// Produces the execution config the engine will run against. Honours
+/// an explicit `config_overrides` as final; otherwise synthesises a
+/// default config, folding the criteria's budget-exhaustion preference
+/// in before the final `min_pass_rate` / `min_samples_for_validity`
+/// adjustments.
+fn synthesise_execution_config(
+    config_overrides: Option<&ExecutionConfig>,
+    criteria: &AssessmentCriteria,
+    samples: u32,
+    derived_threshold: &DerivedThreshold,
+    feas: &FeasibilityResult,
+) -> ExecutionConfig {
+    config_overrides
+        .cloned()
+        .unwrap_or_else(|| {
+            let mut c = ExecutionConfig::new(samples);
+            if let Some(behaviour) = criteria.on_budget_exhausted {
+                c = c.with_on_budget_exhausted(behaviour);
+            }
+            c
+        })
+        .min_pass_rate(derived_threshold.value())
+        .min_samples_for_validity(feas.minimum_samples())
+}
+
+/// Runs the statistical evaluator against the completed sample set and
+/// projects its pass/fail onto a `Verdict`. An empty sample set is
+/// reported as `Verdict::Fail` without invoking the evaluator (which
+/// requires a non-empty sample set).
+fn compute_stats_verdict(
+    summary: &ExecutionSummary,
+    derived_threshold: &DerivedThreshold,
+) -> Verdict {
+    if summary.samples_executed() == 0 {
+        return Verdict::Fail;
+    }
+    if evaluator::evaluate(
+        summary.successes(),
+        summary.samples_executed(),
+        derived_threshold,
+    )
+    .passed()
+    {
+        Verdict::Pass
+    } else {
+        Verdict::Fail
+    }
+}
+
+/// Adjusts the stats-derived verdict in response to a budget-exhausted
+/// termination. Zero completed samples always force `Verdict::Fail`.
+/// Otherwise the configured `BudgetExhaustedBehavior` decides: `Fail`
+/// forces `Verdict::Fail` with a `BUDGET_EXHAUSTED` warning;
+/// `EvaluatePartial` preserves the stats-derived verdict with a
+/// `BUDGET_EXHAUSTED_PARTIAL` warning. Non-budget terminations pass
+/// the verdict through unchanged.
+fn apply_budget_exhaustion_policy(
+    summary: &ExecutionSummary,
+    config: &ExecutionConfig,
+    verdict: Verdict,
+    warnings: &mut Vec<Warning>,
+) -> Verdict {
+    let budget_name = match summary.termination().reason() {
+        TerminationReason::TimeBudgetExhausted => "time",
+        TerminationReason::TokenBudgetExhausted => "token",
+        _ => return verdict,
+    };
+    let executed = summary.samples_executed();
+    let planned = summary.samples_planned();
+    let consumption = consumption_phrase(summary.termination().reason(), summary, config);
+
+    if executed == 0 {
+        warnings.push(Warning::new(
+            "BUDGET_EXHAUSTED_NO_SAMPLES",
+            format!(
+                "{budget_name} budget exhausted before any sample completed \
+                 ({consumption})"
+            ),
+        ));
+        return Verdict::Fail;
+    }
+
+    match config.on_budget_exhausted() {
+        BudgetExhaustedBehavior::Fail => {
+            warnings.push(Warning::new(
+                "BUDGET_EXHAUSTED",
+                format!(
+                    "{budget_name} budget exhausted ({consumption}); \
+                     completed {executed}/{planned} samples; failing per \
+                     budget exhaustion policy"
+                ),
+            ));
+            Verdict::Fail
+        }
+        BudgetExhaustedBehavior::EvaluatePartial => {
+            warnings.push(Warning::new(
+                "BUDGET_EXHAUSTED_PARTIAL",
+                format!(
+                    "{budget_name} budget exhausted ({consumption}); \
+                     completed {executed}/{planned} samples; evaluating \
+                     partial results"
+                ),
+            ));
+            verdict
+        }
+    }
+}
+
+/// Computes the expiration info for the resolved baseline and, when
+/// the baseline is expired, either forces `Verdict::Fail` (if the
+/// caller opted in via `fail_on_expired`) or emits an informational
+/// warning. Returns the (possibly updated) verdict alongside the
+/// expiration info so downstream provenance can surface it.
+fn apply_expiration_policy(
+    baseline_spec: Option<&BaselineSpec>,
+    fail_on_expired: bool,
+    verdict: Verdict,
+    warnings: &mut Vec<Warning>,
+) -> (Verdict, Option<ExpirationInfo>) {
+    let expiration_info = baseline_spec.map(crate::spec::expiration::evaluate);
+    let expired = expiration_info
+        .as_ref()
+        .is_some_and(|info| matches!(info.status(), crate::model::ExpirationStatus::Expired));
+
+    if !expired {
+        return (verdict, expiration_info);
+    }
+    if fail_on_expired {
+        warnings.push(Warning::new(
+            "BASELINE_EXPIRED",
+            "baseline has expired; failing per fail_on_expired_baseline",
+        ));
+        (Verdict::Fail, expiration_info)
+    } else {
+        warnings.push(Warning::new(
+            "BASELINE_EXPIRED",
+            "baseline has expired; re-run the measure experiment to refresh it",
+        ));
+        (verdict, expiration_info)
+    }
+}
+
+/// Emits a `SMOKE_NORMATIVE` warning when a smoke test runs against a
+/// normative threshold. The verdict is informational in that combination
+/// — a normative contract cannot be empirically verified from a smoke
+/// sample size.
+fn record_smoke_normative_warning(criteria: &AssessmentCriteria, warnings: &mut Vec<Warning>) {
+    if criteria.intent == TestIntent::Smoke && criteria.threshold_origin.is_normative() {
+        warnings.push(Warning::new(
+            "SMOKE_NORMATIVE",
+            "Smoke test against normative threshold — verdict is not evidential",
+        ));
+    }
+}
+
+/// Derives a baseline provenance record from the resolved spec —
+/// filename, timestamp, sample count, observed rate, and declared
+/// minimum rate.
+fn build_baseline_provenance(spec: &BaselineSpec) -> BaselineProvenance {
+    BaselineProvenance::new(
+        format!("{}.yaml", spec.use_case_id),
+        spec.generated_at.clone(),
+        spec.execution.samples_executed,
+        spec.statistics.success_rate.observed,
+        spec.requirements.min_pass_rate,
+    )
 }
 
 /// Renders a "consumed X of Y" phrase for the exhausted budget, pulling
@@ -1080,5 +1180,109 @@ mod tests {
             "missing consumption phrase: {msg}"
         );
         assert!(msg.contains("/100 samples"), "missing sample ratio: {msg}");
+    }
+
+    // --- Isolated tests for extracted helpers ---
+
+    fn make_summary(
+        reason: TerminationReason,
+        samples_executed: u32,
+        samples_planned: u32,
+        time_consumed: Duration,
+        tokens_consumed: u64,
+    ) -> ExecutionSummary {
+        use crate::model::{CostSummary, TerminationInfo};
+        ExecutionSummary::new(
+            samples_planned,
+            samples_executed,
+            samples_executed,
+            0,
+            TerminationInfo::new(reason),
+            CostSummary::new(time_consumed, tokens_consumed, samples_executed),
+        )
+    }
+
+    #[test]
+    fn apply_budget_exhaustion_policy_fail_forces_verdict_fail() {
+        let summary = make_summary(
+            TerminationReason::TimeBudgetExhausted,
+            5,
+            100,
+            Duration::from_millis(25),
+            0,
+        );
+        let config = ExecutionConfig::new(100)
+            .with_time_budget(Duration::from_millis(20))
+            .with_on_budget_exhausted(BudgetExhaustedBehavior::Fail);
+        let mut warnings = Vec::new();
+
+        let verdict =
+            apply_budget_exhaustion_policy(&summary, &config, Verdict::Pass, &mut warnings);
+
+        assert_eq!(verdict, Verdict::Fail);
+        assert_eq!(warnings.len(), 1);
+        assert_eq!(warnings[0].code(), "BUDGET_EXHAUSTED");
+    }
+
+    #[test]
+    fn apply_budget_exhaustion_policy_partial_preserves_verdict() {
+        let summary = make_summary(
+            TerminationReason::TokenBudgetExhausted,
+            3,
+            100,
+            Duration::ZERO,
+            400,
+        );
+        let config = ExecutionConfig::new(100)
+            .with_static_token_charge(100)
+            .with_token_budget(300)
+            .with_on_budget_exhausted(BudgetExhaustedBehavior::EvaluatePartial);
+        let mut warnings = Vec::new();
+
+        let verdict =
+            apply_budget_exhaustion_policy(&summary, &config, Verdict::Pass, &mut warnings);
+
+        assert_eq!(verdict, Verdict::Pass);
+        assert_eq!(warnings[0].code(), "BUDGET_EXHAUSTED_PARTIAL");
+    }
+
+    #[test]
+    fn apply_budget_exhaustion_policy_zero_samples_always_fails() {
+        let summary = make_summary(
+            TerminationReason::TimeBudgetExhausted,
+            0,
+            100,
+            Duration::from_nanos(1),
+            0,
+        );
+        let config = ExecutionConfig::new(100)
+            .with_time_budget(Duration::from_nanos(1))
+            .with_on_budget_exhausted(BudgetExhaustedBehavior::EvaluatePartial);
+        let mut warnings = Vec::new();
+
+        let verdict =
+            apply_budget_exhaustion_policy(&summary, &config, Verdict::Pass, &mut warnings);
+
+        assert_eq!(verdict, Verdict::Fail);
+        assert_eq!(warnings[0].code(), "BUDGET_EXHAUSTED_NO_SAMPLES");
+    }
+
+    #[test]
+    fn apply_budget_exhaustion_policy_non_budget_termination_passes_through() {
+        let summary = make_summary(
+            TerminationReason::Completed,
+            100,
+            100,
+            Duration::from_millis(10),
+            0,
+        );
+        let config = ExecutionConfig::new(100);
+        let mut warnings = Vec::new();
+
+        let verdict =
+            apply_budget_exhaustion_policy(&summary, &config, Verdict::Pass, &mut warnings);
+
+        assert_eq!(verdict, Verdict::Pass);
+        assert!(warnings.is_empty());
     }
 }
