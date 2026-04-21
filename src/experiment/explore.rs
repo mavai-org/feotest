@@ -240,7 +240,7 @@ where
             };
 
             let execution =
-                ExecutionEngine::run(&exec_config, self.inputs, &recorder, &mut trial_fn);
+                ExecutionEngine::run(&exec_config, self.inputs, &recorder, None, &mut trial_fn);
 
             results.push(ConfigResult {
                 name: name.clone(),

@@ -169,7 +169,7 @@ where
     );
 
     let token_recorder = TokenRecorder::new();
-    let exec_result = ExecutionEngine::run(&config, inputs, &token_recorder, trial);
+    let exec_result = ExecutionEngine::run(&config, inputs, &token_recorder, None, trial);
 
     let summary = exec_result.summary();
     let aggregate = exec_result.aggregate();
@@ -177,7 +177,9 @@ where
     let mut verdict = compute_stats_verdict(summary, &derived_threshold);
     verdict = apply_budget_exhaustion_policy(summary, &config, verdict, &mut warnings);
 
-    let expiration_info = baseline_spec.as_ref().map(crate::spec::expiration::evaluate);
+    let expiration_info = baseline_spec
+        .as_ref()
+        .map(crate::spec::expiration::evaluate);
     verdict = apply_expiration_policy(
         expiration_info.as_ref(),
         criteria.fail_on_expired_baseline,
@@ -1548,8 +1550,8 @@ mod tests {
 
     #[test]
     fn synthesise_override_wins_over_criteria_on_budget_exhausted() {
-        let override_config = ExecutionConfig::new(100)
-            .with_on_budget_exhausted(BudgetExhaustedBehavior::Fail);
+        let override_config =
+            ExecutionConfig::new(100).with_on_budget_exhausted(BudgetExhaustedBehavior::Fail);
         let mut criteria = make_criteria(TestIntent::Verification, ThresholdOrigin::Empirical);
         criteria.on_budget_exhausted = Some(BudgetExhaustedBehavior::EvaluatePartial);
         let threshold = make_derived_threshold(0.50);

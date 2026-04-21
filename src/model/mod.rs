@@ -10,7 +10,7 @@ mod types;
 pub use outcome::{ContractViolation, Outcome, TrialOutcome};
 pub use sample::SampleAggregate;
 pub use types::{
-    BudgetExhaustedBehavior, CostSummary, ExceptionHandling, ExpirationInfo, ExpirationStatus,
-    ExecutionSummary, PacingSummary, TerminationInfo, TerminationReason, TestIdentity, TestIntent,
-    ThresholdOrigin, Warning,
+    BudgetExhaustedBehavior, CostSummary, ExceptionHandling, ExecutionSummary, ExpirationInfo,
+    ExpirationStatus, PacingSummary, RunScopedSnapshot, TerminationInfo, TerminationReason,
+    TestIdentity, TestIntent, ThresholdOrigin, Warning,
 };

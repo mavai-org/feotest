@@ -148,11 +148,21 @@ impl RunBudget {
     /// exhaustion rather than silently wrapping.
     #[must_use]
     pub fn token_exhausted_at(&self, projected_additional: u64) -> bool {
-        self.token_budget.is_some_and(|b| {
-            self.tokens_consumed()
-                .saturating_add(projected_additional)
-                >= b
-        })
+        self.token_budget
+            .is_some_and(|b| self.tokens_consumed().saturating_add(projected_additional) >= b)
+    }
+
+    /// Captures the current state of this budget as a
+    /// [`RunScopedSnapshot`](crate::model::RunScopedSnapshot) for
+    /// inclusion in a [`CostSummary`](crate::model::CostSummary).
+    #[must_use]
+    pub fn snapshot(&self) -> crate::model::RunScopedSnapshot {
+        crate::model::RunScopedSnapshot::new(
+            self.time_budget,
+            self.elapsed(),
+            self.token_budget,
+            self.tokens_consumed(),
+        )
     }
 }
 

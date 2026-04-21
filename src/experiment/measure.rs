@@ -201,8 +201,13 @@ where
     /// Runs the measure experiment and returns the result.
     pub fn run(mut self) -> MeasureResult {
         let token_recorder = TokenRecorder::new();
-        let result =
-            ExecutionEngine::run(&self.config, self.inputs, &token_recorder, &mut self.trial);
+        let result = ExecutionEngine::run(
+            &self.config,
+            self.inputs,
+            &token_recorder,
+            None,
+            &mut self.trial,
+        );
 
         let spec = self.build_spec(&result);
 

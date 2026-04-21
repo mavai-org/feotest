@@ -215,23 +215,97 @@ impl TestIdentity {
     }
 }
 
+/// Snapshot of the run-scoped budget at the moment a test terminated.
+///
+/// Captures what the shared process-wide budget looked like at the
+/// instant the engine stopped sampling. Used by the warning dispatch
+/// to render "consumed X of Y" for the run-scoped exhaustion variants.
+///
+/// Present on [`CostSummary`] only when the enclosing test ran with a
+/// run-scoped budget.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RunScopedSnapshot {
+    time_budget: Option<Duration>,
+    time_consumed: Duration,
+    token_budget: Option<u64>,
+    tokens_consumed: u64,
+}
+
+impl RunScopedSnapshot {
+    /// Creates a snapshot.
+    #[must_use]
+    pub const fn new(
+        time_budget: Option<Duration>,
+        time_consumed: Duration,
+        token_budget: Option<u64>,
+        tokens_consumed: u64,
+    ) -> Self {
+        Self {
+            time_budget,
+            time_consumed,
+            token_budget,
+            tokens_consumed,
+        }
+    }
+
+    /// Configured run-scoped time cap, if any.
+    #[must_use]
+    pub const fn time_budget(&self) -> Option<Duration> {
+        self.time_budget
+    }
+
+    /// Wall-clock time consumed against the run-scoped budget so far.
+    #[must_use]
+    pub const fn time_consumed(&self) -> Duration {
+        self.time_consumed
+    }
+
+    /// Configured run-scoped token cap, if any.
+    #[must_use]
+    pub const fn token_budget(&self) -> Option<u64> {
+        self.token_budget
+    }
+
+    /// Tokens consumed against the run-scoped budget so far.
+    #[must_use]
+    pub const fn tokens_consumed(&self) -> u64 {
+        self.tokens_consumed
+    }
+}
+
 /// Summary of execution costs.
 #[derive(Debug, Clone)]
 pub struct CostSummary {
     total_time: Duration,
     total_tokens: u64,
     samples_executed: u32,
+    run_scoped: Option<RunScopedSnapshot>,
 }
 
 impl CostSummary {
-    /// Creates a cost summary.
+    /// Creates a cost summary with no run-scoped snapshot.
     #[must_use]
     pub const fn new(total_time: Duration, total_tokens: u64, samples_executed: u32) -> Self {
         Self {
             total_time,
             total_tokens,
             samples_executed,
+            run_scoped: None,
         }
+    }
+
+    /// Attaches a run-scoped budget snapshot captured at termination.
+    #[must_use]
+    pub const fn with_run_scoped(mut self, snapshot: RunScopedSnapshot) -> Self {
+        self.run_scoped = Some(snapshot);
+        self
+    }
+
+    /// The run-scoped budget snapshot, if the test ran under a
+    /// run-scoped budget.
+    #[must_use]
+    pub const fn run_scoped(&self) -> Option<&RunScopedSnapshot> {
+        self.run_scoped.as_ref()
     }
 
     /// Total wall-clock time for all samples.
@@ -616,8 +690,10 @@ mod tests {
 
     #[test]
     fn expiration_info_accessors() {
-        let info =
-            ExpirationInfo::new(ExpirationStatus::Expired, Some("2026-05-01T00:00:00Z".into()));
+        let info = ExpirationInfo::new(
+            ExpirationStatus::Expired,
+            Some("2026-05-01T00:00:00Z".into()),
+        );
         assert_eq!(info.status(), &ExpirationStatus::Expired);
         assert_eq!(info.expires_at(), Some("2026-05-01T00:00:00Z"));
 

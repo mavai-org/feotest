@@ -2,7 +2,7 @@
 
 use std::time::{Duration, Instant};
 
-use crate::controls::{ExecutionConfig, TokenRecorder};
+use crate::controls::{ExecutionConfig, RunBudget, TokenRecorder};
 use crate::model::{
     CostSummary, ExecutionSummary, SampleAggregate, TerminationInfo, TerminationReason,
     TrialOutcome,
@@ -50,6 +50,13 @@ impl ExecutionEngine {
     ///
     /// Inputs are cycled round-robin when sample count exceeds input count.
     ///
+    /// When `run_budget` is `Some`, the engine additionally consults the
+    /// shared run-scoped budget before every sample and mirrors token
+    /// consumption into it after every sample. A depleted run-scoped
+    /// budget terminates the sample loop with the run-scoped variant of
+    /// [`TerminationReason`], which the verdict dispatch distinguishes
+    /// from method-level exhaustion.
+    ///
     /// # Panics
     ///
     /// Panics if `inputs` is empty.
@@ -57,6 +64,7 @@ impl ExecutionEngine {
         config: &ExecutionConfig,
         inputs: &[String],
         token_recorder: &TokenRecorder,
+        run_budget: Option<&RunBudget>,
         mut trial: F,
     ) -> ExecutionResult
     where
@@ -75,7 +83,22 @@ impl ExecutionEngine {
         let mut termination_reason = TerminationReason::Completed;
 
         for i in 0..config.samples() {
-            // Check time budget
+            // Run-scoped checks come first. The run-scoped budget is the
+            // broader constraint, and preferring its termination reason
+            // on ties ensures the reported cause is the most general.
+            if let Some(rb) = run_budget {
+                if rb.time_exhausted() {
+                    termination_reason = TerminationReason::RunTimeBudgetExhausted;
+                    break;
+                }
+                let projected = config.static_token_charge().unwrap_or(0);
+                if rb.token_exhausted_at(projected) {
+                    termination_reason = TerminationReason::RunTokenBudgetExhausted;
+                    break;
+                }
+            }
+
+            // Method-level time budget
             if let Some(budget) = config.time_budget() {
                 if start.elapsed() >= budget {
                     termination_reason = TerminationReason::TimeBudgetExhausted;
@@ -83,7 +106,7 @@ impl ExecutionEngine {
                 }
             }
 
-            // Check token budget
+            // Method-level token budget
             let tokens_consumed = token_recorder.total()
                 + config.static_token_charge().map_or(0, |c| u64::from(i) * c);
             if let Some(budget) = config.token_budget() {
@@ -101,13 +124,22 @@ impl ExecutionEngine {
                 }
             }
 
-            // Execute trial
+            // Capture the per-method token total so the delta consumed
+            // by this single sample (dynamic + static) can be mirrored
+            // into the run-scoped budget after the trial completes.
+            let tokens_before = token_recorder.total();
+
             let input = &inputs[i as usize % inputs.len()];
             let outcome = trial(input);
 
             // Record static token charge
             if let Some(charge) = config.static_token_charge() {
                 token_recorder.record(charge);
+            }
+
+            if let Some(rb) = run_budget {
+                let delta = token_recorder.total().saturating_sub(tokens_before);
+                rb.record_tokens(delta);
             }
 
             // Record outcome
@@ -133,7 +165,13 @@ impl ExecutionEngine {
         let total_tokens = token_recorder.total();
         let samples_executed = aggregate.total();
 
-        let cost = CostSummary::new(total_elapsed, total_tokens, samples_executed);
+        let cost = run_budget.map_or_else(
+            || CostSummary::new(total_elapsed, total_tokens, samples_executed),
+            |rb| {
+                CostSummary::new(total_elapsed, total_tokens, samples_executed)
+                    .with_run_scoped(rb.snapshot())
+            },
+        );
         let termination = TerminationInfo::new(termination_reason);
 
         let summary = ExecutionSummary::new(
@@ -237,7 +275,7 @@ mod tests {
         let recorder = TokenRecorder::new();
         let inputs = vec!["input".to_string()];
 
-        let result = ExecutionEngine::run(&config, &inputs, &recorder, always_succeeds);
+        let result = ExecutionEngine::run(&config, &inputs, &recorder, None, always_succeeds);
 
         assert_eq!(result.summary().samples_executed(), 10);
         assert_eq!(result.summary().successes(), 10);
@@ -250,7 +288,7 @@ mod tests {
         let recorder = TokenRecorder::new();
         let inputs = vec!["input".to_string()];
 
-        let result = ExecutionEngine::run(&config, &inputs, &recorder, always_fails);
+        let result = ExecutionEngine::run(&config, &inputs, &recorder, None, always_fails);
 
         assert_eq!(result.summary().failures(), 5);
         assert_eq!(result.aggregate().example_failures().len(), 5);
@@ -262,7 +300,7 @@ mod tests {
         let recorder = TokenRecorder::new();
         let inputs = vec!["input".to_string()];
 
-        let result = ExecutionEngine::run(&config, &inputs, &recorder, always_fails);
+        let result = ExecutionEngine::run(&config, &inputs, &recorder, None, always_fails);
 
         assert_eq!(result.summary().failures(), 10);
         assert_eq!(result.aggregate().example_failures().len(), 2);
@@ -275,7 +313,7 @@ mod tests {
         let inputs = vec!["a".to_string(), "b".to_string(), "c".to_string()];
 
         let mut seen = Vec::new();
-        ExecutionEngine::run(&config, &inputs, &recorder, |input| {
+        ExecutionEngine::run(&config, &inputs, &recorder, None, |input| {
             seen.push(input.to_string());
             TrialOutcome::success(Duration::ZERO)
         });
@@ -290,7 +328,7 @@ mod tests {
         let inputs = vec!["input".to_string()];
 
         let mut total_calls = 0u32;
-        let result = ExecutionEngine::run(&config, &inputs, &recorder, |_input| {
+        let result = ExecutionEngine::run(&config, &inputs, &recorder, None, |_input| {
             total_calls += 1;
             TrialOutcome::success(Duration::ZERO)
         });
@@ -305,7 +343,7 @@ mod tests {
         let recorder = TokenRecorder::new();
         let inputs = vec!["input".to_string()];
 
-        ExecutionEngine::run(&config, &inputs, &recorder, always_succeeds);
+        ExecutionEngine::run(&config, &inputs, &recorder, None, always_succeeds);
 
         assert_eq!(recorder.total(), 500);
     }
@@ -318,7 +356,7 @@ mod tests {
         let recorder = TokenRecorder::new();
         let inputs = vec!["input".to_string()];
 
-        let result = ExecutionEngine::run(&config, &inputs, &recorder, always_succeeds);
+        let result = ExecutionEngine::run(&config, &inputs, &recorder, None, always_succeeds);
 
         // Should terminate before all 100 samples
         assert!(result.summary().samples_executed() < 100);
@@ -329,7 +367,7 @@ mod tests {
     fn panics_on_empty_inputs() {
         let config = ExecutionConfig::new(10);
         let recorder = TokenRecorder::new();
-        ExecutionEngine::run(&config, &[], &recorder, always_succeeds);
+        ExecutionEngine::run(&config, &[], &recorder, None, always_succeeds);
     }
 
     // --- PT09: failure-inevitable early termination ---
@@ -342,7 +380,7 @@ mod tests {
         let recorder = TokenRecorder::new();
         let inputs = vec!["input".to_string()];
 
-        let result = ExecutionEngine::run(&config, &inputs, &recorder, always_fails);
+        let result = ExecutionEngine::run(&config, &inputs, &recorder, None, always_fails);
 
         assert_eq!(result.summary().samples_executed(), 6);
         assert_eq!(
@@ -361,7 +399,7 @@ mod tests {
         let inputs = vec!["input".to_string()];
 
         let mut call = 0u32;
-        let result = ExecutionEngine::run(&config, &inputs, &recorder, |_input| {
+        let result = ExecutionEngine::run(&config, &inputs, &recorder, None, |_input| {
             call += 1;
             if call <= 2 {
                 TrialOutcome::failure(
@@ -390,7 +428,7 @@ mod tests {
         let recorder = TokenRecorder::new();
         let inputs = vec!["input".to_string()];
 
-        let result = ExecutionEngine::run(&config, &inputs, &recorder, always_succeeds);
+        let result = ExecutionEngine::run(&config, &inputs, &recorder, None, always_succeeds);
 
         assert_eq!(result.summary().samples_executed(), 90);
         assert_eq!(
@@ -409,7 +447,7 @@ mod tests {
         let recorder = TokenRecorder::new();
         let inputs = vec!["input".to_string()];
 
-        let result = ExecutionEngine::run(&config, &inputs, &recorder, always_succeeds);
+        let result = ExecutionEngine::run(&config, &inputs, &recorder, None, always_succeeds);
 
         assert_eq!(result.summary().samples_executed(), 95);
         assert_eq!(
@@ -429,7 +467,7 @@ mod tests {
         let recorder = TokenRecorder::new();
         let inputs = vec!["input".to_string()];
 
-        let result = ExecutionEngine::run(&config, &inputs, &recorder, always_succeeds);
+        let result = ExecutionEngine::run(&config, &inputs, &recorder, None, always_succeeds);
 
         assert_eq!(result.summary().samples_executed(), 100);
         assert_eq!(
@@ -449,7 +487,7 @@ mod tests {
         let recorder = TokenRecorder::new();
         let inputs = vec!["input".to_string()];
 
-        let result = ExecutionEngine::run(&config, &inputs, &recorder, always_fails);
+        let result = ExecutionEngine::run(&config, &inputs, &recorder, None, always_fails);
 
         assert_eq!(result.summary().samples_executed(), 50);
         assert_eq!(
@@ -466,12 +504,150 @@ mod tests {
         let recorder = TokenRecorder::new();
         let inputs = vec!["input".to_string()];
 
-        let result = ExecutionEngine::run(&config, &inputs, &recorder, always_fails);
+        let result = ExecutionEngine::run(&config, &inputs, &recorder, None, always_fails);
 
         assert_eq!(result.summary().samples_executed(), 1);
         assert_eq!(
             result.summary().termination().reason(),
             &TerminationReason::FailureInevitable
+        );
+    }
+
+    // --- Run-scoped budget composition ---
+
+    #[test]
+    fn run_scoped_time_budget_terminates_sample_loop() {
+        let config = ExecutionConfig::new(100);
+        let recorder = TokenRecorder::new();
+        let inputs = vec!["input".to_string()];
+        let run_budget = RunBudget::new(Some(Duration::from_millis(5)), None);
+
+        let result = ExecutionEngine::run(&config, &inputs, &recorder, Some(&run_budget), |_| {
+            std::thread::sleep(Duration::from_millis(2));
+            TrialOutcome::success(Duration::from_millis(2))
+        });
+
+        assert!(result.summary().samples_executed() < 100);
+        assert_eq!(
+            result.summary().termination().reason(),
+            &TerminationReason::RunTimeBudgetExhausted
+        );
+        assert!(result.summary().cost().run_scoped().is_some());
+    }
+
+    #[test]
+    fn run_scoped_token_budget_terminates_sample_loop() {
+        let config = ExecutionConfig::new(100).with_static_token_charge(50);
+        let recorder = TokenRecorder::new();
+        let inputs = vec!["input".to_string()];
+        let run_budget = RunBudget::new(None, Some(150));
+
+        let result = ExecutionEngine::run(
+            &config,
+            &inputs,
+            &recorder,
+            Some(&run_budget),
+            always_succeeds,
+        );
+
+        assert!(result.summary().samples_executed() < 100);
+        assert_eq!(
+            result.summary().termination().reason(),
+            &TerminationReason::RunTokenBudgetExhausted
+        );
+        let snapshot = result.summary().cost().run_scoped().expect("snapshot set");
+        assert_eq!(snapshot.token_budget(), Some(150));
+        assert!(snapshot.tokens_consumed() > 0);
+    }
+
+    #[test]
+    fn run_scoped_short_circuits_when_pre_exhausted() {
+        let config = ExecutionConfig::new(10);
+        let recorder = TokenRecorder::new();
+        let inputs = vec!["input".to_string()];
+        // Budget of 100 tokens already fully consumed before engine entry.
+        let run_budget = RunBudget::new(None, Some(100));
+        run_budget.record_tokens(100);
+
+        let result = ExecutionEngine::run(
+            &config,
+            &inputs,
+            &recorder,
+            Some(&run_budget),
+            always_succeeds,
+        );
+
+        assert_eq!(result.summary().samples_executed(), 0);
+        assert_eq!(
+            result.summary().termination().reason(),
+            &TerminationReason::RunTokenBudgetExhausted
+        );
+    }
+
+    #[test]
+    fn run_scoped_tokens_accumulate_across_sequential_runs() {
+        let config = ExecutionConfig::new(5).with_static_token_charge(20);
+        let run_budget = RunBudget::new(None, Some(500));
+        let inputs = vec!["input".to_string()];
+
+        let first_recorder = TokenRecorder::new();
+        let first = ExecutionEngine::run(
+            &config,
+            &inputs,
+            &first_recorder,
+            Some(&run_budget),
+            always_succeeds,
+        );
+        assert_eq!(first.summary().samples_executed(), 5);
+        assert_eq!(run_budget.tokens_consumed(), 100);
+
+        let second_recorder = TokenRecorder::new();
+        let second = ExecutionEngine::run(
+            &config,
+            &inputs,
+            &second_recorder,
+            Some(&run_budget),
+            always_succeeds,
+        );
+        assert_eq!(second.summary().samples_executed(), 5);
+        assert_eq!(run_budget.tokens_consumed(), 200);
+    }
+
+    #[test]
+    fn run_scoped_and_method_compose_first_exhausted_wins() {
+        // A small per-method token budget combined with a generous
+        // run-scoped one — the method-level variant fires first.
+        let method_tight = ExecutionConfig::new(100)
+            .with_static_token_charge(50)
+            .with_token_budget(150);
+        let generous_run = RunBudget::new(None, Some(100_000));
+        let recorder_a = TokenRecorder::new();
+        let a = ExecutionEngine::run(
+            &method_tight,
+            &["input".to_string()],
+            &recorder_a,
+            Some(&generous_run),
+            always_succeeds,
+        );
+        assert_eq!(
+            a.summary().termination().reason(),
+            &TerminationReason::TokenBudgetExhausted
+        );
+
+        // Invert: generous per-method, tight run-scoped.
+        let method_loose = ExecutionConfig::new(100).with_static_token_charge(50);
+        let tight_run = RunBudget::new(None, Some(150));
+        let recorder_b = TokenRecorder::new();
+        let b = ExecutionEngine::run(
+            &method_loose,
+            &["input".to_string()],
+            &recorder_b,
+            Some(&tight_run),
+            always_succeeds,
+        );
+        assert_eq!(
+            b.summary().termination().reason(),
+            &TerminationReason::RunTokenBudgetExhausted
         );
     }
 }
