@@ -265,12 +265,19 @@ impl ExecutionConfig {
 
 /// Pacing constraints for rate-limiting trial execution.
 ///
-/// Multiple constraints can be set; the most restrictive one wins.
+/// The three floor-style constraints (`min_ms_per_sample`,
+/// `max_requests_per_second`, `max_requests_per_minute`) compose by
+/// most-restrictive-wins — each contributes a minimum inter-sample
+/// delay, and the folded value is the largest of them. The
+/// `max_delay_per_sample` cap is applied *after* the fold, acting as
+/// an upper bound on the proactive pacing delay to prevent over-
+/// restrictive rate composition from stalling a run.
 #[derive(Debug, Clone)]
 pub struct PacingConfig {
     min_ms_per_sample: Option<u64>,
     max_requests_per_second: Option<f64>,
     max_requests_per_minute: Option<f64>,
+    max_delay_per_sample: Option<u64>,
 }
 
 impl PacingConfig {
@@ -281,6 +288,7 @@ impl PacingConfig {
             min_ms_per_sample: None,
             max_requests_per_second: None,
             max_requests_per_minute: None,
+            max_delay_per_sample: None,
         }
     }
 
@@ -333,30 +341,60 @@ impl PacingConfig {
         self.max_requests_per_minute
     }
 
+    /// Sets an upper bound on the proactive pacing delay.
+    ///
+    /// When set, this caps whatever delay the floor-style constraints
+    /// (`min_ms_per_sample`, `max_requests_per_second`,
+    /// `max_requests_per_minute`) would otherwise produce. It has no
+    /// effect when no floor constraint is set — the effective delay is
+    /// zero and no sleep happens.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `ms` is zero.
+    #[must_use]
+    pub fn max_delay_per_sample(mut self, ms: u64) -> Self {
+        assert!(ms > 0, "max_delay_per_sample must be positive, got 0");
+        self.max_delay_per_sample = Some(ms);
+        self
+    }
+
+    /// Configured upper bound on the proactive pacing delay, if set.
+    #[must_use]
+    pub const fn configured_max_delay_per_sample(&self) -> Option<u64> {
+        self.max_delay_per_sample
+    }
+
     /// Computes the effective minimum delay between samples in milliseconds.
     ///
-    /// Takes the most restrictive of all configured constraints.
+    /// Folds the three floor-style constraints via most-restrictive-wins,
+    /// then applies the `max_delay_per_sample` cap as an upper bound. If
+    /// no floor is configured, the effective delay is zero and the cap
+    /// is irrelevant.
     #[must_use]
     pub fn effective_delay_ms(&self) -> u64 {
-        let mut delay = 0u64;
+        let mut floor = 0u64;
 
         if let Some(ms) = self.min_ms_per_sample {
-            delay = delay.max(ms);
+            floor = floor.max(ms);
         }
 
         if let Some(rps) = self.max_requests_per_second {
             #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
             let ms = (1000.0 / rps).ceil() as u64;
-            delay = delay.max(ms);
+            floor = floor.max(ms);
         }
 
         if let Some(rpm) = self.max_requests_per_minute {
             #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
             let ms = (60_000.0 / rpm).ceil() as u64;
-            delay = delay.max(ms);
+            floor = floor.max(ms);
         }
 
-        delay
+        match self.max_delay_per_sample {
+            Some(cap) if floor > 0 => floor.min(cap),
+            _ => floor,
+        }
     }
 }
 
@@ -500,5 +538,53 @@ mod tests {
     #[should_panic(expected = "min_ms_per_sample must be positive")]
     fn min_ms_per_sample_rejects_zero() {
         let _ = PacingConfig::new().min_ms_per_sample(0);
+    }
+
+    #[test]
+    #[should_panic(expected = "max_delay_per_sample must be positive")]
+    fn max_delay_per_sample_rejects_zero() {
+        let _ = PacingConfig::new().max_delay_per_sample(0);
+    }
+
+    #[test]
+    fn fractional_rps_below_one_yields_interval_longer_than_one_second() {
+        // 0.5 rps → one request every 2 seconds = 2000ms.
+        let pacing = PacingConfig::new().max_requests_per_second(0.5);
+        assert_eq!(pacing.effective_delay_ms(), 2000);
+    }
+
+    #[test]
+    fn max_delay_cap_overrides_restrictive_floor() {
+        // 1 rps → 1000ms floor; 100ms cap wins.
+        let pacing = PacingConfig::new()
+            .max_requests_per_second(1.0)
+            .max_delay_per_sample(100);
+        assert_eq!(pacing.effective_delay_ms(), 100);
+    }
+
+    #[test]
+    fn max_delay_cap_inactive_when_above_floor() {
+        // 100ms floor, 500ms cap — floor wins.
+        let pacing = PacingConfig::new()
+            .min_ms_per_sample(100)
+            .max_delay_per_sample(500);
+        assert_eq!(pacing.effective_delay_ms(), 100);
+    }
+
+    #[test]
+    fn max_delay_cap_alone_without_floor_yields_zero() {
+        // Cap without any floor constraint: no sleep happens.
+        let pacing = PacingConfig::new().max_delay_per_sample(100);
+        assert_eq!(pacing.effective_delay_ms(), 0);
+    }
+
+    #[test]
+    fn composition_takes_most_restrictive_of_the_three_floors() {
+        // min_ms=50, rps=5.0 → 200ms, rpm=120.0 → 500ms → effective = 500.
+        let pacing = PacingConfig::new()
+            .min_ms_per_sample(50)
+            .max_requests_per_second(5.0)
+            .max_requests_per_minute(120.0);
+        assert_eq!(pacing.effective_delay_ms(), 500);
     }
 }
