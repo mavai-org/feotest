@@ -983,4 +983,36 @@ mod tests {
             .run();
         assert_eq!(record.verdict(), Verdict::Pass);
     }
+
+    // --- on_budget_exhausted setter ---
+
+    fn slow_success(_input: &str) -> TrialOutcome {
+        std::thread::sleep(Duration::from_millis(5));
+        TrialOutcome::success(Duration::from_millis(5))
+    }
+
+    #[test]
+    fn on_budget_exhausted_setter_propagates() {
+        // Default policy is Fail. Overriding to EvaluatePartial via the
+        // new setter must flip the verdict from forced-Fail to the
+        // stats-derived outcome (Pass at 100% pass rate vs 0.10 threshold).
+        let inputs = vec!["input".to_string()];
+        let record = ProbabilisticTest::new("budget-setter", &inputs, slow_success)
+            .samples(100)
+            .threshold(0.10)
+            .time_budget(Duration::from_millis(20))
+            .on_budget_exhausted(BudgetExhaustedBehavior::EvaluatePartial)
+            .run();
+
+        assert_eq!(record.verdict(), Verdict::Pass);
+        let partial = record
+            .warnings()
+            .iter()
+            .find(|w| w.code() == "BUDGET_EXHAUSTED_PARTIAL");
+        assert!(
+            partial.is_some(),
+            "expected BUDGET_EXHAUSTED_PARTIAL warning, got {:?}",
+            record.warnings()
+        );
+    }
 }

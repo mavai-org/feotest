@@ -896,4 +896,44 @@ mod tests {
             .run();
         assert_eq!(result.verdict_record().verdict(), Verdict::Pass);
     }
+
+    // --- on_budget_exhausted setter precedence ---
+
+    fn slow_success(_input: &str) -> TrialOutcome {
+        std::thread::sleep(Duration::from_millis(5));
+        TrialOutcome::success(Duration::from_millis(5))
+    }
+
+    #[test]
+    fn explicit_execution_config_overrides_on_budget_exhausted_setter() {
+        // An explicit ExecutionConfig is final: its exhaustion setting
+        // wins over the builder's convenience setter. Documents the
+        // precedence rule.
+        let inputs = vec!["input".to_string()];
+        let config = ExecutionConfig::new(100)
+            .with_time_budget(Duration::from_millis(20))
+            .with_on_budget_exhausted(BudgetExhaustedBehavior::Fail);
+
+        let result = ProbabilisticTestBuilder::new("precedence", &inputs, slow_success)
+            .approach(ThresholdApproach::ThresholdFirst {
+                samples: 100,
+                min_pass_rate: 0.10,
+            })
+            .execution_config(config)
+            // Setter asks for EvaluatePartial; the explicit config above
+            // wins, so the test must still force-Fail rather than pass
+            // on stats.
+            .on_budget_exhausted(BudgetExhaustedBehavior::EvaluatePartial)
+            .run();
+
+        assert_eq!(result.verdict_record().verdict(), Verdict::Fail);
+        assert!(
+            result
+                .verdict_record()
+                .warnings()
+                .iter()
+                .any(|w| w.code() == "BUDGET_EXHAUSTED"),
+            "expected Fail-policy BUDGET_EXHAUSTED warning"
+        );
+    }
 }
