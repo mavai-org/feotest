@@ -342,14 +342,40 @@ mod tests {
     }
 
     #[test]
-    fn baseline_with_normative_threshold_allowed() {
+    fn baseline_with_sla_threshold_allowed() {
         let config = MacroConfig {
             samples: Some(100),
             threshold: Some(0.95),
             threshold_origin: ThresholdOrigin::Sla,
             has_baseline: true,
             baseline_rate: Some(0.92),
-            ..base_config("normative_override")
+            ..base_config("normative_override_sla")
+        };
+        validate(&config);
+    }
+
+    #[test]
+    fn baseline_with_slo_threshold_allowed() {
+        let config = MacroConfig {
+            samples: Some(100),
+            threshold: Some(0.95),
+            threshold_origin: ThresholdOrigin::Slo,
+            has_baseline: true,
+            baseline_rate: Some(0.92),
+            ..base_config("normative_override_slo")
+        };
+        validate(&config);
+    }
+
+    #[test]
+    fn baseline_with_policy_threshold_allowed() {
+        let config = MacroConfig {
+            samples: Some(100),
+            threshold: Some(0.95),
+            threshold_origin: ThresholdOrigin::Policy,
+            has_baseline: true,
+            baseline_rate: Some(0.92),
+            ..base_config("normative_override_policy")
         };
         validate(&config);
     }
