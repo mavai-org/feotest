@@ -260,7 +260,7 @@ where
         let approach = self.detect_approach();
         crate::ptest::builder::validate_approach_bounds(&approach);
 
-        // Resolver is built up-front so PT13 validation can ask the
+        // Resolver is built up-front so coherence validation can ask the
         // filesystem whether a baseline actually exists, rather than
         // optimistically assuming one will be there.
         let spec_resolver = self.build_spec_resolver();
@@ -479,8 +479,8 @@ where
         // - covariates are declared (baseline must be loaded for integrity verification), OR
         // - the user explicitly asked for one by supplying a baseline path or directory.
         //
-        // The last case lets PT13 honestly detect baseline + explicit threshold
-        // conflicts (Rule 1) through the simplified API.
+        // The last case lets coherence validation honestly detect a baseline
+        // + explicit threshold conflict through the simplified API.
         let needs_baseline = self.threshold.is_none();
         let has_covariates = self.covariate_context.is_some();
         let user_specified_location = self.baseline_path.is_some() || self.baseline_dir.is_some();
@@ -507,8 +507,8 @@ where
 
     /// Reports whether a baseline spec is actually resolvable.
     ///
-    /// PT13 Rules 3 and 4 rely on this being truthful: a threshold-less
-    /// approach with no baseline on disk must fail at validation with the
+    /// Coherence validation relies on this being truthful: a threshold-less
+    /// approach with no baseline on disk must fail early with the
     /// `REQUIRES_BASELINE[_RATE]` diagnostic, not cryptically inside the
     /// runner. Any resolution warnings surfaced here are discarded; the
     /// runner performs its own resolution and reports from there.
@@ -896,7 +896,7 @@ mod tests {
         assert!(pt.build_execution_config(&approach).is_some());
     }
 
-    // --- PT13 coherence rules through the simplified API ---
+    // --- Coherence rules through the simplified API ---
 
     struct NamedUseCase(&'static str);
     impl crate::usecase::UseCase for NamedUseCase {
