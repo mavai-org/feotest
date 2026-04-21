@@ -181,7 +181,7 @@ fn check_pre_sample_budgets(
 
 /// Sleeps for the configured pacing delay, if any.
 fn apply_pacing(config: &ExecutionConfig) {
-    if let Some(pacing) = config.pacing() {
+    if let Some(pacing) = config.pacing_config() {
         let delay_ms = pacing.effective_delay_ms();
         if delay_ms > 0 {
             std::thread::sleep(Duration::from_millis(delay_ms));

@@ -570,7 +570,7 @@ where
             config = config.with_token_budget(budget);
         }
         if let Some(ref pacing) = self.pacing {
-            config = config.with_pacing(pacing.clone());
+            config = config.pacing(pacing.clone());
         }
         if let Some(behaviour) = self.on_budget_exhausted {
             config = config.with_on_budget_exhausted(behaviour);
@@ -909,7 +909,7 @@ mod tests {
         let pt = ProbabilisticTest::new("test", &inputs, always_succeeds)
             .samples(50)
             .threshold(0.90)
-            .pacing(crate::controls::PacingConfig::new().with_min_ms_per_sample(10));
+            .pacing(crate::controls::PacingConfig::new().min_ms_per_sample(10));
         let approach = pt.detect_approach();
         assert!(pt.build_execution_config(&approach).is_some());
     }

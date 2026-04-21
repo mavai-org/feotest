@@ -110,7 +110,7 @@ impl ExecutionConfig {
 
     /// Sets pacing constraints.
     #[must_use]
-    pub const fn with_pacing(mut self, pacing: PacingConfig) -> Self {
+    pub const fn pacing(mut self, pacing: PacingConfig) -> Self {
         self.pacing = Some(pacing);
         self
     }
@@ -244,7 +244,7 @@ impl ExecutionConfig {
 
     /// Pacing configuration, if set.
     #[must_use]
-    pub const fn pacing(&self) -> Option<&PacingConfig> {
+    pub const fn pacing_config(&self) -> Option<&PacingConfig> {
         self.pacing.as_ref()
     }
 
@@ -286,7 +286,7 @@ impl PacingConfig {
 
     /// Sets the minimum milliseconds between samples.
     #[must_use]
-    pub const fn with_min_ms_per_sample(mut self, ms: u64) -> Self {
+    pub const fn min_ms_per_sample(mut self, ms: u64) -> Self {
         self.min_ms_per_sample = Some(ms);
         self
     }
@@ -297,7 +297,7 @@ impl PacingConfig {
     ///
     /// Panics if `rps` is not positive.
     #[must_use]
-    pub fn with_max_requests_per_second(mut self, rps: f64) -> Self {
+    pub fn max_requests_per_second(mut self, rps: f64) -> Self {
         assert!(rps > 0.0, "max requests per second must be positive");
         self.max_requests_per_second = Some(rps);
         self
@@ -309,7 +309,7 @@ impl PacingConfig {
     ///
     /// Panics if `rpm` is not positive.
     #[must_use]
-    pub fn with_max_requests_per_minute(mut self, rpm: f64) -> Self {
+    pub fn max_requests_per_minute(mut self, rpm: f64) -> Self {
         assert!(rpm > 0.0, "max requests per minute must be positive");
         self.max_requests_per_minute = Some(rpm);
         self
@@ -317,13 +317,13 @@ impl PacingConfig {
 
     /// Configured maximum requests per second, if set.
     #[must_use]
-    pub const fn max_requests_per_second(&self) -> Option<f64> {
+    pub const fn configured_max_requests_per_second(&self) -> Option<f64> {
         self.max_requests_per_second
     }
 
     /// Configured maximum requests per minute, if set.
     #[must_use]
-    pub const fn max_requests_per_minute(&self) -> Option<f64> {
+    pub const fn configured_max_requests_per_minute(&self) -> Option<f64> {
         self.max_requests_per_minute
     }
 
@@ -373,7 +373,7 @@ mod tests {
         assert!(config.token_budget().is_none());
         assert_eq!(config.on_budget_exhausted(), BudgetExhaustedBehavior::Fail);
         assert_eq!(config.max_example_failures(), 5);
-        assert!(config.pacing().is_none());
+        assert!(config.pacing_config().is_none());
     }
 
     #[test]
@@ -466,27 +466,27 @@ mod tests {
 
     #[test]
     fn pacing_min_ms_per_sample() {
-        let pacing = PacingConfig::new().with_min_ms_per_sample(200);
+        let pacing = PacingConfig::new().min_ms_per_sample(200);
         assert_eq!(pacing.effective_delay_ms(), 200);
     }
 
     #[test]
     fn pacing_rps_constraint() {
-        let pacing = PacingConfig::new().with_max_requests_per_second(5.0);
+        let pacing = PacingConfig::new().max_requests_per_second(5.0);
         assert_eq!(pacing.effective_delay_ms(), 200);
     }
 
     #[test]
     fn pacing_rpm_constraint() {
-        let pacing = PacingConfig::new().with_max_requests_per_minute(60.0);
+        let pacing = PacingConfig::new().max_requests_per_minute(60.0);
         assert_eq!(pacing.effective_delay_ms(), 1000);
     }
 
     #[test]
     fn pacing_most_restrictive_wins() {
         let pacing = PacingConfig::new()
-            .with_min_ms_per_sample(100)
-            .with_max_requests_per_second(2.0); // 500ms
+            .min_ms_per_sample(100)
+            .max_requests_per_second(2.0); // 500ms
         assert_eq!(pacing.effective_delay_ms(), 500);
     }
 }

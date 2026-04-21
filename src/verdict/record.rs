@@ -1057,8 +1057,7 @@ mod tests {
         use crate::controls::PacingConfig;
         use crate::model::{ExpirationInfo, ExpirationStatus, PacingSummary};
 
-        let pacing =
-            PacingSummary::from_config(&PacingConfig::new().with_max_requests_per_second(10.0));
+        let pacing = PacingSummary::from_config(&PacingConfig::new().max_requests_per_second(10.0));
 
         let provenance =
             SpecProvenance::new(ThresholdOrigin::Empirical).with_expiration(ExpirationInfo::new(

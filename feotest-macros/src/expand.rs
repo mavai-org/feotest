@@ -309,14 +309,14 @@ fn build_execution_config(attrs: &PTestAttrs) -> TokenStream {
         let pacing_expr = match parse_pacing_str(p).unwrap() {
             ParsedPacing::PerSecond(rps) => quote! {
                 feotest::controls::PacingConfig::new()
-                    .with_max_requests_per_second(#rps)
+                    .max_requests_per_second(#rps)
             },
             ParsedPacing::PerMinute(rpm) => quote! {
                 feotest::controls::PacingConfig::new()
-                    .with_max_requests_per_minute(#rpm)
+                    .max_requests_per_minute(#rpm)
             },
         };
-        config_chain.extend(quote! { .with_pacing(#pacing_expr) });
+        config_chain.extend(quote! { .pacing(#pacing_expr) });
     }
 
     quote! { .execution_config(#config_chain) }

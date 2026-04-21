@@ -57,8 +57,8 @@ fn full_pass_record() -> VerdictRecord {
 
     let pacing = PacingSummary::from_config(
         &PacingConfig::new()
-            .with_max_requests_per_second(10.0)
-            .with_max_requests_per_minute(300.0),
+            .max_requests_per_second(10.0)
+            .max_requests_per_minute(300.0),
     );
 
     let covariates = CovariateStatus::new(
@@ -108,7 +108,7 @@ fn fail_record() -> VerdictRecord {
             Some("2026-05-01T00:00:00Z".into()),
         ));
 
-    let pacing = PacingSummary::from_config(&PacingConfig::new().with_max_requests_per_second(5.0));
+    let pacing = PacingSummary::from_config(&PacingConfig::new().max_requests_per_second(5.0));
 
     let covariates = CovariateStatus::new(
         false,
