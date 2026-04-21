@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use crate::controls::{ExecutionConfig, PacingConfig};
-use crate::model::{TestIntent, ThresholdOrigin, TrialOutcome};
+use crate::model::{BudgetExhaustedBehavior, TestIntent, ThresholdOrigin, TrialOutcome};
 use crate::ptest::builder::ThresholdApproach;
 use crate::ptest::runner::{self, AssessmentCriteria, BaselineContext};
 use crate::spec::SpecResolver;
@@ -76,6 +76,7 @@ pub struct ProbabilisticTest<'a, F> {
     token_budget: Option<u64>,
     pacing: Option<PacingConfig>,
     covariate_context: Option<CovariateContext>,
+    on_budget_exhausted: Option<BudgetExhaustedBehavior>,
 }
 
 impl<'a, F> ProbabilisticTest<'a, F>
@@ -116,6 +117,7 @@ where
             token_budget: None,
             pacing: None,
             covariate_context: None,
+            on_budget_exhausted: None,
         }
     }
 
@@ -227,6 +229,18 @@ where
         self
     }
 
+    /// Sets the behaviour when a budget is exhausted.
+    ///
+    /// Defaults to [`BudgetExhaustedBehavior::Fail`]. Use
+    /// [`BudgetExhaustedBehavior::EvaluatePartial`] for cost-constrained
+    /// runs where a statistically valid verdict on the completed samples
+    /// is preferable to failing outright.
+    #[must_use]
+    pub const fn on_budget_exhausted(mut self, behaviour: BudgetExhaustedBehavior) -> Self {
+        self.on_budget_exhausted = Some(behaviour);
+        self
+    }
+
     /// Sets covariate context from a use case for baseline selection.
     ///
     /// When set, the resolver uses covariate-aware selection to find
@@ -289,6 +303,7 @@ where
                 baseline_confidence: crate::latency::DEFAULT_BASELINE_CONFIDENCE,
             },
             fail_on_expired_baseline: false,
+            on_budget_exhausted: self.on_budget_exhausted,
         };
         let baseline = BaselineContext {
             spec_resolver,
@@ -556,6 +571,9 @@ where
         }
         if let Some(ref pacing) = self.pacing {
             config = config.with_pacing(pacing.clone());
+        }
+        if let Some(behaviour) = self.on_budget_exhausted {
+            config = config.with_on_budget_exhausted(behaviour);
         }
         Some(config)
     }
@@ -964,5 +982,37 @@ mod tests {
             .baseline_dir(dir.path())
             .run();
         assert_eq!(record.verdict(), Verdict::Pass);
+    }
+
+    // --- on_budget_exhausted setter ---
+
+    fn slow_success(_input: &str) -> TrialOutcome {
+        std::thread::sleep(Duration::from_millis(5));
+        TrialOutcome::success(Duration::from_millis(5))
+    }
+
+    #[test]
+    fn on_budget_exhausted_setter_propagates() {
+        // Default policy is Fail. Overriding to EvaluatePartial via the
+        // new setter must flip the verdict from forced-Fail to the
+        // stats-derived outcome (Pass at 100% pass rate vs 0.10 threshold).
+        let inputs = vec!["input".to_string()];
+        let record = ProbabilisticTest::new("budget-setter", &inputs, slow_success)
+            .samples(100)
+            .threshold(0.10)
+            .time_budget(Duration::from_millis(20))
+            .on_budget_exhausted(BudgetExhaustedBehavior::EvaluatePartial)
+            .run();
+
+        assert_eq!(record.verdict(), Verdict::Pass);
+        let partial = record
+            .warnings()
+            .iter()
+            .find(|w| w.code() == "BUDGET_EXHAUSTED_PARTIAL");
+        assert!(
+            partial.is_some(),
+            "expected BUDGET_EXHAUSTED_PARTIAL warning, got {:?}",
+            record.warnings()
+        );
     }
 }

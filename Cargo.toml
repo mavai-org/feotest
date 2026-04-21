@@ -9,6 +9,10 @@ all = { level = "warn", priority = -1 }
 pedantic = { level = "warn", priority = -1 }
 nursery = { level = "warn", priority = -1 }
 cargo = { level = "warn", priority = -1 }
+# restriction-group lint, not covered by pedantic. Forces every
+# #[allow(...)] to carry a reason = "..." string so the deferred
+# debt is grep-able.
+allow_attributes_without_reason = "warn"
 
 [package]
 name = "feotest"

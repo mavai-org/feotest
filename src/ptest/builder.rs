@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use crate::controls::ExecutionConfig;
 use crate::latency::{LatencyEnforcementMode, LatencyThresholds, Percentile};
-use crate::model::{TestIntent, ThresholdOrigin, TrialOutcome};
+use crate::model::{BudgetExhaustedBehavior, TestIntent, ThresholdOrigin, TrialOutcome};
 use crate::ptest::runner::{
     self, AssessmentCriteria, BaselineContext, LatencyConfig, ProbabilisticTestResult,
 };
@@ -122,6 +122,7 @@ pub struct ProbabilisticTestBuilder<'a, F> {
     baseline_latency_mode: Option<LatencyEnforcementMode>,
     baseline_latency_confidence: Option<f64>,
     fail_on_expired_baseline: bool,
+    on_budget_exhausted: Option<BudgetExhaustedBehavior>,
 }
 
 impl<'a, F> ProbabilisticTestBuilder<'a, F>
@@ -152,6 +153,7 @@ where
             baseline_latency_mode: None,
             baseline_latency_confidence: None,
             fail_on_expired_baseline: false,
+            on_budget_exhausted: None,
         }
     }
 
@@ -205,6 +207,18 @@ where
     #[must_use]
     pub const fn execution_config(mut self, config: ExecutionConfig) -> Self {
         self.config_overrides = Some(config);
+        self
+    }
+
+    /// Sets the behaviour when a budget is exhausted.
+    ///
+    /// If a full [`ExecutionConfig`] is also supplied via
+    /// [`Self::execution_config`], that config's own setting wins —
+    /// this setter only has effect when the runner synthesises a default
+    /// config.
+    #[must_use]
+    pub const fn on_budget_exhausted(mut self, behaviour: BudgetExhaustedBehavior) -> Self {
+        self.on_budget_exhausted = Some(behaviour);
         self
     }
 
@@ -330,6 +344,7 @@ where
                     .unwrap_or(crate::latency::DEFAULT_BASELINE_CONFIDENCE),
             },
             fail_on_expired_baseline: self.fail_on_expired_baseline,
+            on_budget_exhausted: self.on_budget_exhausted,
         };
         let baseline = BaselineContext {
             spec_resolver: self.spec_resolver,
@@ -880,5 +895,45 @@ mod tests {
             .intent(TestIntent::Verification)
             .run();
         assert_eq!(result.verdict_record().verdict(), Verdict::Pass);
+    }
+
+    // --- on_budget_exhausted setter precedence ---
+
+    fn slow_success(_input: &str) -> TrialOutcome {
+        std::thread::sleep(Duration::from_millis(5));
+        TrialOutcome::success(Duration::from_millis(5))
+    }
+
+    #[test]
+    fn explicit_execution_config_overrides_on_budget_exhausted_setter() {
+        // An explicit ExecutionConfig is final: its exhaustion setting
+        // wins over the builder's convenience setter. Documents the
+        // precedence rule.
+        let inputs = vec!["input".to_string()];
+        let config = ExecutionConfig::new(100)
+            .with_time_budget(Duration::from_millis(20))
+            .with_on_budget_exhausted(BudgetExhaustedBehavior::Fail);
+
+        let result = ProbabilisticTestBuilder::new("precedence", &inputs, slow_success)
+            .approach(ThresholdApproach::ThresholdFirst {
+                samples: 100,
+                min_pass_rate: 0.10,
+            })
+            .execution_config(config)
+            // Setter asks for EvaluatePartial; the explicit config above
+            // wins, so the test must still force-Fail rather than pass
+            // on stats.
+            .on_budget_exhausted(BudgetExhaustedBehavior::EvaluatePartial)
+            .run();
+
+        assert_eq!(result.verdict_record().verdict(), Verdict::Fail);
+        assert!(
+            result
+                .verdict_record()
+                .warnings()
+                .iter()
+                .any(|w| w.code() == "BUDGET_EXHAUSTED"),
+            "expected Fail-policy BUDGET_EXHAUSTED warning"
+        );
     }
 }
