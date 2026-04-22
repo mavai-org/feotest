@@ -31,7 +31,9 @@ default = []
 json-matcher = ["dep:serde_json"]
 
 [dependencies]
+clap = { version = "4", features = ["derive"] }
 feotest-macros = { path = "feotest-macros" }
+include_dir = "0.7"
 inventory = "0.3"
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", optional = true }

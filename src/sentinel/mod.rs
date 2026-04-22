@@ -40,16 +40,31 @@
 //! tests or measure experiments against live services — is a separate
 //! concern that will layer on top of the types defined here.
 
+use core::any::Any;
 use core::fmt;
+
+pub mod content;
+pub mod embedded;
+pub mod resolver;
+pub mod runner;
+
+pub use content::{
+    ContentDescriptor, ContentInvoker, ContentKind, MeasureExperimentConfig,
+    ProbabilisticTestConfig, content_for, registered_content,
+};
+pub use embedded::{DefaultEmbeddedRegistry, EmbeddedBaseline, registered_embedded_baselines};
+pub use resolver::{
+    BaselineQuery, BaselineResolutionError, EmbeddedBaselineLookup, OUTPUT_ENV_VAR, SOURCE_ENV_VAR,
+    baseline_output_from_env, baseline_source_from_env, resolve_baseline,
+};
+pub use runner::{SentinelOutcome, SentinelResult, SentinelRunner, run_cli};
 
 /// The authoring contract every `#[sentinel]`-annotated struct satisfies.
 ///
 /// Implementations are produced by the `#[sentinel]` attribute macro and
 /// are not normally written by hand. The trait exposes the minimum surface
-/// a runtime needs to identify and label a specification — name and
-/// description — while deferring the enumeration of contained factories,
-/// experiments, and tests to later machinery that layers on top of the
-/// registry.
+/// a runtime needs to identify, label, and invoke a specification: name,
+/// description, and a type-erased downcast via [`as_any`](ReliabilitySpec::as_any).
 pub trait ReliabilitySpec: Send + Sync {
     /// Stable symbolic identifier for this specification.
     ///
@@ -70,6 +85,13 @@ pub trait ReliabilitySpec: Send + Sync {
     fn description(&self) -> &'static str {
         ""
     }
+
+    /// Type-erased upcast to `&dyn Any`, enabling the sentinel runner to
+    /// downcast a trait-object spec reference to its concrete type before
+    /// invoking content methods. The `#[sentinel]` attribute macro emits
+    /// a trivial `self` return; bespoke implementations should do the
+    /// same.
+    fn as_any(&self) -> &dyn Any;
 }
 
 /// Metadata and constructor for a registered reliability specification.
