@@ -954,8 +954,13 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let uc = NamedUseCase("coherence-conflict");
         let inputs = vec!["input".to_string()];
-        crate::experiment::MeasureExperiment::new(&uc, 200, &inputs, always_succeeds)
-            .with_spec_resolver(crate::spec::SpecResolver::with_dir(dir.path()))
+        crate::experiment::MeasureExperiment::builder()
+            .use_case(&uc)
+            .samples(200)
+            .inputs(&inputs)
+            .trial(always_succeeds)
+            .baseline_dir(dir.path())
+            .build()
             .run();
 
         ProbabilisticTest::new("coherence-conflict", &inputs, always_succeeds)
@@ -971,8 +976,13 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let uc = NamedUseCase("coherence-normative-sla");
         let inputs = vec!["input".to_string()];
-        crate::experiment::MeasureExperiment::new(&uc, 200, &inputs, always_succeeds)
-            .with_spec_resolver(crate::spec::SpecResolver::with_dir(dir.path()))
+        crate::experiment::MeasureExperiment::builder()
+            .use_case(&uc)
+            .samples(200)
+            .inputs(&inputs)
+            .trial(always_succeeds)
+            .baseline_dir(dir.path())
+            .build()
             .run();
 
         let record = ProbabilisticTest::new("coherence-normative-sla", &inputs, always_succeeds)

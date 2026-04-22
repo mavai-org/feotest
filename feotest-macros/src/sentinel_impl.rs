@@ -474,15 +474,15 @@ fn emit_experiment(
             let use_case = SentinelUseCase {
                 id: ::std::format!("{}.{}", spec.name(), #target_use_case),
             };
-            ::feotest::experiment::MeasureExperiment::new(
-                &use_case,
-                #samples,
-                &inputs,
-                trial,
-            )
-            .run()
-            .spec()
-            .clone()
+            ::feotest::experiment::MeasureExperiment::builder()
+                .use_case(&use_case)
+                .samples(#samples)
+                .inputs(&inputs)
+                .trial(trial)
+                .build()
+                .run()
+                .spec()
+                .clone()
         }
 
         #[doc(hidden)]
@@ -507,6 +507,7 @@ fn emit_experiment(
     })
 }
 
+#[derive(Debug)]
 enum OriginToken {
     Sla,
     Slo,

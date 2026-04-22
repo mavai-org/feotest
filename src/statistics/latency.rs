@@ -21,7 +21,8 @@ use statrs::distribution::{Binomial, DiscreteCDF};
 #[allow(
     clippy::cast_possible_truncation,
     clippy::cast_sign_loss,
-    clippy::cast_precision_loss
+    clippy::cast_precision_loss,
+    reason = "rank is bounded above by n (usize); percentile in (0, 1]"
 )]
 pub fn nearest_rank_percentile(latencies: &[f64], percentile: f64) -> f64 {
     assert!(!latencies.is_empty(), "latencies must not be empty");
@@ -58,7 +59,10 @@ impl LatencySummary {
     ///
     /// `latencies` must not be empty.
     #[must_use]
-    #[allow(clippy::cast_precision_loss)]
+    #[allow(
+        clippy::cast_precision_loss,
+        reason = "sample count realistically fits in f64 mantissa"
+    )]
     pub fn from_latencies(latencies: &[f64]) -> Self {
         assert!(!latencies.is_empty(), "latencies must not be empty");
 
@@ -138,7 +142,8 @@ impl DerivedLatencyThreshold {
 #[allow(
     clippy::cast_possible_truncation,
     clippy::cast_sign_loss,
-    clippy::cast_precision_loss
+    clippy::cast_precision_loss,
+    reason = "ranks and thresholds bounded by validated baseline inputs"
 )]
 pub fn derive_latency_threshold(
     baseline_latencies: &[f64],
@@ -170,7 +175,10 @@ pub fn derive_latency_threshold(
     let q = dist.inverse_cdf(1.0 - alpha);
 
     // k = qbinom(...) + 1, clamped to [ceil(p * n_s), n_s].
-    #[allow(clippy::cast_possible_wrap)]
+    #[allow(
+        clippy::cast_possible_wrap,
+        reason = "rank arithmetic stays within the validated u64 domain"
+    )]
     let raw_rank = q.saturating_add(1);
     let point_rank = (percentile * n as f64).ceil() as u64;
     let clamped = raw_rank.max(point_rank).min(n_u64);

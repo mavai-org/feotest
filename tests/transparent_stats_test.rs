@@ -75,8 +75,13 @@ fn render_with_sample_size_first_approach() {
     let inputs = vec!["input".to_string()];
 
     // Establish a baseline
-    feotest::experiment::MeasureExperiment::new(&uc, 200, &inputs, always_succeeds)
-        .with_spec_resolver(feotest::spec::SpecResolver::with_dir(dir.path()))
+    feotest::experiment::MeasureExperiment::builder()
+        .use_case(&uc)
+        .samples(200)
+        .inputs(&inputs)
+        .trial(always_succeeds)
+        .baseline_dir(dir.path())
+        .build()
         .run();
 
     // Run a probabilistic test using the baseline

@@ -380,13 +380,21 @@ impl PacingConfig {
         }
 
         if let Some(rps) = self.max_requests_per_second {
-            #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
+            #[allow(
+                clippy::cast_sign_loss,
+                clippy::cast_possible_truncation,
+                reason = "rate is validated positive; ceiling fits in u64"
+            )]
             let ms = (1000.0 / rps).ceil() as u64;
             floor = floor.max(ms);
         }
 
         if let Some(rpm) = self.max_requests_per_minute {
-            #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
+            #[allow(
+                clippy::cast_sign_loss,
+                clippy::cast_possible_truncation,
+                reason = "rate is validated positive; ceiling fits in u64"
+            )]
             let ms = (60_000.0 / rpm).ceil() as u64;
             floor = floor.max(ms);
         }

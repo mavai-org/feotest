@@ -23,7 +23,10 @@ pub struct PTestAttrs {
 
 /// The detected operational approach.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[allow(clippy::enum_variant_names)]
+#[allow(
+    clippy::enum_variant_names,
+    reason = "the -First suffix carries the semantic distinction"
+)]
 pub enum Approach {
     ThresholdFirst,
     SampleSizeFirst,
@@ -114,7 +117,10 @@ fn parse_f64(input: ParseStream) -> syn::Result<f64> {
     } else if lookahead.peek(LitInt) {
         let lit: LitInt = input.parse()?;
         let val: u64 = lit.base10_parse()?;
-        #[allow(clippy::cast_precision_loss)]
+        #[allow(
+            clippy::cast_precision_loss,
+            reason = "macro-input literal values fit in f64 mantissa"
+        )]
         Ok(val as f64)
     } else {
         Err(lookahead.error())

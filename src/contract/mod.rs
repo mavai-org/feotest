@@ -101,7 +101,10 @@ impl<I, R> ServiceContract<I, R> {
 /// A named postcondition check within a service contract.
 struct Check<I, R> {
     name: String,
-    #[allow(clippy::type_complexity)]
+    #[allow(
+        clippy::type_complexity,
+        reason = "trait-object signature captures the check contract"
+    )]
     f: Box<dyn Fn(&I, &R) -> Outcome + Send + Sync>,
 }
 

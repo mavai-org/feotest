@@ -65,8 +65,13 @@ fn sample_size_first_terminates_on_failure_inevitable() {
     let dir = tempfile::tempdir().unwrap();
     let baseline_uc = TestUc("ssf-fail-inev");
     let inputs = vec!["input".to_string()];
-    MeasureExperiment::new(&baseline_uc, 200, &inputs, always_succeed)
-        .with_spec_resolver(SpecResolver::with_dir(dir.path()))
+    MeasureExperiment::builder()
+        .use_case(&baseline_uc)
+        .samples(200)
+        .inputs(&inputs)
+        .trial(always_succeed)
+        .baseline_dir(dir.path())
+        .build()
         .run();
 
     let resolver = SpecResolver::with_dir(dir.path());
@@ -157,7 +162,13 @@ fn validity_floor_delays_runner_success_guaranteed() {
 fn measure_experiment_runs_all_samples_regardless_of_failures() {
     let uc = TestUc("measure-non-reg");
     let inputs = vec!["input".to_string()];
-    let result = MeasureExperiment::new(&uc, 30, &inputs, always_fail).run();
+    let result = MeasureExperiment::builder()
+        .use_case(&uc)
+        .samples(30)
+        .inputs(&inputs)
+        .trial(always_fail)
+        .build()
+        .run();
     assert_eq!(result.execution().summary().samples_executed(), 30);
     assert_eq!(
         result.execution().summary().termination().reason(),

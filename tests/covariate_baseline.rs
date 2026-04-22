@@ -59,8 +59,13 @@ fn matching_covariates_resolves_cleanly() {
     let inputs = vec!["input".to_string()];
 
     // Establish baseline with model=gpt-4o
-    MeasureExperiment::new(&uc, 200, &inputs, always_succeeds)
-        .with_spec_resolver(SpecResolver::with_dir(dir.path()))
+    MeasureExperiment::builder()
+        .use_case(&uc)
+        .samples(200)
+        .inputs(&inputs)
+        .trial(always_succeeds)
+        .baseline_dir(dir.path())
+        .build()
         .run();
 
     // Run test with same covariate profile
@@ -101,8 +106,13 @@ fn mismatched_covariates_produce_warnings() {
     let inputs = vec!["input".to_string()];
 
     // Establish baseline with model=gpt-4o
-    MeasureExperiment::new(&baseline_uc, 200, &inputs, always_succeeds)
-        .with_spec_resolver(SpecResolver::with_dir(dir.path()))
+    MeasureExperiment::builder()
+        .use_case(&baseline_uc)
+        .samples(200)
+        .inputs(&inputs)
+        .trial(always_succeeds)
+        .baseline_dir(dir.path())
+        .build()
         .run();
 
     // Run test with model=gpt-4o-mini (different covariate value)
@@ -146,8 +156,13 @@ fn baseline_provenance_present_with_covariates() {
     };
     let inputs = vec!["input".to_string()];
 
-    MeasureExperiment::new(&uc, 200, &inputs, always_succeeds)
-        .with_spec_resolver(SpecResolver::with_dir(dir.path()))
+    MeasureExperiment::builder()
+        .use_case(&uc)
+        .samples(200)
+        .inputs(&inputs)
+        .trial(always_succeeds)
+        .baseline_dir(dir.path())
+        .build()
         .run();
 
     let resolver = SpecResolver::with_dir(dir.path());
@@ -182,8 +197,13 @@ fn threshold_first_with_covariates_loads_baseline() {
     };
     let inputs = vec!["input".to_string()];
 
-    MeasureExperiment::new(&uc, 200, &inputs, always_succeeds)
-        .with_spec_resolver(SpecResolver::with_dir(dir.path()))
+    MeasureExperiment::builder()
+        .use_case(&uc)
+        .samples(200)
+        .inputs(&inputs)
+        .trial(always_succeeds)
+        .baseline_dir(dir.path())
+        .build()
         .run();
 
     let resolver = SpecResolver::with_dir(dir.path());
@@ -216,8 +236,13 @@ fn console_renders_covariate_warnings() {
     };
     let inputs = vec!["input".to_string()];
 
-    MeasureExperiment::new(&baseline_uc, 200, &inputs, always_succeeds)
-        .with_spec_resolver(SpecResolver::with_dir(dir.path()))
+    MeasureExperiment::builder()
+        .use_case(&baseline_uc)
+        .samples(200)
+        .inputs(&inputs)
+        .trial(always_succeeds)
+        .baseline_dir(dir.path())
+        .build()
         .run();
 
     let test_uc = CovariateUseCase {

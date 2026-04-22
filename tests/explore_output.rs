@@ -43,13 +43,16 @@ fn explore_writes_per_config_yaml_files() {
     let svc_a = MockService::new("test-uc", "config-a");
     let svc_b = MockService::new("test-uc", "config-b");
 
-    let result = ExploreExperiment::new(&svc_a, 5, &inputs, |_svc: &MockService, _input| {
-        TrialOutcome::success(Duration::from_millis(1))
-    })
-    .config(&svc_b)
-    .experiment_id("test-explore")
-    .output_dir(dir.path())
-    .run();
+    let result = ExploreExperiment::builder()
+        .config(&svc_a)
+        .config(&svc_b)
+        .samples_per_config(5)
+        .inputs(&inputs)
+        .trial(|_svc: &MockService, _input| TrialOutcome::success(Duration::from_millis(1)))
+        .experiment_id("test-explore")
+        .output_dir(dir.path())
+        .build()
+        .run();
 
     let paths = result.spec_paths().expect("spec paths should be set");
     assert_eq!(paths.len(), 2);
@@ -75,11 +78,14 @@ fn explore_yaml_contains_correct_content() {
 
     let svc = MockService::new("content-test", "all-pass");
 
-    let result = ExploreExperiment::new(&svc, 10, &inputs, |_svc: &MockService, _input| {
-        TrialOutcome::success(Duration::from_millis(5))
-    })
-    .output_dir(dir.path())
-    .run();
+    let result = ExploreExperiment::builder()
+        .config(&svc)
+        .samples_per_config(10)
+        .inputs(&inputs)
+        .trial(|_svc: &MockService, _input| TrialOutcome::success(Duration::from_millis(5)))
+        .output_dir(dir.path())
+        .build()
+        .run();
 
     let paths = result.spec_paths().unwrap();
     let yaml_content = std::fs::read_to_string(&paths[0]).unwrap();
@@ -107,12 +113,15 @@ fn explore_yaml_includes_factor_values() {
         ("temperature".to_owned(), FactorYamlValue::Float(0.7)),
     ]);
 
-    let result = ExploreExperiment::new(&svc, 5, &inputs, |_svc: &MockService, _input| {
-        TrialOutcome::success(Duration::from_millis(1))
-    })
-    .factors("gpt-4_temp-0.7", factors)
-    .output_dir(dir.path())
-    .run();
+    let result = ExploreExperiment::builder()
+        .config(&svc)
+        .samples_per_config(5)
+        .inputs(&inputs)
+        .trial(|_svc: &MockService, _input| TrialOutcome::success(Duration::from_millis(1)))
+        .factors("gpt-4_temp-0.7", factors)
+        .output_dir(dir.path())
+        .build()
+        .run();
 
     let paths = result.spec_paths().unwrap();
     let yaml_content = std::fs::read_to_string(&paths[0]).unwrap();
@@ -129,10 +138,13 @@ fn explore_without_output_dir_produces_no_files() {
     let inputs = vec!["request".to_string()];
     let svc = MockService::new("no-output-test", "no-output");
 
-    let result = ExploreExperiment::new(&svc, 5, &inputs, |_svc: &MockService, _input| {
-        TrialOutcome::success(Duration::from_millis(1))
-    })
-    .run();
+    let result = ExploreExperiment::builder()
+        .config(&svc)
+        .samples_per_config(5)
+        .inputs(&inputs)
+        .trial(|_svc: &MockService, _input| TrialOutcome::success(Duration::from_millis(1)))
+        .build()
+        .run();
 
     assert!(result.spec_paths().is_none());
 }
@@ -144,10 +156,13 @@ fn explore_spec_writer_standalone() {
 
     let svc = MockService::new("writer-test", "standalone");
 
-    let result = ExploreExperiment::new(&svc, 5, &inputs, |_svc: &MockService, _input| {
-        TrialOutcome::success(Duration::from_millis(1))
-    })
-    .run();
+    let result = ExploreExperiment::builder()
+        .config(&svc)
+        .samples_per_config(5)
+        .inputs(&inputs)
+        .trial(|_svc: &MockService, _input| TrialOutcome::success(Duration::from_millis(1)))
+        .build()
+        .run();
 
     let writer = ExploreSpecWriter::new(dir.path());
     let factors = BTreeMap::new();
@@ -163,11 +178,14 @@ fn explore_yaml_is_descriptive_not_inferential() {
     let inputs = vec!["input".to_string()];
     let svc = MockService::new("desc-test", "descriptive");
 
-    let result = ExploreExperiment::new(&svc, 5, &inputs, |_svc: &MockService, _input| {
-        TrialOutcome::success(Duration::from_millis(1))
-    })
-    .output_dir(dir.path())
-    .run();
+    let result = ExploreExperiment::builder()
+        .config(&svc)
+        .samples_per_config(5)
+        .inputs(&inputs)
+        .trial(|_svc: &MockService, _input| TrialOutcome::success(Duration::from_millis(1)))
+        .output_dir(dir.path())
+        .build()
+        .run();
 
     let paths = result.spec_paths().unwrap();
     let yaml = std::fs::read_to_string(&paths[0]).unwrap();

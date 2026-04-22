@@ -108,7 +108,11 @@ impl LatencyDimension {
     /// Builds a latency dimension from observed successful-response latencies
     /// and a list of resolved thresholds.
     #[must_use]
-    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    #[allow(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        reason = "sample count within u32; ms latencies fit in f64"
+    )]
     pub fn build(successful_latencies_ms: &[f64], resolved: &[ResolvedLatencyThreshold]) -> Self {
         let successful_samples = successful_latencies_ms.len() as u32;
 

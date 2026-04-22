@@ -57,21 +57,21 @@ fn writes_yaml_to_use_case_scoped_path() {
     let inputs = vec!["input".to_string()];
     let uc = SimpleUseCase("shopping-basket");
 
-    let result = OptimizeExperiment::new(
-        &uc,
-        "temperature",
-        FactorValue::Float(0.1),
-        PassRateScorer,
-        FloatIncrementMutator(0.1),
-        &inputs,
-        |_input| TrialOutcome::success(Duration::ZERO),
-        |_value| {},
-    )
-    .with_max_iterations(3)
-    .with_samples_per_iteration(5)
-    .with_no_improvement_window(10)
-    .with_experiment_id("temp-tune-v1")
-    .run();
+    let result = OptimizeExperiment::builder()
+        .use_case(&uc)
+        .control_factor("temperature")
+        .initial_value(FactorValue::Float(0.1))
+        .scorer(PassRateScorer)
+        .mutator(FloatIncrementMutator(0.1))
+        .inputs(&inputs)
+        .trial(|_input| TrialOutcome::success(Duration::ZERO))
+        .apply_factor(|_value| {})
+        .max_iterations(3)
+        .samples_per_iteration(5)
+        .no_improvement_window(10)
+        .experiment_id("temp-tune-v1")
+        .build()
+        .run();
 
     let path = result.write_to(dir.path()).unwrap();
 
@@ -104,21 +104,21 @@ fn multi_line_factor_value_uses_block_scalar() {
         "You are a shopping assistant.\nAlways suggest related items.\nReturn JSON.".to_string(),
     ];
 
-    let result = OptimizeExperiment::new(
-        &uc,
-        "systemPrompt",
-        FactorValue::String(prompts[0].clone()),
-        PassRateScorer,
-        PromptMutator { variants: prompts },
-        &inputs,
-        |_input| TrialOutcome::success(Duration::ZERO),
-        |_value| {},
-    )
-    .with_max_iterations(2)
-    .with_samples_per_iteration(3)
-    .with_no_improvement_window(10)
-    .with_experiment_id("prompt-v1")
-    .run();
+    let result = OptimizeExperiment::builder()
+        .use_case(&uc)
+        .control_factor("systemPrompt")
+        .initial_value(FactorValue::String(prompts[0].clone()))
+        .scorer(PassRateScorer)
+        .mutator(PromptMutator { variants: prompts })
+        .inputs(&inputs)
+        .trial(|_input| TrialOutcome::success(Duration::ZERO))
+        .apply_factor(|_value| {})
+        .max_iterations(2)
+        .samples_per_iteration(3)
+        .no_improvement_window(10)
+        .experiment_id("prompt-v1")
+        .build()
+        .run();
 
     let path = result.write_to(dir.path()).unwrap();
     let yaml = std::fs::read_to_string(&path).unwrap();
@@ -144,22 +144,22 @@ fn minimize_objective_is_recorded() {
     let inputs = vec!["input".to_string()];
     let uc = SimpleUseCase("cost-min");
 
-    let result = OptimizeExperiment::new(
-        &uc,
-        "latencyMs",
-        FactorValue::Float(100.0),
-        PassRateScorer,
-        FloatIncrementMutator(-10.0),
-        &inputs,
-        |_input| TrialOutcome::success(Duration::ZERO),
-        |_value| {},
-    )
-    .with_objective(Objective::Minimize)
-    .with_max_iterations(2)
-    .with_samples_per_iteration(3)
-    .with_no_improvement_window(10)
-    .with_experiment_id("cost-tune")
-    .run();
+    let result = OptimizeExperiment::builder()
+        .use_case(&uc)
+        .control_factor("latencyMs")
+        .initial_value(FactorValue::Float(100.0))
+        .scorer(PassRateScorer)
+        .mutator(FloatIncrementMutator(-10.0))
+        .inputs(&inputs)
+        .trial(|_input| TrialOutcome::success(Duration::ZERO))
+        .apply_factor(|_value| {})
+        .objective(Objective::Minimize)
+        .max_iterations(2)
+        .samples_per_iteration(3)
+        .no_improvement_window(10)
+        .experiment_id("cost-tune")
+        .build()
+        .run();
 
     let path = result.write_to(dir.path()).unwrap();
     let spec = OptimizationSpec::from_yaml(&std::fs::read_to_string(&path).unwrap()).unwrap();
@@ -175,21 +175,21 @@ fn plateau_termination_recorded_as_no_improvement() {
 
     // All iterations score 1.0, so after the first + no_improvement_window=2
     // the run terminates on plateau.
-    let result = OptimizeExperiment::new(
-        &uc,
-        "factor",
-        FactorValue::Float(1.0),
-        PassRateScorer,
-        FloatIncrementMutator(0.1),
-        &inputs,
-        |_input| TrialOutcome::success(Duration::ZERO),
-        |_value| {},
-    )
-    .with_max_iterations(20)
-    .with_samples_per_iteration(3)
-    .with_no_improvement_window(2)
-    .with_experiment_id("plateau-exp")
-    .run();
+    let result = OptimizeExperiment::builder()
+        .use_case(&uc)
+        .control_factor("factor")
+        .initial_value(FactorValue::Float(1.0))
+        .scorer(PassRateScorer)
+        .mutator(FloatIncrementMutator(0.1))
+        .inputs(&inputs)
+        .trial(|_input| TrialOutcome::success(Duration::ZERO))
+        .apply_factor(|_value| {})
+        .max_iterations(20)
+        .samples_per_iteration(3)
+        .no_improvement_window(2)
+        .experiment_id("plateau-exp")
+        .build()
+        .run();
 
     assert_eq!(
         result.termination_reason(),
@@ -211,21 +211,21 @@ fn max_iterations_termination_recorded() {
 
     // no_improvement_window exceeds max_iterations, so the run always exits
     // via the iteration cap rather than on plateau.
-    let result = OptimizeExperiment::new(
-        &uc,
-        "factor",
-        FactorValue::Float(1.0),
-        PassRateScorer,
-        FloatIncrementMutator(0.1),
-        &inputs,
-        |_input| TrialOutcome::success(Duration::ZERO),
-        |_value| {},
-    )
-    .with_max_iterations(3)
-    .with_samples_per_iteration(3)
-    .with_no_improvement_window(100)
-    .with_experiment_id("cap-exp")
-    .run();
+    let result = OptimizeExperiment::builder()
+        .use_case(&uc)
+        .control_factor("factor")
+        .initial_value(FactorValue::Float(1.0))
+        .scorer(PassRateScorer)
+        .mutator(FloatIncrementMutator(0.1))
+        .inputs(&inputs)
+        .trial(|_input| TrialOutcome::success(Duration::ZERO))
+        .apply_factor(|_value| {})
+        .max_iterations(3)
+        .samples_per_iteration(3)
+        .no_improvement_window(100)
+        .experiment_id("cap-exp")
+        .build()
+        .run();
 
     assert_eq!(
         result.termination_reason(),
@@ -245,20 +245,20 @@ fn iterations_record_samples_executed() {
     let inputs = vec!["input".to_string()];
     let uc = SimpleUseCase("samples-test");
 
-    let result = OptimizeExperiment::new(
-        &uc,
-        "factor",
-        FactorValue::Float(1.0),
-        PassRateScorer,
-        FloatIncrementMutator(0.1),
-        &inputs,
-        |_input| TrialOutcome::success(Duration::ZERO),
-        |_value| {},
-    )
-    .with_max_iterations(1)
-    .with_samples_per_iteration(7)
-    .with_experiment_id("samples-exp")
-    .run();
+    let result = OptimizeExperiment::builder()
+        .use_case(&uc)
+        .control_factor("factor")
+        .initial_value(FactorValue::Float(1.0))
+        .scorer(PassRateScorer)
+        .mutator(FloatIncrementMutator(0.1))
+        .inputs(&inputs)
+        .trial(|_input| TrialOutcome::success(Duration::ZERO))
+        .apply_factor(|_value| {})
+        .max_iterations(1)
+        .samples_per_iteration(7)
+        .experiment_id("samples-exp")
+        .build()
+        .run();
 
     let path = result.write_to(dir.path()).unwrap();
     let spec = OptimizationSpec::from_yaml(&std::fs::read_to_string(&path).unwrap()).unwrap();
@@ -273,20 +273,20 @@ fn result_to_yaml_without_writing_to_disk() {
     let inputs = vec!["input".to_string()];
     let uc = SimpleUseCase("yaml-only");
 
-    let result = OptimizeExperiment::new(
-        &uc,
-        "factor",
-        FactorValue::Float(0.5),
-        PassRateScorer,
-        FloatIncrementMutator(0.1),
-        &inputs,
-        |_input| TrialOutcome::success(Duration::ZERO),
-        |_value| {},
-    )
-    .with_max_iterations(2)
-    .with_samples_per_iteration(3)
-    .with_experiment_id("in-memory")
-    .run();
+    let result = OptimizeExperiment::builder()
+        .use_case(&uc)
+        .control_factor("factor")
+        .initial_value(FactorValue::Float(0.5))
+        .scorer(PassRateScorer)
+        .mutator(FloatIncrementMutator(0.1))
+        .inputs(&inputs)
+        .trial(|_input| TrialOutcome::success(Duration::ZERO))
+        .apply_factor(|_value| {})
+        .max_iterations(2)
+        .samples_per_iteration(3)
+        .experiment_id("in-memory")
+        .build()
+        .run();
 
     let yaml = result.to_yaml().unwrap();
     assert!(yaml.contains("schemaVersion: feotest-spec-1"));

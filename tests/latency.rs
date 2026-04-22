@@ -125,14 +125,14 @@ fn build_baseline_and_run(
     let inputs = vec!["input".to_string()];
 
     // Establish baseline with low-latency samples.
-    feotest::experiment::MeasureExperiment::new(
-        &uc,
-        150,
-        &inputs,
-        fixed_latency_trial(baseline_latency),
-    )
-    .with_spec_resolver(feotest::spec::SpecResolver::with_dir(dir.path()))
-    .run();
+    feotest::experiment::MeasureExperiment::builder()
+        .use_case(&uc)
+        .samples(150)
+        .inputs(&inputs)
+        .trial(fixed_latency_trial(baseline_latency))
+        .baseline_dir(dir.path())
+        .build()
+        .run();
 
     let resolver = feotest::spec::SpecResolver::with_dir(dir.path());
     let mut b = ProbabilisticTestBuilder::new(uc_id, &inputs, fixed_latency_trial(test_latency))
@@ -196,14 +196,14 @@ fn scenario_p99_with_small_baseline_is_infeasible() {
     let dir = tempfile::tempdir().unwrap();
     let inputs = vec!["input".to_string()];
 
-    feotest::experiment::MeasureExperiment::new(
-        &Uc,
-        30,
-        &inputs,
-        fixed_latency_trial(Duration::from_millis(10)),
-    )
-    .with_spec_resolver(feotest::spec::SpecResolver::with_dir(dir.path()))
-    .run();
+    feotest::experiment::MeasureExperiment::builder()
+        .use_case(&Uc)
+        .samples(30)
+        .inputs(&inputs)
+        .trial(fixed_latency_trial(Duration::from_millis(10)))
+        .baseline_dir(dir.path())
+        .build()
+        .run();
 
     let resolver = feotest::spec::SpecResolver::with_dir(dir.path());
     let result = ProbabilisticTestBuilder::new(
@@ -244,14 +244,14 @@ fn measure_round_trip_preserves_latency_block() {
     let dir = tempfile::tempdir().unwrap();
     let inputs = vec!["input".to_string()];
 
-    let m = feotest::experiment::MeasureExperiment::new(
-        &Uc,
-        50,
-        &inputs,
-        fixed_latency_trial(Duration::from_millis(42)),
-    )
-    .with_spec_resolver(feotest::spec::SpecResolver::with_dir(dir.path()))
-    .run();
+    let m = feotest::experiment::MeasureExperiment::builder()
+        .use_case(&Uc)
+        .samples(50)
+        .inputs(&inputs)
+        .trial(fixed_latency_trial(Duration::from_millis(42)))
+        .baseline_dir(dir.path())
+        .build()
+        .run();
 
     let original = m
         .spec()

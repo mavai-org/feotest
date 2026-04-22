@@ -195,7 +195,8 @@ pub fn build_success_rate_block(successes: u32, total: u32) -> SuccessRateBlock 
     clippy::cast_possible_truncation,
     clippy::cast_sign_loss,
     clippy::cast_precision_loss,
-    clippy::missing_panics_doc
+    clippy::missing_panics_doc,
+    reason = "ms latencies fit in f64; empty branch returns before .expect"
 )]
 pub fn build_latency_distribution(
     successful_latencies: &[std::time::Duration],

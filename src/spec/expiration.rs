@@ -83,7 +83,10 @@ fn evaluate_block(block: &ExpirationBlock, now: SystemTime) -> ExpirationInfo {
 
 const SECONDS_PER_DAY: u64 = 86_400;
 
-#[allow(clippy::cast_precision_loss)]
+#[allow(
+    clippy::cast_precision_loss,
+    reason = "millisecond durations fit in f64 mantissa"
+)]
 fn duration_ratio(part: Duration, whole: Duration) -> f64 {
     let whole_ms = whole.as_millis();
     if whole_ms == 0 {

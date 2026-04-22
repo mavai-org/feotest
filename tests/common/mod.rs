@@ -28,7 +28,11 @@ pub fn failing_trial(fail_rate: f64) -> impl FnMut(&str) -> TrialOutcome {
     let mut count = 0u64;
     move |_| {
         count += 1;
-        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        #[allow(
+            clippy::cast_possible_truncation,
+            clippy::cast_sign_loss,
+            reason = "test-only: fail_rate in [0, 1] so value <= 100"
+        )]
         let threshold = (fail_rate * 100.0) as u64;
         if count % 100 < threshold {
             TrialOutcome::failure(
@@ -70,14 +74,19 @@ impl UseCase for SimpleUseCase {
 pub fn establish_baseline(
     use_case_id: &str,
     samples: u32,
-    trial: impl FnMut(&str) -> TrialOutcome,
+    trial: impl FnMut(&str) -> TrialOutcome + 'static,
 ) -> tempfile::TempDir {
     let dir = tempfile::tempdir().unwrap();
     let uc = SimpleUseCase::new(use_case_id);
     let inputs = vec!["input".to_string()];
 
-    feotest::experiment::MeasureExperiment::new(&uc, samples, &inputs, trial)
-        .with_spec_resolver(SpecResolver::with_dir(dir.path()))
+    feotest::experiment::MeasureExperiment::builder()
+        .use_case(&uc)
+        .samples(samples)
+        .inputs(&inputs)
+        .trial(trial)
+        .baseline_dir(dir.path())
+        .build()
         .run();
 
     dir

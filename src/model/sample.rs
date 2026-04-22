@@ -80,7 +80,10 @@ impl SampleAggregate {
         }
 
         // Store example failure if under limit
-        #[allow(clippy::cast_possible_truncation)]
+        #[allow(
+            clippy::cast_possible_truncation,
+            reason = "length compared against u32 bound; excess is harmless"
+        )]
         if (self.example_failures.len() as u32) < max_examples {
             self.example_failures.push(violation.clone());
         }
@@ -147,7 +150,10 @@ impl SampleAggregate {
     /// Stores the diff string as an example up to `max_examples`.
     pub fn record_conformance_mismatch(&mut self, diff: &str, max_examples: u32) {
         self.conformance_mismatches += 1;
-        #[allow(clippy::cast_possible_truncation)]
+        #[allow(
+            clippy::cast_possible_truncation,
+            reason = "length compared against u32 bound; excess is harmless"
+        )]
         if (self.example_mismatches.len() as u32) < max_examples {
             self.example_mismatches.push(diff.to_owned());
         }

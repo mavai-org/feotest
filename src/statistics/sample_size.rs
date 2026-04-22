@@ -55,7 +55,11 @@ pub fn calculate_for_power(
     let n_raw = (numerator / min_detectable_effect).powi(2);
 
     // Round up: we need at least this many samples.
-    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    #[allow(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        reason = "ceil-rounded sample count bounded by the problem scale"
+    )]
     let required = n_raw.ceil() as u32;
 
     SampleSizeRequirement::new(required, confidence, power, min_detectable_effect, p0, p1)
@@ -118,7 +122,7 @@ fn assert_valid_inputs(baseline_rate: f64, min_detectable_effect: f64, power: f6
 }
 
 #[cfg(test)]
-#[allow(unused_must_use)]
+#[allow(unused_must_use, reason = "test boilerplate may drop must_use values")]
 mod tests {
     use super::*;
     use approx::assert_relative_eq;

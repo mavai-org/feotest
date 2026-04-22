@@ -119,14 +119,21 @@ pub fn resolve(
                 });
                 continue;
             }
-            #[allow(clippy::cast_precision_loss)]
+            #[allow(
+                clippy::cast_precision_loss,
+                reason = "millisecond latencies fit in f64 mantissa"
+            )]
             let latencies_f64: Vec<f64> = block.latencies_ms.iter().map(|&x| x as f64).collect();
             let derived = latency::derive_latency_threshold(
                 &latencies_f64,
                 p.as_fraction(),
                 baseline_confidence,
             );
-            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+            #[allow(
+                clippy::cast_possible_truncation,
+                clippy::cast_sign_loss,
+                reason = "threshold is a non-negative latency in ms; fits in u64"
+            )]
             let threshold_ms = derived.threshold() as u64;
             out.push(ResolvedLatencyThreshold {
                 percentile: p,

@@ -22,7 +22,11 @@ pub trait UseCase: Send + Sync {
     fn id(&self) -> &str;
 
     /// Human-readable description.
-    #[allow(clippy::unused_self, clippy::unnecessary_literal_bound)]
+    #[allow(
+        clippy::unused_self,
+        clippy::unnecessary_literal_bound,
+        reason = "default trait impl — signature must match trait"
+    )]
     fn description(&self) -> &str {
         ""
     }

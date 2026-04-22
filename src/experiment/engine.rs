@@ -260,7 +260,11 @@ fn build_cost_summary(
 ///
 /// Panics if `min_pass_rate` is outside `[0, 1]` or not finite. These are
 /// precondition violations — a caller must never pass an invalid rate.
-#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+#[allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    reason = "target <= samples (u32) since min_pass_rate is in [0, 1]"
+)]
 fn required_successes(samples: u32, min_pass_rate: f64) -> u32 {
     assert!(
         min_pass_rate.is_finite() && (0.0..=1.0).contains(&min_pass_rate),

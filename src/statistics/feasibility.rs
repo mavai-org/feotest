@@ -105,7 +105,7 @@ fn find_minimum_samples(target: f64, confidence: ConfidenceLevel) -> u32 {
 }
 
 #[cfg(test)]
-#[allow(unused_must_use)]
+#[allow(unused_must_use, reason = "test boilerplate may drop must_use values")]
 mod tests {
     use super::*;
     use crate::statistics::defaults;

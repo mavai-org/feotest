@@ -143,21 +143,44 @@ than guesswork.
 ### Step 1: Explore (optional)
 
 Before committing to a configuration (model, temperature, prompt), run an
-**explore experiment** to compare candidates:
+**explore experiment** to compare candidates. Each configuration is a
+pre-built, immutable use case instance; the trial closure receives a
+reference to the current configuration and an input string.
 
 ```rust
 use feotest::experiment::ExploreExperiment;
 use feotest::model::TrialOutcome;
+use feotest::usecase::UseCase;
+use std::fmt;
 
+struct ModelConfig { name: &'static str }
+impl UseCase for ModelConfig {
+    fn id(&self) -> &str { "my-service" }
+}
+impl fmt::Display for ModelConfig {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.name)
+    }
+}
+impl ModelConfig {
+    fn call(&self, _instruction: &str) -> TrialOutcome {
+        // invoke this configuration and return a TrialOutcome
+        # TrialOutcome::success(std::time::Duration::ZERO)
+    }
+}
+
+let model_a = ModelConfig { name: "model-a" };
+let model_b = ModelConfig { name: "model-b" };
 let inputs = vec!["Add 2 apples".to_string(), "Remove the milk".to_string()];
-let mut use_case = MyUseCase::new();
 
-let result = ExploreExperiment::new("my-service", 20, &inputs, |instruction| {
-    use_case.invoke(instruction)
-})
-.config("model-a", || { /* set model A */ })
-.config("model-b", || { /* set model B */ })
-.run();
+let result = ExploreExperiment::builder()
+    .config(&model_a)
+    .config(&model_b)
+    .samples_per_config(20)
+    .inputs(&inputs)
+    .trial(|svc: &ModelConfig, input| svc.call(input))
+    .build()
+    .run();
 
 for config in result.configs() {
     let rate = config.execution().summary().observed_pass_rate();
@@ -175,23 +198,35 @@ a statistical baseline:
 
 ```rust
 use feotest::experiment::MeasureExperiment;
-use feotest::spec::SpecResolver;
+use feotest::usecase::UseCase;
 
+struct MyService;
+impl UseCase for MyService {
+    fn id(&self) -> &str { "my-service" }
+}
+
+let service = MyService;
 let inputs = standard_instructions();
-let resolver = SpecResolver::with_dir("specs");
 let mut use_case = MyUseCase::new();
 
-let result = MeasureExperiment::new("my-service", 1000, &inputs, |instruction| {
-    use_case.invoke(instruction)
-})
-.with_experiment_id("baseline-v1")
-.with_spec_resolver(resolver)
-.run();
+let result = MeasureExperiment::builder()
+    .use_case(&service)
+    .samples(1000)
+    .inputs(&inputs)
+    .trial(|instruction| use_case.invoke(instruction))
+    .experiment_id("baseline-v1")
+    .baseline_dir("specs")
+    .build()
+    .run();
 
 let spec = result.spec();
 println!("Observed rate:     {:.4}", spec.statistics.success_rate.observed);
 println!("Derived threshold: {:.4}", spec.requirements.min_pass_rate);
 ```
+
+`baseline_dir` sets the output directory for the spec YAML; the default
+is `tests/baselines`. For more control (e.g., a pre-configured
+`SpecResolver`), use `.spec_resolver(resolver)` instead.
 
 The measure experiment runs a large number of samples (1000+ recommended),
 computes the Wilson score confidence interval, and writes a **baseline spec** to
@@ -412,9 +447,12 @@ function. Requires a `Scorer` (evaluates each iteration) and a `FactorMutator`
 (produces the next factor value).
 
 ```rust
-use feotest::experiment::optimize::{Scorer, FactorMutator, Objective};
-use feotest::experiment::{OptimizeExperiment, ExecutionResult};
-use feotest::usecase::FactorValue;
+use feotest::experiment::{
+    ExecutionResult, FactorMutator, IterationRecord, Objective,
+    OptimizeExperiment, Scorer,
+};
+use feotest::model::TrialOutcome;
+use feotest::usecase::{FactorValue, UseCase};
 
 struct SuccessRateScorer;
 impl Scorer for SuccessRateScorer {
@@ -425,13 +463,50 @@ impl Scorer for SuccessRateScorer {
 
 struct StepMutator;
 impl FactorMutator for StepMutator {
-    fn mutate(&self, current: &FactorValue, _history: &[_]) -> FactorValue {
+    fn mutate(&self, current: &FactorValue, _history: &[IterationRecord]) -> FactorValue {
         if let FactorValue::Float(v) = current {
             FactorValue::Float(v - 0.1)
         } else {
             current.clone()
         }
     }
+}
+
+struct MyService;
+impl UseCase for MyService {
+    fn id(&self) -> &str { "my-service" }
+}
+
+let service = MyService;
+let inputs = vec!["instruction".to_string()];
+let mut current_temperature = 0.9_f64;
+
+let result = OptimizeExperiment::builder()
+    .use_case(&service)
+    .control_factor("temperature")
+    .initial_value(FactorValue::Float(0.9))
+    .scorer(SuccessRateScorer)
+    .mutator(StepMutator)
+    .inputs(&inputs)
+    .trial(|_instruction| {
+        // call the service under test and return a TrialOutcome
+        # TrialOutcome::success(std::time::Duration::ZERO)
+    })
+    .apply_factor(move |value| {
+        if let FactorValue::Float(v) = value {
+            current_temperature = *v;
+        }
+    })
+    .objective(Objective::Maximize)
+    .max_iterations(20)
+    .samples_per_iteration(20)
+    .no_improvement_window(5)
+    .experiment_id("temp-tune-v1")
+    .build()
+    .run();
+
+if let (Some(iter), Some(score)) = (result.best_iteration(), result.best_score()) {
+    println!("Best: iteration {} → score {:.4}", iter, score);
 }
 ```
 

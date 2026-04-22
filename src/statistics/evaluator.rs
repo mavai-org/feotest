@@ -119,7 +119,7 @@ impl MultiRunSummary {
 }
 
 #[cfg(test)]
-#[allow(unused_must_use)]
+#[allow(unused_must_use, reason = "test boilerplate may drop must_use values")]
 mod tests {
     use super::*;
     use crate::statistics::types::{ConfidenceLevel, DerivationContext, OperationalApproach};

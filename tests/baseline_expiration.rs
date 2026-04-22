@@ -29,9 +29,14 @@ fn measure_writes_expiration_block_that_round_trips_through_resolver() {
     let uc = TestUc("expiry-uc");
     let inputs = vec!["input".to_string()];
 
-    let measure_result = MeasureExperiment::new(&uc, 30, &inputs, always_succeed)
-        .with_spec_resolver(SpecResolver::with_dir(dir.path()))
+    let measure_result = MeasureExperiment::builder()
+        .use_case(&uc)
+        .samples(30)
+        .inputs(&inputs)
+        .trial(always_succeed)
+        .baseline_dir(dir.path())
         .expires_in_days(1)
+        .build()
         .run();
 
     let spec_path = measure_result.spec_path().expect("spec was written");
@@ -54,9 +59,14 @@ fn evaluate_at_future_time_crosses_expiry_boundary() {
     let uc = TestUc("boundary-uc");
     let inputs = vec!["input".to_string()];
 
-    MeasureExperiment::new(&uc, 30, &inputs, always_succeed)
-        .with_spec_resolver(SpecResolver::with_dir(dir.path()))
+    MeasureExperiment::builder()
+        .use_case(&uc)
+        .samples(30)
+        .inputs(&inputs)
+        .trial(always_succeed)
+        .baseline_dir(dir.path())
         .expires_in_days(1)
+        .build()
         .run();
 
     let raw = std::fs::read_to_string(
@@ -94,9 +104,14 @@ fn ptest_with_expired_baseline_warns_by_default_and_still_passes() {
     // ended in the distant past so it is definitively expired. Because the
     // fingerprint covers the expiration block, we must recompute the spec
     // end-to-end rather than patching the YAML directly.
-    MeasureExperiment::new(&uc, 30, &inputs, always_succeed)
-        .with_spec_resolver(SpecResolver::with_dir(dir.path()))
+    MeasureExperiment::builder()
+        .use_case(&uc)
+        .samples(30)
+        .inputs(&inputs)
+        .trial(always_succeed)
+        .baseline_dir(dir.path())
         .expires_in_days(1)
+        .build()
         .run();
 
     let entry = std::fs::read_dir(dir.path())
@@ -144,7 +159,13 @@ fn ptest_with_fail_on_expired_produces_fail_verdict() {
     let inputs = vec!["input".to_string()];
 
     let end = "2020-01-01T00:00:00Z".to_string();
-    let mut spec = MeasureExperiment::new(&TestUc("strict"), 30, &inputs, always_succeed).run();
+    let mut spec = MeasureExperiment::builder()
+        .use_case(&TestUc("strict"))
+        .samples(30)
+        .inputs(&inputs)
+        .trial(always_succeed)
+        .build()
+        .run();
     let mut spec_with_expiry = spec.spec().clone();
     spec_with_expiry.expiration = Some(feotest::spec::baseline::ExpirationBlock {
         expires_in_days: 1,
@@ -180,9 +201,14 @@ fn ptest_with_no_expiration_block_attaches_no_info() {
     let uc = TestUc("no-block");
     let inputs = vec!["input".to_string()];
 
-    MeasureExperiment::new(&uc, 30, &inputs, always_succeed)
-        .with_spec_resolver(SpecResolver::with_dir(dir.path()))
-        // No expires_in_days: the block is omitted.
+    // No expires_in_days: the block is omitted.
+    MeasureExperiment::builder()
+        .use_case(&uc)
+        .samples(30)
+        .inputs(&inputs)
+        .trial(always_succeed)
+        .baseline_dir(dir.path())
+        .build()
         .run();
 
     let resolver = SpecResolver::with_dir(dir.path());
@@ -208,9 +234,14 @@ fn evaluate_at_now_matches_evaluate() {
     let uc = TestUc("matches-now");
     let inputs = vec!["input".to_string()];
 
-    MeasureExperiment::new(&uc, 30, &inputs, always_succeed)
-        .with_spec_resolver(SpecResolver::with_dir(dir.path()))
+    MeasureExperiment::builder()
+        .use_case(&uc)
+        .samples(30)
+        .inputs(&inputs)
+        .trial(always_succeed)
+        .baseline_dir(dir.path())
         .expires_in_days(30)
+        .build()
         .run();
 
     let raw = std::fs::read_to_string(

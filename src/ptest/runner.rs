@@ -542,7 +542,10 @@ fn build_latency_dimension(
         }
     }
 
-    #[allow(clippy::cast_precision_loss)]
+    #[allow(
+        clippy::cast_precision_loss,
+        reason = "millisecond latencies fit in f64 mantissa"
+    )]
     let latencies_f64: Vec<f64> = successful_latencies
         .iter()
         .map(|d| d.as_millis() as f64)
@@ -739,10 +742,14 @@ mod tests {
         }
         let uc = SpecTestUc;
         let inputs = vec!["input".to_string()];
-        let measure_result =
-            crate::experiment::MeasureExperiment::new(&uc, 200, &inputs, always_succeeds)
-                .with_spec_resolver(crate::spec::SpecResolver::with_dir(dir.path()))
-                .run();
+        let measure_result = crate::experiment::MeasureExperiment::builder()
+            .use_case(&uc)
+            .samples(200)
+            .inputs(&inputs)
+            .trial(always_succeeds)
+            .baseline_dir(dir.path())
+            .build()
+            .run();
 
         assert!(measure_result.spec_path().is_some());
 
@@ -773,8 +780,13 @@ mod tests {
         }
         let uc = ConfTestUc;
         let inputs = vec!["input".to_string()];
-        crate::experiment::MeasureExperiment::new(&uc, 200, &inputs, always_succeeds)
-            .with_spec_resolver(crate::spec::SpecResolver::with_dir(dir.path()))
+        crate::experiment::MeasureExperiment::builder()
+            .use_case(&uc)
+            .samples(200)
+            .inputs(&inputs)
+            .trial(always_succeeds)
+            .baseline_dir(dir.path())
+            .build()
             .run();
 
         let resolver = crate::spec::SpecResolver::with_dir(dir.path());
@@ -828,9 +840,14 @@ mod tests {
         let inputs = vec!["input".to_string()];
         let profile = CovariateProfile::builder().put("model", "gpt-4o").build();
 
-        crate::experiment::MeasureExperiment::new(&uc, 100, &inputs, always_succeeds)
-            .with_spec_resolver(crate::spec::SpecResolver::with_dir(dir.path()))
+        crate::experiment::MeasureExperiment::builder()
+            .use_case(&uc)
+            .samples(100)
+            .inputs(&inputs)
+            .trial(always_succeeds)
+            .baseline_dir(dir.path())
             .covariates(vec!["model".to_string()], profile)
+            .build()
             .run();
 
         // Tamper with the written baseline
@@ -874,8 +891,13 @@ mod tests {
 
         let uc = SimpleUc;
         let inputs = vec!["input".to_string()];
-        crate::experiment::MeasureExperiment::new(&uc, 100, &inputs, always_succeeds)
-            .with_spec_resolver(crate::spec::SpecResolver::with_dir(dir.path()))
+        crate::experiment::MeasureExperiment::builder()
+            .use_case(&uc)
+            .samples(100)
+            .inputs(&inputs)
+            .trial(always_succeeds)
+            .baseline_dir(dir.path())
+            .build()
             .run();
 
         // Tamper with the baseline

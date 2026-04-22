@@ -193,7 +193,10 @@ impl fmt::Display for DurationResult {
 }
 
 /// Formats a duration for human-readable display.
-#[allow(clippy::cast_precision_loss)]
+#[allow(
+    clippy::cast_precision_loss,
+    reason = "display formatting; precision loss is acceptable"
+)]
 fn format_duration(duration: Duration) -> String {
     let millis = duration.as_millis();
     if millis < 1000 {

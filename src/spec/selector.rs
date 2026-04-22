@@ -15,7 +15,7 @@ use crate::usecase::CovariateDeclaration;
 #[derive(Debug, Clone)]
 pub struct BaselineCandidate {
     /// The filename (not full path) of the spec file.
-    #[allow(dead_code)]
+    #[allow(dead_code, reason = "filename retained for future diagnostics")]
     pub(crate) filename: String,
     /// The parsed baseline spec.
     pub(crate) spec: BaselineSpec,

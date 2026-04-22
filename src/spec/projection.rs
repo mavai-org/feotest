@@ -182,7 +182,11 @@ impl DiffAnchorGenerator {
 
         // Take the next value
         let value = java_random_next_long(&mut state);
-        #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
+        #[allow(
+            clippy::cast_sign_loss,
+            clippy::cast_possible_truncation,
+            reason = "truncates to low 32 bits for Java Random parity"
+        )]
         let lower32 = value as u32;
         format!("{lower32:08x}")
     }
@@ -196,7 +200,10 @@ const fn java_random_seed(seed: u64) -> u64 {
 /// Java's `Random.next(bits)`: LCG step with `a = 0x5DEECE66D`, `c = 0xB`, mod 2^48.
 const fn java_random_next(state: &mut u64, bits: u32) -> u32 {
     *state = (state.wrapping_mul(0x5_DEEC_E66D).wrapping_add(0xB)) & ((1 << 48) - 1);
-    #[allow(clippy::cast_possible_truncation)]
+    #[allow(
+        clippy::cast_possible_truncation,
+        reason = "shift leaves at most bits (<= 32) significant bits"
+    )]
     let result = (*state >> (48 - bits)) as u32;
     result
 }
