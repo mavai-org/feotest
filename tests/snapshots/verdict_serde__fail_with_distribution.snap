@@ -1,0 +1,61 @@
+---
+source: tests/verdict_serde.rs
+assertion_line: 66
+expression: "serde_json::to_value(&record).unwrap()"
+---
+{
+  "covariateStatus": {
+    "aligned": true
+  },
+  "execution": {
+    "cost": {
+      "samplesExecuted": 100,
+      "totalTimeMs": 500,
+      "totalTokens": 1234
+    },
+    "failures": 5,
+    "samplesExecuted": 100,
+    "samplesPlanned": 100,
+    "successes": 95,
+    "termination": {
+      "reason": "COMPLETED"
+    }
+  },
+  "functional": {
+    "conformanceMismatches": 3,
+    "exampleMismatches": [
+      "diff-1",
+      "diff-2"
+    ],
+    "failureDistribution": {
+      "content": 8,
+      "parse": 12
+    },
+    "failures": 20,
+    "passRate": 0.8,
+    "successes": 80
+  },
+  "identity": {
+    "testName": "translates",
+    "useCaseId": "basket"
+  },
+  "intent": "VERIFICATION",
+  "statisticalAnalysis": {
+    "ciLower": 0.722,
+    "ciUpper": 0.878,
+    "confidenceLevel": 0.95,
+    "pValue": 0.011,
+    "standardError": 0.04,
+    "testStatistic": 2.29,
+    "threshold": 0.9,
+    "thresholdOrigin": "EMPIRICAL"
+  },
+  "verdict": "FAIL",
+  "verdictReason": "0.8000 < 0.9000",
+  "warnings": [
+    {
+      "code": "BASELINE_EXPIRED",
+      "message": "Baseline is 45 days old"
+    }
+  ]
+}

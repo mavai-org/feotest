@@ -1,5 +1,6 @@
 //! Percentile enumeration for the latency dimension.
 
+use serde::{Serialize, Serializer};
 use std::fmt;
 
 /// The set of percentiles that may be asserted on a latency dimension.
@@ -48,5 +49,11 @@ impl Percentile {
 impl fmt::Display for Percentile {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(self.label())
+    }
+}
+
+impl Serialize for Percentile {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(self.label())
     }
 }

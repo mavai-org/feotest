@@ -3,9 +3,12 @@
 use std::fmt;
 use std::time::Duration;
 
+use serde::{Serialize, Serializer};
+
 use crate::latency::enforcement::LatencyEnforcementMode;
 use crate::latency::percentile::Percentile;
 use crate::latency::resolver::{ResolvedLatencyThreshold, ThresholdProvenance};
+use crate::model::types::{duration_as_millis, optional_duration_as_millis};
 use crate::statistics::latency;
 
 /// Per-evaluation status within the latency dimension.
@@ -22,11 +25,29 @@ pub enum EvaluationStatus {
     Infeasible,
 }
 
+impl Serialize for EvaluationStatus {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(match self {
+            Self::Pass => "PASS",
+            Self::StrictFail => "STRICT_FAIL",
+            Self::AdvisoryWarn => "ADVISORY_WARN",
+            Self::Infeasible => "INFEASIBLE",
+        })
+    }
+}
+
 /// A single evaluation of an observed percentile against its threshold.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct LatencyEvaluation {
     percentile: Percentile,
+    #[serde(
+        serialize_with = "optional_duration_as_millis",
+        rename = "observedMs",
+        skip_serializing_if = "Option::is_none"
+    )]
     observed: Option<Duration>,
+    #[serde(serialize_with = "duration_as_millis", rename = "thresholdMs")]
     threshold: Duration,
     provenance: ThresholdProvenance,
     mode: LatencyEnforcementMode,
@@ -95,13 +116,32 @@ impl LatencyEvaluation {
 }
 
 /// The latency dimension of a verdict record.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct LatencyDimension {
+    #[serde(serialize_with = "serialize_observed_percentiles")]
     observed_percentiles: Vec<(Percentile, Duration)>,
     evaluations: Vec<LatencyEvaluation>,
     strict_violations: u32,
     advisory_violations: u32,
     successful_samples: u32,
+}
+
+fn serialize_observed_percentiles<S: Serializer>(
+    entries: &[(Percentile, Duration)],
+    serializer: S,
+) -> Result<S::Ok, S::Error> {
+    use serde::ser::SerializeMap;
+    let mut map = serializer.serialize_map(Some(entries.len()))?;
+    for (p, d) in entries {
+        #[allow(
+            clippy::cast_possible_truncation,
+            reason = "observed latency in ms fits in u64"
+        )]
+        let ms = d.as_millis() as u64;
+        map.serialize_entry(p.label(), &ms)?;
+    }
+    map.end()
 }
 
 impl LatencyDimension {
@@ -291,5 +331,49 @@ impl fmt::Display for LatencyDimension {
             )?;
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod serialize_tests {
+    use super::*;
+
+    #[test]
+    fn latency_dimension_serialises_with_ms_durations() {
+        let evaluation_pass = LatencyEvaluation::new(
+            Percentile::P95,
+            Some(Duration::from_millis(180)),
+            Duration::from_millis(200),
+            ThresholdProvenance::Explicit,
+            LatencyEnforcementMode::Strict,
+            EvaluationStatus::Pass,
+        );
+        let evaluation_warn = LatencyEvaluation::new(
+            Percentile::P99,
+            Some(Duration::from_millis(520)),
+            Duration::from_millis(500),
+            ThresholdProvenance::BaselineDerived {
+                confidence: 0.95,
+                rank: 99,
+                n: 100,
+            },
+            LatencyEnforcementMode::Advisory,
+            EvaluationStatus::AdvisoryWarn,
+        );
+        let dimension = LatencyDimension::from_parts(
+            vec![
+                (Percentile::P95, Duration::from_millis(180)),
+                (Percentile::P99, Duration::from_millis(520)),
+            ],
+            vec![evaluation_pass, evaluation_warn],
+            0,
+            1,
+            100,
+        );
+
+        insta::assert_json_snapshot!(
+            "latency_dimension",
+            serde_json::to_value(&dimension).unwrap()
+        );
     }
 }

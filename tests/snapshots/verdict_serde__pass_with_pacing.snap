@@ -1,0 +1,46 @@
+---
+source: tests/verdict_serde.rs
+assertion_line: 150
+expression: "serde_json::to_value(&record).unwrap()"
+---
+{
+  "covariateStatus": {
+    "aligned": true
+  },
+  "execution": {
+    "cost": {
+      "samplesExecuted": 100,
+      "totalTimeMs": 500,
+      "totalTokens": 1234
+    },
+    "failures": 5,
+    "samplesExecuted": 100,
+    "samplesPlanned": 100,
+    "successes": 95,
+    "termination": {
+      "reason": "COMPLETED"
+    }
+  },
+  "functional": {
+    "conformanceMismatches": 0,
+    "failureDistribution": {},
+    "failures": 5,
+    "passRate": 0.95,
+    "successes": 95
+  },
+  "identity": {
+    "testName": "paced",
+    "useCaseId": "service"
+  },
+  "intent": "VERIFICATION",
+  "pacing": {
+    "effectiveConcurrency": 1,
+    "effectiveMinDelayMs": 100,
+    "effectiveRps": 10.0,
+    "maxConcurrent": 1,
+    "maxRpm": 0.0,
+    "maxRps": 10.0
+  },
+  "verdict": "PASS",
+  "verdictReason": "0.9500 >= 0.0000"
+}

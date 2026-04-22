@@ -1,0 +1,39 @@
+---
+source: src/latency/dimension.rs
+assertion_line: 374
+expression: "serde_json::to_value(&dimension).unwrap()"
+---
+{
+  "advisoryViolations": 1,
+  "evaluations": [
+    {
+      "mode": "STRICT",
+      "observedMs": 180,
+      "percentile": "p95",
+      "provenance": {
+        "kind": "explicit"
+      },
+      "status": "PASS",
+      "thresholdMs": 200
+    },
+    {
+      "mode": "ADVISORY",
+      "observedMs": 520,
+      "percentile": "p99",
+      "provenance": {
+        "confidence": 0.95,
+        "kind": "baselineDerived",
+        "n": 100,
+        "rank": 99
+      },
+      "status": "ADVISORY_WARN",
+      "thresholdMs": 500
+    }
+  ],
+  "observedPercentiles": {
+    "p95": 180,
+    "p99": 520
+  },
+  "strictViolations": 0,
+  "successfulSamples": 100
+}

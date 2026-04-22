@@ -1,0 +1,66 @@
+---
+source: tests/verdict_serde.rs
+assertion_line: 129
+expression: "serde_json::to_value(&record).unwrap()"
+---
+{
+  "baselineProvenance": {
+    "baselineRate": 0.95,
+    "baselineSamples": 200,
+    "derivedThreshold": 0.9,
+    "generatedAt": "2026-03-01T12:00:00Z",
+    "sourceFile": "service.yaml"
+  },
+  "correlationId": "run-abc",
+  "covariateStatus": {
+    "aligned": true
+  },
+  "environment": {
+    "region": "eu-west-1"
+  },
+  "execution": {
+    "cost": {
+      "samplesExecuted": 100,
+      "totalTimeMs": 500,
+      "totalTokens": 1234
+    },
+    "failures": 5,
+    "samplesExecuted": 100,
+    "samplesPlanned": 100,
+    "successes": 95,
+    "termination": {
+      "reason": "COMPLETED"
+    }
+  },
+  "functional": {
+    "conformanceMismatches": 0,
+    "failureDistribution": {},
+    "failures": 5,
+    "passRate": 0.95,
+    "successes": 95
+  },
+  "identity": {
+    "testName": "meets_sla",
+    "useCaseId": "service"
+  },
+  "intent": "VERIFICATION",
+  "specProvenance": {
+    "contractRef": "Baseline v1",
+    "expiration": {
+      "expiresAt": "2026-06-01T00:00:00Z",
+      "status": "EXPIRING_SOON"
+    },
+    "specFilename": "service.yaml",
+    "thresholdOrigin": "EMPIRICAL"
+  },
+  "statisticalAnalysis": {
+    "ciLower": 0.907,
+    "ciUpper": 0.993,
+    "confidenceLevel": 0.95,
+    "standardError": 0.022,
+    "threshold": 0.9,
+    "thresholdOrigin": "EMPIRICAL"
+  },
+  "verdict": "PASS",
+  "verdictReason": "0.9500 >= 0.9000"
+}

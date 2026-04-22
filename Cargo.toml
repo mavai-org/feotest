@@ -28,7 +28,14 @@ categories = ["development-tools::testing"]
 
 [features]
 default = []
-json-matcher = ["dep:serde_json"]
+# Kept for backward compatibility. `serde_json` is now a required dependency
+# because verdict sinks (file + webhook) need structured JSON output, so
+# enabling this feature is a no-op.
+json-matcher = []
+# Enables the `WebhookVerdictSink` (blocking HTTP POST of verdicts). Pulls
+# in `ureq` and nothing else; the default build remains free of any HTTP
+# client.
+webhook = ["dep:ureq"]
 
 [dependencies]
 clap = { version = "4", features = ["derive"] }
@@ -36,15 +43,15 @@ feotest-macros = { path = "feotest-macros" }
 include_dir = "0.7"
 inventory = "0.3"
 serde = { version = "1", features = ["derive"] }
-serde_json = { version = "1", optional = true }
+serde_json = "1"
 sha2 = "0.10"
 serde_yaml = "0.9"
 statrs = "0.18"
+ureq = { version = "2", features = ["json"], optional = true }
 
 [dev-dependencies]
 approx = "0.5"
-insta = "1"
-serde_json = "1"
+insta = { version = "1", features = ["json"] }
 tempfile = "3"
 trybuild = "1"
 

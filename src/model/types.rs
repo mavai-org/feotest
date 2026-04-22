@@ -3,7 +3,39 @@
 use std::fmt;
 use std::time::Duration;
 
+use serde::{Serialize, Serializer};
+
 use crate::controls::PacingConfig;
+
+/// Serialises a `Duration` as its millisecond count.
+///
+/// The verdict JSON wire shape uses millisecond integers rather than
+/// serde's default `{ secs, nanos }` encoding so downstream consumers
+/// don't need to reconstruct the duration.
+#[allow(
+    clippy::cast_possible_truncation,
+    reason = "sentinel durations fit comfortably in u64 milliseconds"
+)]
+pub fn duration_as_millis<S: Serializer>(
+    duration: &Duration,
+    serializer: S,
+) -> Result<S::Ok, S::Error> {
+    serializer.serialize_u64(duration.as_millis() as u64)
+}
+
+#[allow(
+    clippy::ref_option,
+    reason = "serde's serialize_with contract requires `&Option<T>`"
+)]
+pub fn optional_duration_as_millis<S: Serializer>(
+    duration: &Option<Duration>,
+    serializer: S,
+) -> Result<S::Ok, S::Error> {
+    match duration {
+        Some(d) => duration_as_millis(d, serializer),
+        None => serializer.serialize_none(),
+    }
+}
 
 /// The intent behind a probabilistic test.
 ///
@@ -27,6 +59,12 @@ impl fmt::Display for TestIntent {
             Self::Verification => write!(f, "VERIFICATION"),
             Self::Smoke => write!(f, "SMOKE"),
         }
+    }
+}
+
+impl Serialize for TestIntent {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(&self.to_string())
     }
 }
 
@@ -68,6 +106,12 @@ impl fmt::Display for ThresholdOrigin {
             Self::Empirical => write!(f, "EMPIRICAL"),
             Self::Unspecified => write!(f, "UNSPECIFIED"),
         }
+    }
+}
+
+impl Serialize for ThresholdOrigin {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(&self.to_string())
     }
 }
 
@@ -141,10 +185,18 @@ impl fmt::Display for TerminationReason {
     }
 }
 
+impl Serialize for TerminationReason {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(&self.to_string())
+    }
+}
+
 /// Information about why and how execution terminated.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct TerminationInfo {
     reason: TerminationReason,
+    #[serde(skip_serializing_if = "Option::is_none")]
     detail: Option<String>,
 }
 
@@ -179,9 +231,11 @@ impl TerminationInfo {
 }
 
 /// Identifies a specific test or experiment.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct TestIdentity {
     use_case_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
     test_name: Option<String>,
 }
 
@@ -223,10 +277,18 @@ impl TestIdentity {
 ///
 /// Present on [`CostSummary`] only when the enclosing test ran with a
 /// run-scoped budget.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct RunScopedSnapshot {
+    #[serde(
+        serialize_with = "optional_duration_as_millis",
+        rename = "timeBudgetMs",
+        skip_serializing_if = "Option::is_none"
+    )]
     time_budget: Option<Duration>,
+    #[serde(serialize_with = "duration_as_millis", rename = "timeConsumedMs")]
     time_consumed: Duration,
+    #[serde(skip_serializing_if = "Option::is_none")]
     token_budget: Option<u64>,
     tokens_consumed: u64,
 }
@@ -274,11 +336,14 @@ impl RunScopedSnapshot {
 }
 
 /// Summary of execution costs.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct CostSummary {
+    #[serde(serialize_with = "duration_as_millis", rename = "totalTimeMs")]
     total_time: Duration,
     total_tokens: u64,
     samples_executed: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
     run_scoped: Option<RunScopedSnapshot>,
 }
 
@@ -348,7 +413,8 @@ impl CostSummary {
 }
 
 /// Summary of a completed execution run.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ExecutionSummary {
     samples_planned: u32,
     samples_executed: u32,
@@ -427,7 +493,8 @@ impl ExecutionSummary {
 }
 
 /// A warning attached to a verdict or execution result.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Warning {
     code: String,
     message: String,
@@ -467,7 +534,8 @@ impl fmt::Display for Warning {
 /// Captures both the configured limits and the effective values after
 /// constraint resolution. All fields reflect the state at verdict time,
 /// not the configuration input.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct PacingSummary {
     max_rps: f64,
     max_rpm: f64,
@@ -574,10 +642,18 @@ impl ExpirationStatus {
     }
 }
 
+impl Serialize for ExpirationStatus {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(self.xml_name())
+    }
+}
+
 /// Expiration information for a baseline spec.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ExpirationInfo {
     status: ExpirationStatus,
+    #[serde(skip_serializing_if = "Option::is_none")]
     expires_at: Option<String>,
 }
 

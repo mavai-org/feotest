@@ -14,6 +14,7 @@ pub use record::{
     StatisticalAnalysis, VerdictRecord, VerdictRecordBuilder,
 };
 
+use serde::{Serialize, Serializer};
 use std::fmt;
 
 /// The outcome of a probabilistic test.
@@ -39,6 +40,12 @@ impl fmt::Display for Verdict {
             Self::Fail => write!(f, "FAIL"),
             Self::Inconclusive => write!(f, "INCONCLUSIVE"),
         }
+    }
+}
+
+impl Serialize for Verdict {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(&self.to_string())
     }
 }
 

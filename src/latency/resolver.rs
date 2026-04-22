@@ -3,6 +3,8 @@
 
 use std::time::Duration;
 
+use serde::Serialize;
+
 use crate::latency::enforcement::LatencyEnforcementMode;
 use crate::latency::percentile::Percentile;
 use crate::latency::thresholds::LatencyThresholds;
@@ -10,7 +12,8 @@ use crate::spec::baseline::LatencyBlock;
 use crate::statistics::latency;
 
 /// Where a resolved threshold came from.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
 pub enum ThresholdProvenance {
     /// User declared the threshold explicitly on the builder.
     Explicit,
