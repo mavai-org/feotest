@@ -1,0 +1,5 @@
+error: unknown argument to `#[sentinel]`; expected `name` or `description`
+ --> tests/ui/sentinel/sentinel_unknown_arg.rs:3:12
+  |
+3 | #[sentinel(foo = "bar")]
+  |            ^^^

@@ -1,0 +1,5 @@
+error: `#[sentinel]` may only be applied to a struct
+ --> tests/ui/sentinel/sentinel_on_enum.rs:4:1
+  |
+4 | enum NotAStruct {
+  | ^^^^
