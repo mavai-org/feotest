@@ -1,15 +1,29 @@
-//! Worked example: a minimal sentinel binary.
+//! Integration-test fixture. **Not a pedagogic example.**
 //!
-//! Declares two reliability specifications and wires a one-line `main`
-//! into the sentinel runtime. Doubles as the integration-test fixture —
-//! `tests/sentinel_*.rs` drives this example via `cargo run --example`.
+//! This file exists solely to drive the end-to-end tests in
+//! `tests/sentinel_demo.rs`. Cargo's `examples/` directory is the only
+//! place from which those tests can invoke a compiled binary via
+//! `cargo run --example sentinel_demo -- <subcommand>`; the file lives
+//! here to satisfy that layout constraint, nothing more.
 //!
-//! Run modes:
+//! Pedagogic examples of sentinel authoring — narrative walkthroughs,
+//! tutorial-style code, beginner-oriented scenarios — belong in the
+//! sibling `feotest-examples` project, not here. Do not extend this
+//! file with teaching material.
+//!
+//! The two `#[sentinel]` structs below are the minimum needed to cover
+//! every runtime-behaviour branch the integration tests assert against:
+//! a normative-origin test (no baseline resolution) and an
+//! empirical-origin test paired with its measure experiment (baseline
+//! resolution chain exercised in both the missing and
+//! successfully-resolved states).
+//!
+//! The invocation shapes the integration tests use:
 //!
 //! ```text
 //! cargo run --example sentinel_demo -- list
-//! cargo run --example sentinel_demo -- run
-//! cargo run --example sentinel_demo -- measure --output -
+//! cargo run --example sentinel_demo -- run <spec>
+//! cargo run --example sentinel_demo -- measure --output <uri> <spec>
 //! cargo run --example sentinel_demo -- check --baselines <dir>
 //! ```
 
