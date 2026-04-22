@@ -9,8 +9,10 @@
 //!   as producing a use case.
 
 mod expand;
+mod include_baselines;
 mod parse;
 mod sentinel;
+mod sentinel_impl;
 mod use_case_factory;
 
 use proc_macro::TokenStream;
@@ -78,6 +80,47 @@ pub fn sentinel(attr: TokenStream, item: TokenStream) -> TokenStream {
 pub fn use_case_factory(attr: TokenStream, item: TokenStream) -> TokenStream {
     let attr: proc_macro2::TokenStream = attr.into();
     use_case_factory::expand(&attr, item.into())
+        .unwrap_or_else(|e| e.to_compile_error())
+        .into()
+}
+
+/// Applied to the `impl` block of a `#[sentinel]` struct. Processes
+/// method-level marker attributes (`#[probabilistic_test]`,
+/// `#[measure_experiment]`) and emits the registrations that make the
+/// methods invokable through the sentinel runtime.
+///
+/// Inner markers are stripped; the method bodies are emitted unchanged.
+/// The marker attributes are not themselves proc-macros — they exist only
+/// as configuration tokens consumed by this outer expansion.
+///
+/// See the `feotest::sentinel` module docs for the full authoring shape.
+#[proc_macro_attribute]
+pub fn sentinel_impl(attr: TokenStream, item: TokenStream) -> TokenStream {
+    let attr: proc_macro2::TokenStream = attr.into();
+    sentinel_impl::expand(&attr, item.into())
+        .unwrap_or_else(|e| e.to_compile_error())
+        .into()
+}
+
+/// Embeds a directory of baseline YAML files into the binary so the
+/// sentinel's baseline resolver can use them as defaults.
+///
+/// The argument is a path relative to the invoking crate's
+/// `Cargo.toml`. The directory layout is:
+///
+/// ```text
+/// <dir>/<spec-name>/<method-name>.yaml
+/// ```
+///
+/// Each YAML file is embedded verbatim; its filename (without `.yaml`)
+/// becomes the `method_name` and its parent directory name becomes the
+/// `spec_name` of the registered [`EmbeddedBaseline`] entry.
+///
+/// Invoke once per sentinel binary — typically from `main.rs` or the
+/// crate root.
+#[proc_macro]
+pub fn include_baselines(input: TokenStream) -> TokenStream {
+    include_baselines::expand(input.into())
         .unwrap_or_else(|e| e.to_compile_error())
         .into()
 }
