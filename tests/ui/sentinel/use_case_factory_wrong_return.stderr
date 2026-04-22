@@ -1,0 +1,5 @@
+error: `#[use_case_factory]` methods must return `impl UseCase` or `Box<dyn UseCase>`
+ --> tests/ui/sentinel/use_case_factory_wrong_return.rs:9:32
+  |
+9 |     fn not_a_factory(&self) -> String {
+  |                                ^^^^^^

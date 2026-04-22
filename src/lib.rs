@@ -24,12 +24,19 @@
 //! - **`experiment`** — experiment workflows for establishing empirical baselines.
 //! - **`ptest`** — probabilistic test execution and verdict production.
 //! - **`reporting`** — structured output of verdicts and diagnostics.
+//! - **`sentinel`** — reliability specifications: structs that aggregate
+//!   probabilistic tests and experiments for one non-deterministic boundary,
+//!   discoverable at link time.
 //! - **`usecase`** — the unit of work under test: a named service invocation
 //!   with associated configuration.
 //!
 //! The initial focus is on a correct, well-tested statistics and inference core.
 //! Runner integration and ergonomic test macros will follow once the foundation
 //! is solid.
+
+// Self-alias so proc-macros that reference `::feotest::...` resolve correctly
+// both inside this crate and in downstream consumers.
+extern crate self as feotest;
 
 pub mod contract;
 pub mod controls;
@@ -38,11 +45,18 @@ pub mod latency;
 pub mod model;
 pub mod ptest;
 pub mod reporting;
+pub mod sentinel;
 pub mod spec;
 pub mod statistics;
 pub mod usecase;
 pub mod verdict;
 
 pub use controls::RunBudget;
-pub use feotest_macros::probabilistic_test;
+pub use feotest_macros::{probabilistic_test, sentinel, use_case_factory};
 pub use model::BudgetExhaustedBehavior;
+
+// Re-exported so the `#[sentinel]` macro can reach `inventory::submit!`
+// through the host crate without requiring consumers to add `inventory`
+// to their own `Cargo.toml`.
+#[doc(hidden)]
+pub use inventory;
