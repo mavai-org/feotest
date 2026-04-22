@@ -52,7 +52,9 @@ pub mod usecase;
 pub mod verdict;
 
 pub use controls::RunBudget;
-pub use feotest_macros::{probabilistic_test, sentinel, use_case_factory};
+pub use feotest_macros::{
+    include_baselines, probabilistic_test, sentinel, sentinel_impl, use_case_factory,
+};
 pub use model::BudgetExhaustedBehavior;
 
 // Re-exported so the `#[sentinel]` macro can reach `inventory::submit!`

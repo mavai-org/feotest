@@ -47,6 +47,10 @@ pub fn expand(attr: TokenStream, item: TokenStream) -> Result<TokenStream> {
             fn description(&self) -> &'static str {
                 #description_lit
             }
+
+            fn as_any(&self) -> &dyn ::core::any::Any {
+                self
+            }
         }
 
         #[doc(hidden)]
