@@ -1,29 +1,49 @@
 //! Optimize experiment: iterative factor tuning.
+//!
+//! An optimize experiment tunes a single factor by recycling it through
+//! a feedback loop: each iteration runs samples against a use case
+//! instance built from the current factor, scores the result, records
+//! the outcome, and hands control to a mutator that produces the next
+//! factor from the history. The loop stops when an iteration cap is
+//! reached or the best score stops improving for a configured number of
+//! iterations.
+//!
+//! The API shape mirrors [`super::ExploreExperiment`]: a `factor` is a
+//! user-defined type, a `use_case(factory)` builds an instance from a
+//! factor, and a `trial(|uc, input| …)` closure runs against the
+//! instance. The only structural difference is how factors are
+//! supplied — optimize takes a single `initial_factor` plus a
+//! [`FactorMutator`] that drives subsequent factors from history;
+//! explore takes them all upfront as a `Vec<F>`.
 
 use std::fmt;
 use std::path::{Path, PathBuf};
+
+use serde::Serialize;
 
 use crate::controls::{ExecutionConfig, TokenRecorder};
 use crate::experiment::engine::{ExecutionEngine, ExecutionResult};
 use crate::model::TrialOutcome;
 use crate::spec::optimization::{OptimizationSpec, OptimizeSpecWriter};
-use crate::usecase::{FactorValue, UseCase};
 
-type TrialClosure = Box<dyn FnMut(&str) -> TrialOutcome>;
-type ApplyFactorClosure = Box<dyn FnMut(&FactorValue)>;
+type UseCaseFactory<'a, F, T> = Box<dyn Fn(&F) -> T + 'a>;
+type TrialClosure<'a, T> = Box<dyn Fn(&T, &str) -> TrialOutcome + 'a>;
 
 /// A scoring function that evaluates an iteration's results.
 pub trait Scorer: Send + Sync {
     /// Scores the result of a single iteration.
     ///
-    /// Higher scores are better for `Maximize`, lower for `Minimize`.
+    /// Higher scores are better for [`Objective::Maximize`]; lower for
+    /// [`Objective::Minimize`].
     fn score(&self, result: &ExecutionResult) -> f64;
 }
 
-/// Generates new factor values based on optimisation history.
-pub trait FactorMutator: Send + Sync {
-    /// Produces the next factor value given the current value and history.
-    fn mutate(&self, current: &FactorValue, history: &[IterationRecord]) -> FactorValue;
+/// Generates the next factor value from the current one and the
+/// iteration history.
+pub trait FactorMutator<F>: Send + Sync {
+    /// Produces the next factor value given the current value and the
+    /// history of prior iterations.
+    fn mutate(&self, current: &F, history: &[IterationRecord<F>]) -> F;
 }
 
 /// Whether to maximise or minimise the score.
@@ -38,10 +58,10 @@ pub enum Objective {
 /// Why an optimisation run stopped iterating.
 ///
 /// The set of variants is the same across all javai frameworks so that
-/// optimisation YAML output is cross-project comparable. Not every variant
-/// is reachable in every runtime: feotest currently terminates only on
-/// `MaxIterations` or `NoImprovement`; the others become reachable as
-/// budget and threshold controls mature.
+/// optimisation YAML output is cross-project comparable. Not every
+/// variant is reachable in every runtime: feotest currently terminates
+/// only on `MaxIterations` or `NoImprovement`; the others become
+/// reachable as budget and threshold controls mature.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TerminationReason {
     /// The configured maximum iteration count was reached.
@@ -78,25 +98,25 @@ impl fmt::Display for TerminationReason {
 
 /// Record of a single optimisation iteration.
 #[derive(Debug, Clone)]
-pub struct IterationRecord {
+pub struct IterationRecord<F> {
     iteration: u32,
-    factor_value: FactorValue,
+    factor: F,
     score: f64,
     successes: u32,
     failures: u32,
 }
 
-impl IterationRecord {
+impl<F> IterationRecord<F> {
     /// The iteration number (0-indexed).
     #[must_use]
     pub const fn iteration(&self) -> u32 {
         self.iteration
     }
 
-    /// The factor value used in this iteration.
+    /// The factor used in this iteration.
     #[must_use]
-    pub const fn factor_value(&self) -> &FactorValue {
-        &self.factor_value
+    pub const fn factor(&self) -> &F {
+        &self.factor
     }
 
     /// The score achieved.
@@ -118,74 +138,132 @@ impl IterationRecord {
     }
 }
 
-/// An optimize experiment that iteratively tunes a single control factor.
+/// An optimize experiment that iteratively tunes a single factor.
 ///
 /// Construct via [`OptimizeExperiment::builder`]; there is no public
 /// constructor.
-pub struct OptimizeExperiment<'a> {
+///
+/// # Examples
+///
+/// ```no_run
+/// use feotest::experiment::{
+///     ExecutionResult, FactorMutator, IterationRecord, Objective,
+///     OptimizeExperiment, Scorer,
+/// };
+/// use feotest::model::TrialOutcome;
+/// use serde::Serialize;
+///
+/// // Factor type: what varies between iterations.
+/// #[derive(Clone, Serialize)]
+/// struct Temperature(f64);
+///
+/// // Use case type: what the factory produces from a factor.
+/// struct MyService { temperature: f64 }
+/// impl MyService {
+///     fn call(&self, _input: &str) -> TrialOutcome {
+///         TrialOutcome::success(std::time::Duration::ZERO)
+///     }
+/// }
+///
+/// struct PassRateScorer;
+/// impl Scorer for PassRateScorer {
+///     fn score(&self, result: &ExecutionResult) -> f64 {
+///         result.summary().observed_pass_rate()
+///     }
+/// }
+///
+/// struct StepMutator;
+/// impl FactorMutator<Temperature> for StepMutator {
+///     fn mutate(
+///         &self,
+///         current: &Temperature,
+///         _history: &[IterationRecord<Temperature>],
+///     ) -> Temperature {
+///         Temperature(current.0 + 0.1)
+///     }
+/// }
+///
+/// let inputs = vec!["request".to_string()];
+///
+/// let _ = OptimizeExperiment::builder()
+///     .use_case_id("my-service")
+///     .initial_factor(Temperature(0.3))
+///     .use_case(|f: &Temperature| MyService { temperature: f.0 })
+///     .scorer(PassRateScorer)
+///     .mutator(StepMutator)
+///     .samples_per_iteration(20)
+///     .inputs(&inputs)
+///     .trial(|uc: &MyService, input| uc.call(input))
+///     .objective(Objective::Maximize)
+///     .max_iterations(10)
+///     .no_improvement_window(3)
+///     .build()
+///     .run();
+/// ```
+pub struct OptimizeExperiment<'a, F, T> {
     use_case_id: String,
-    control_factor: String,
-    initial_value: FactorValue,
+    initial_factor: F,
+    factory: UseCaseFactory<'a, F, T>,
     scorer: Box<dyn Scorer>,
-    mutator: Box<dyn FactorMutator>,
+    mutator: Box<dyn FactorMutator<F>>,
     objective: Objective,
     samples_per_iteration: u32,
     max_iterations: u32,
     no_improvement_window: u32,
     inputs: &'a [String],
-    trial: TrialClosure,
-    apply_factor: ApplyFactorClosure,
+    trial: TrialClosure<'a, T>,
     experiment_id: Option<String>,
 }
 
-impl<'a> OptimizeExperiment<'a> {
+impl<'a, F, T> OptimizeExperiment<'a, F, T>
+where
+    F: Clone,
+{
     /// Starts a new builder for an optimize experiment.
     ///
-    /// Required fields must be set via the corresponding setter before
-    /// [`build`](OptimizeExperimentBuilder::build) is called; optional
-    /// fields carry documented defaults.
+    /// Required fields must be set via their corresponding setters
+    /// before [`build`](OptimizeExperimentBuilder::build) is called.
+    /// Optional fields carry documented defaults.
     #[must_use]
-    pub fn builder() -> OptimizeExperimentBuilder<'a> {
+    pub fn builder() -> OptimizeExperimentBuilder<'a, F, T> {
         OptimizeExperimentBuilder::default()
     }
 
     /// Runs the optimisation and returns the result.
-    #[must_use]
-    pub fn run(mut self) -> OptimizeResult {
-        let mut history: Vec<IterationRecord> = Vec::new();
-        let mut current_value = self.initial_value.clone();
+    pub fn run(self) -> OptimizeResult<F> {
+        let mut history: Vec<IterationRecord<F>> = Vec::new();
+        let mut current_factor = self.initial_factor.clone();
         let mut best_score: Option<f64> = None;
         let mut best_iteration: Option<u32> = None;
         let mut no_improvement_count = 0u32;
         let mut termination_reason = TerminationReason::MaxIterations;
 
         for iteration in 0..self.max_iterations {
-            // Apply the current factor value
-            (self.apply_factor)(&current_value);
+            let use_case = (self.factory)(&current_factor);
 
-            // Run samples for this iteration
             let config = ExecutionConfig::new(self.samples_per_iteration);
             let recorder = TokenRecorder::new();
+
+            let mut trial_fn = |input: &str| (self.trial)(&use_case, input);
+
             let result = ExecutionEngine::run(
                 &config,
                 self.inputs,
                 &recorder,
                 crate::controls::run::current(),
-                &mut self.trial,
+                &mut trial_fn,
             );
 
             let score = self.scorer.score(&result);
 
-            let record = IterationRecord {
+            history.push(IterationRecord {
                 iteration,
-                factor_value: current_value.clone(),
+                factor: current_factor.clone(),
                 score,
                 successes: result.summary().successes(),
                 failures: result.summary().failures(),
-            };
-            history.push(record);
+            });
 
-            // Check for improvement
             let improved = match (best_score, self.objective) {
                 (None, _) => true,
                 (Some(best), Objective::Maximize) => score > best,
@@ -200,21 +278,18 @@ impl<'a> OptimizeExperiment<'a> {
                 no_improvement_count += 1;
             }
 
-            // Check plateau termination
             if no_improvement_count >= self.no_improvement_window {
                 termination_reason = TerminationReason::NoImprovement;
                 break;
             }
 
-            // Mutate for next iteration (unless this is the last)
             if iteration + 1 < self.max_iterations {
-                current_value = self.mutator.mutate(&current_value, &history);
+                current_factor = self.mutator.mutate(&current_factor, &history);
             }
         }
 
         OptimizeResult {
             use_case_id: self.use_case_id,
-            control_factor: self.control_factor,
             objective: self.objective,
             experiment_id: self.experiment_id,
             history,
@@ -227,72 +302,79 @@ impl<'a> OptimizeExperiment<'a> {
 
 /// Fluent builder for [`OptimizeExperiment`].
 ///
-/// Required fields — use case, control factor, initial value, scorer,
-/// mutator, inputs, trial, and factor-application closure — must be set
-/// before [`build`](Self::build) is called. Missing any of them produces
-/// a panic naming the field and the setter to call.
+/// Required fields — `use_case_id`, `initial_factor`, `use_case`
+/// (factory), `scorer`, `mutator`, `samples_per_iteration`, `inputs`,
+/// and `trial` — must be set before [`build`](Self::build) is called.
+/// Missing any of them produces a panic naming the field and the
+/// setter to call.
 ///
-/// Optional fields have documented defaults. Setters that validate a
-/// single value (e.g. positive iteration counts, non-empty inputs)
-/// panic at the setter rather than deferring to `build`.
-pub struct OptimizeExperimentBuilder<'a> {
+/// Optional fields (`objective`, `max_iterations`,
+/// `no_improvement_window`, `experiment_id`) carry documented defaults.
+/// Setters that validate a single value (e.g., positive iteration
+/// counts, non-empty inputs) panic at the setter rather than deferring
+/// to `build`.
+pub struct OptimizeExperimentBuilder<'a, F, T> {
     use_case_id: Option<String>,
-    control_factor: Option<String>,
-    initial_value: Option<FactorValue>,
+    initial_factor: Option<F>,
+    factory: Option<UseCaseFactory<'a, F, T>>,
     scorer: Option<Box<dyn Scorer>>,
-    mutator: Option<Box<dyn FactorMutator>>,
-    inputs: Option<&'a [String]>,
-    trial: Option<TrialClosure>,
-    apply_factor: Option<ApplyFactorClosure>,
+    mutator: Option<Box<dyn FactorMutator<F>>>,
     objective: Objective,
-    samples_per_iteration: u32,
+    samples_per_iteration: Option<u32>,
     max_iterations: u32,
     no_improvement_window: u32,
+    inputs: Option<&'a [String]>,
+    trial: Option<TrialClosure<'a, T>>,
     experiment_id: Option<String>,
 }
 
-impl Default for OptimizeExperimentBuilder<'_> {
+impl<F, T> Default for OptimizeExperimentBuilder<'_, F, T> {
     fn default() -> Self {
         Self {
             use_case_id: None,
-            control_factor: None,
-            initial_value: None,
+            initial_factor: None,
+            factory: None,
             scorer: None,
             mutator: None,
-            inputs: None,
-            trial: None,
-            apply_factor: None,
             objective: Objective::Maximize,
-            samples_per_iteration: 20,
+            samples_per_iteration: None,
             max_iterations: 20,
             no_improvement_window: 5,
+            inputs: None,
+            trial: None,
             experiment_id: None,
         }
     }
 }
 
-impl<'a> OptimizeExperimentBuilder<'a> {
+impl<'a, F, T> OptimizeExperimentBuilder<'a, F, T> {
     // --- required fields ---
 
-    /// Sets the use case. Only its identifier is captured; the use case
-    /// itself is not retained.
+    /// Sets the use case identifier.
+    ///
+    /// Appears in spec YAML and in the output directory layout.
     #[must_use]
-    pub fn use_case(mut self, use_case: &dyn UseCase) -> Self {
-        self.use_case_id = Some(use_case.id().to_owned());
+    pub fn use_case_id(mut self, id: impl Into<String>) -> Self {
+        self.use_case_id = Some(id.into());
         self
     }
 
-    /// Sets the name of the control factor being optimised.
+    /// Sets the starting factor for the first iteration.
     #[must_use]
-    pub fn control_factor(mut self, name: impl Into<String>) -> Self {
-        self.control_factor = Some(name.into());
+    pub fn initial_factor(mut self, factor: F) -> Self {
+        self.initial_factor = Some(factor);
         self
     }
 
-    /// Sets the starting value of the control factor.
+    /// Sets the use case factory.
+    ///
+    /// Given a factor, the factory produces one use case instance. The
+    /// framework calls the factory once per iteration, runs
+    /// `samples_per_iteration` trials against the resulting instance,
+    /// then drops it before the next iteration.
     #[must_use]
-    pub fn initial_value(mut self, value: FactorValue) -> Self {
-        self.initial_value = Some(value);
+    pub fn use_case(mut self, factory: impl Fn(&F) -> T + 'a) -> Self {
+        self.factory = Some(Box::new(factory));
         self
     }
 
@@ -305,8 +387,20 @@ impl<'a> OptimizeExperimentBuilder<'a> {
 
     /// Sets the factor-mutation strategy.
     #[must_use]
-    pub fn mutator(mut self, mutator: impl FactorMutator + 'static) -> Self {
+    pub fn mutator(mut self, mutator: impl FactorMutator<F> + 'static) -> Self {
         self.mutator = Some(Box::new(mutator));
+        self
+    }
+
+    /// Sets the number of samples to run per iteration.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `samples` is zero.
+    #[must_use]
+    pub fn samples_per_iteration(mut self, samples: u32) -> Self {
+        assert!(samples > 0, "samples_per_iteration must be positive, got 0");
+        self.samples_per_iteration = Some(samples);
         self
     }
 
@@ -323,16 +417,14 @@ impl<'a> OptimizeExperimentBuilder<'a> {
     }
 
     /// Sets the trial closure.
+    ///
+    /// The closure receives a reference to the iteration's use case
+    /// instance and an input string, and returns a [`TrialOutcome`]. It
+    /// may borrow data that outlives the builder (the `'a` lifetime);
+    /// it is not required to be `'static`.
     #[must_use]
-    pub fn trial(mut self, trial: impl FnMut(&str) -> TrialOutcome + 'static) -> Self {
+    pub fn trial(mut self, trial: impl Fn(&T, &str) -> TrialOutcome + 'a) -> Self {
         self.trial = Some(Box::new(trial));
-        self
-    }
-
-    /// Sets the closure that applies a factor value to the use case.
-    #[must_use]
-    pub fn apply_factor(mut self, apply: impl FnMut(&FactorValue) + 'static) -> Self {
-        self.apply_factor = Some(Box::new(apply));
         self
     }
 
@@ -345,19 +437,7 @@ impl<'a> OptimizeExperimentBuilder<'a> {
         self
     }
 
-    /// Sets samples per iteration. Default: 20.
-    ///
-    /// # Panics
-    ///
-    /// Panics if `samples` is zero.
-    #[must_use]
-    pub fn samples_per_iteration(mut self, samples: u32) -> Self {
-        assert!(samples > 0, "samples_per_iteration must be positive, got 0");
-        self.samples_per_iteration = samples;
-        self
-    }
-
-    /// Sets maximum iterations. Default: 20.
+    /// Sets the maximum iteration count. Default: 20.
     ///
     /// # Panics
     ///
@@ -392,31 +472,30 @@ impl<'a> OptimizeExperimentBuilder<'a> {
     ///
     /// # Panics
     ///
-    /// Panics if any required field is missing, naming the field and the
-    /// setter that should have been called.
+    /// Panics if any required field is missing, naming the field and
+    /// the setter that should have been called.
     #[must_use]
-    pub fn build(self) -> OptimizeExperiment<'a> {
+    pub fn build(self) -> OptimizeExperiment<'a, F, T> {
         OptimizeExperiment {
             use_case_id: self
                 .use_case_id
-                .expect("use_case must be set via .use_case(...)"),
-            control_factor: self
-                .control_factor
-                .expect("control_factor must be set via .control_factor(...)"),
-            initial_value: self
-                .initial_value
-                .expect("initial_value must be set via .initial_value(...)"),
+                .expect("use_case_id must be set via .use_case_id(...)"),
+            initial_factor: self
+                .initial_factor
+                .expect("initial_factor must be set via .initial_factor(...)"),
+            factory: self
+                .factory
+                .expect("use_case factory must be set via .use_case(...)"),
             scorer: self.scorer.expect("scorer must be set via .scorer(...)"),
             mutator: self.mutator.expect("mutator must be set via .mutator(...)"),
             objective: self.objective,
-            samples_per_iteration: self.samples_per_iteration,
+            samples_per_iteration: self
+                .samples_per_iteration
+                .expect("samples_per_iteration must be set via .samples_per_iteration(...)"),
             max_iterations: self.max_iterations,
             no_improvement_window: self.no_improvement_window,
             inputs: self.inputs.expect("inputs must be set via .inputs(...)"),
             trial: self.trial.expect("trial must be set via .trial(...)"),
-            apply_factor: self
-                .apply_factor
-                .expect("apply_factor must be set via .apply_factor(...)"),
             experiment_id: self.experiment_id,
         }
     }
@@ -424,28 +503,21 @@ impl<'a> OptimizeExperimentBuilder<'a> {
 
 /// Result of an optimize experiment.
 #[derive(Debug)]
-pub struct OptimizeResult {
+pub struct OptimizeResult<F> {
     use_case_id: String,
-    control_factor: String,
     objective: Objective,
     experiment_id: Option<String>,
-    history: Vec<IterationRecord>,
+    history: Vec<IterationRecord<F>>,
     best_iteration: Option<u32>,
     best_score: Option<f64>,
     termination_reason: TerminationReason,
 }
 
-impl OptimizeResult {
+impl<F> OptimizeResult<F> {
     /// The use case identifier.
     #[must_use]
     pub fn use_case_id(&self) -> &str {
         &self.use_case_id
-    }
-
-    /// The control factor that was optimised.
-    #[must_use]
-    pub fn control_factor(&self) -> &str {
-        &self.control_factor
     }
 
     /// The optimisation objective.
@@ -462,7 +534,7 @@ impl OptimizeResult {
 
     /// Full iteration history.
     #[must_use]
-    pub fn history(&self) -> &[IterationRecord] {
+    pub fn history(&self) -> &[IterationRecord<F>] {
         &self.history
     }
 
@@ -478,14 +550,14 @@ impl OptimizeResult {
         self.best_score
     }
 
-    /// The factor value that produced the best score.
+    /// The factor that produced the best score.
     #[must_use]
-    pub fn best_factor_value(&self) -> Option<&FactorValue> {
+    pub fn best_factor(&self) -> Option<&F> {
         self.best_iteration.and_then(|idx| {
             self.history
                 .iter()
                 .find(|r| r.iteration == idx)
-                .map(|r| &r.factor_value)
+                .map(|r| &r.factor)
         })
     }
 
@@ -494,7 +566,9 @@ impl OptimizeResult {
     pub const fn termination_reason(&self) -> TerminationReason {
         self.termination_reason
     }
+}
 
+impl<F: Serialize> OptimizeResult<F> {
     /// Builds the canonical [`OptimizationSpec`] for this result.
     #[must_use]
     pub fn to_spec(&self) -> OptimizationSpec {
@@ -510,10 +584,11 @@ impl OptimizeResult {
         self.to_spec().to_yaml()
     }
 
-    /// Writes the optimization YAML artefact under the given output root.
+    /// Writes the optimization YAML artefact under the given output
+    /// root.
     ///
-    /// The final path is `{root}/{use_case_id}/{experiment_id}.yaml`. The
-    /// default output root is `target/feotest/optimizations/` — see
+    /// The final path is `{root}/{use_case_id}/{experiment_id}.yaml`.
+    /// The default output root is `target/feotest/optimizations/` — see
     /// [`write_to_default`](Self::write_to_default).
     ///
     /// # Errors
@@ -535,7 +610,7 @@ impl OptimizeResult {
     }
 }
 
-impl fmt::Display for OptimizeResult {
+impl<F: fmt::Display> fmt::Display for OptimizeResult<F> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let objective_label = match self.objective {
             Objective::Maximize => "maximize",
@@ -544,8 +619,8 @@ impl fmt::Display for OptimizeResult {
 
         writeln!(
             f,
-            "OptimizeResult: {} ({objective_label} '{}')",
-            self.use_case_id, self.control_factor,
+            "OptimizeResult: {} ({objective_label})",
+            self.use_case_id,
         )?;
 
         if let Some(id) = &self.experiment_id {
@@ -556,8 +631,8 @@ impl fmt::Display for OptimizeResult {
 
         if let (Some(best_iter), Some(best_score)) = (self.best_iteration, self.best_score) {
             writeln!(f, "  best: iteration {best_iter}, score {best_score:.4}")?;
-            if let Some(value) = self.best_factor_value() {
-                writeln!(f, "  best value: {value}")?;
+            if let Some(factor) = self.best_factor() {
+                writeln!(f, "  best factor: {factor}")?;
             }
         } else {
             writeln!(f, "  best: none")?;
@@ -570,7 +645,7 @@ impl fmt::Display for OptimizeResult {
                     f,
                     "    [{:>2}] {} → score {:.4} ({} ok, {} fail)",
                     record.iteration,
-                    record.factor_value,
+                    record.factor,
                     record.score,
                     record.successes,
                     record.failures,
@@ -585,68 +660,56 @@ impl fmt::Display for OptimizeResult {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::{Arc, Mutex};
     use std::time::Duration;
 
-    struct SuccessRateScorer;
-    impl Scorer for SuccessRateScorer {
+    #[derive(Clone, Serialize)]
+    struct Temp(f64);
+    impl fmt::Display for Temp {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            write!(f, "{}", self.0)
+        }
+    }
+
+    struct MockService {
+        temperature: f64,
+    }
+
+    fn build_service(t: &Temp) -> MockService {
+        MockService { temperature: t.0 }
+    }
+
+    struct PassRateScorer;
+    impl Scorer for PassRateScorer {
         fn score(&self, result: &ExecutionResult) -> f64 {
             result.summary().observed_pass_rate()
         }
     }
 
-    struct IncrementMutator;
-    impl FactorMutator for IncrementMutator {
-        fn mutate(&self, current: &FactorValue, _history: &[IterationRecord]) -> FactorValue {
-            match current {
-                FactorValue::Float(v) => FactorValue::Float(v + 0.1),
-                other => other.clone(),
-            }
+    struct StepMutator;
+    impl FactorMutator<Temp> for StepMutator {
+        fn mutate(&self, current: &Temp, _history: &[IterationRecord<Temp>]) -> Temp {
+            Temp(current.0 + 0.1)
         }
     }
 
-    struct TestUc(&'static str);
-    impl UseCase for TestUc {
-        fn id(&self) -> &str {
-            self.0
-        }
+    fn always_succeed(_uc: &MockService, _input: &str) -> TrialOutcome {
+        TrialOutcome::success(Duration::ZERO)
     }
 
     #[test]
     fn runs_optimization_iterations() {
-        let uc = TestUc("test-uc");
         let inputs = vec!["input".to_string()];
-        let current_temp = Arc::new(Mutex::new(0.5_f64));
-
-        let temp_for_apply = Arc::clone(&current_temp);
-        let temp_for_trial = Arc::clone(&current_temp);
 
         let result = OptimizeExperiment::builder()
-            .use_case(&uc)
-            .control_factor("temperature")
-            .initial_value(FactorValue::Float(0.5))
-            .scorer(SuccessRateScorer)
-            .mutator(IncrementMutator)
-            .inputs(&inputs)
-            .trial(move |_input| {
-                let temp = *temp_for_trial.lock().unwrap();
-                // Lower temp = higher success rate
-                if temp < 0.7 {
-                    TrialOutcome::success(Duration::ZERO)
-                } else {
-                    TrialOutcome::failure(
-                        crate::model::ContractViolation::new("quality", "low"),
-                        Duration::ZERO,
-                    )
-                }
-            })
-            .apply_factor(move |value| {
-                if let FactorValue::Float(v) = value {
-                    *temp_for_apply.lock().unwrap() = *v;
-                }
-            })
-            .max_iterations(5)
+            .use_case_id("test-uc")
+            .initial_factor(Temp(0.5))
+            .use_case(build_service)
+            .scorer(PassRateScorer)
+            .mutator(StepMutator)
             .samples_per_iteration(10)
+            .inputs(&inputs)
+            .trial(always_succeed)
+            .max_iterations(5)
             .no_improvement_window(3)
             .experiment_id("temp-tune")
             .build()
@@ -654,87 +717,116 @@ mod tests {
 
         assert!(!result.history().is_empty());
         assert!(result.best_score().is_some());
-        assert!(result.best_factor_value().is_some());
-        assert_eq!(result.control_factor(), "temperature");
+        assert!(result.best_factor().is_some());
+        assert_eq!(result.use_case_id(), "test-uc");
     }
 
     #[test]
-    fn display_shows_summary_and_history() {
+    fn factor_varies_across_iterations() {
+        // Verify the mutator receives the current factor and its output
+        // appears in the next iteration.
         let inputs = vec!["input".to_string()];
 
-        let uc = TestUc("display-test");
         let result = OptimizeExperiment::builder()
-            .use_case(&uc)
-            .control_factor("temperature")
-            .initial_value(FactorValue::Float(0.5))
-            .scorer(SuccessRateScorer)
-            .mutator(IncrementMutator)
+            .use_case_id("mutation-test")
+            .initial_factor(Temp(1.0))
+            .use_case(build_service)
+            .scorer(PassRateScorer)
+            .mutator(StepMutator)
+            .samples_per_iteration(3)
             .inputs(&inputs)
-            .trial(|_input| TrialOutcome::success(Duration::ZERO))
-            .apply_factor(|_value| {})
+            .trial(always_succeed)
             .max_iterations(3)
-            .samples_per_iteration(5)
-            .no_improvement_window(10)
-            .experiment_id("display-exp")
+            .no_improvement_window(100)
             .build()
             .run();
 
-        let output = result.to_string();
-        assert!(output.contains("display-test"));
-        assert!(output.contains("temperature"));
-        assert!(output.contains("maximize"));
-        assert!(output.contains("display-exp"));
-        assert!(output.contains("best:"));
-        assert!(output.contains("history:"));
+        let history = result.history();
+        assert_eq!(history.len(), 3);
+        assert!((history[0].factor().0 - 1.0).abs() < 1e-10);
+        assert!((history[1].factor().0 - 1.1).abs() < 1e-10);
+        assert!((history[2].factor().0 - 1.2).abs() < 1e-10);
+    }
+
+    #[test]
+    fn trial_receives_instance_built_from_current_factor() {
+        // Trial checks the use case it receives reflects the iteration's
+        // factor. Failure here means the factory / recycling pipeline is
+        // broken.
+        let inputs = vec!["input".to_string()];
+
+        let result = OptimizeExperiment::builder()
+            .use_case_id("instance-test")
+            .initial_factor(Temp(0.5))
+            .use_case(build_service)
+            .scorer(PassRateScorer)
+            .mutator(StepMutator)
+            .samples_per_iteration(3)
+            .inputs(&inputs)
+            .trial(|uc: &MockService, _input| {
+                if uc.temperature < 0.7 {
+                    TrialOutcome::success(Duration::ZERO)
+                } else {
+                    TrialOutcome::failure(
+                        crate::model::ContractViolation::new("temp", "too hot"),
+                        Duration::ZERO,
+                    )
+                }
+            })
+            .max_iterations(4)
+            .no_improvement_window(100)
+            .build()
+            .run();
+
+        let history = result.history();
+        assert_eq!(history.len(), 4);
+        // Iter 0 (T=0.5): all pass. Iter 1 (T=0.6): all pass. Iter 2 (T=0.7+): all fail.
+        assert_eq!(history[0].successes(), 3);
+        assert_eq!(history[1].successes(), 3);
+        assert_eq!(history[2].failures(), 3);
     }
 
     #[test]
     fn stops_on_plateau() {
         let inputs = vec!["input".to_string()];
 
-        let uc = TestUc("test-uc");
         let result = OptimizeExperiment::builder()
-            .use_case(&uc)
-            .control_factor("factor")
-            .initial_value(FactorValue::Float(1.0))
-            .scorer(SuccessRateScorer)
-            .mutator(IncrementMutator)
+            .use_case_id("plateau-test")
+            .initial_factor(Temp(1.0))
+            .use_case(build_service)
+            .scorer(PassRateScorer)
+            .mutator(StepMutator)
+            .samples_per_iteration(5)
             .inputs(&inputs)
-            .trial(|_input| TrialOutcome::success(Duration::ZERO))
-            .apply_factor(|_value| {})
+            .trial(always_succeed)
             .max_iterations(20)
             .no_improvement_window(3)
-            .samples_per_iteration(5)
             .build()
             .run();
 
-        // All iterations score 1.0, so after first + 3 no-improvement, should stop at 4
+        // All iterations score 1.0. First + 3 no-improvement → stop at 4.
         assert!(result.history().len() <= 4);
+        assert_eq!(
+            result.termination_reason(),
+            TerminationReason::NoImprovement
+        );
     }
 
     #[test]
-    fn minimize_objective() {
+    fn minimize_objective_is_honoured() {
         let inputs = vec!["input".to_string()];
-        let uc = TestUc("minimize-test");
-        let call_count = Arc::new(Mutex::new(0u32));
-        let count_for_trial = Arc::clone(&call_count);
 
         let result = OptimizeExperiment::builder()
-            .use_case(&uc)
-            .control_factor("factor")
-            .initial_value(FactorValue::Float(1.0))
-            .scorer(SuccessRateScorer)
-            .mutator(IncrementMutator)
+            .use_case_id("minimize-test")
+            .initial_factor(Temp(1.0))
+            .use_case(build_service)
+            .scorer(PassRateScorer)
+            .mutator(StepMutator)
+            .samples_per_iteration(5)
             .inputs(&inputs)
-            .trial(move |_input| {
-                let mut c = count_for_trial.lock().unwrap();
-                *c += 1;
-                TrialOutcome::success(Duration::ZERO)
-            })
-            .apply_factor(|_value| {})
+            .trial(always_succeed)
             .objective(Objective::Minimize)
             .max_iterations(3)
-            .samples_per_iteration(5)
             .build()
             .run();
 
@@ -742,138 +834,38 @@ mod tests {
         assert!(result.best_score().is_some());
     }
 
-    #[test]
-    fn display_minimize_label() {
-        let inputs = vec!["input".to_string()];
-        let uc = TestUc("min-label");
-
-        let result = OptimizeExperiment::builder()
-            .use_case(&uc)
-            .control_factor("cost")
-            .initial_value(FactorValue::Float(1.0))
-            .scorer(SuccessRateScorer)
-            .mutator(IncrementMutator)
-            .inputs(&inputs)
-            .trial(|_| TrialOutcome::success(Duration::ZERO))
-            .apply_factor(|_| {})
-            .objective(Objective::Minimize)
-            .max_iterations(2)
-            .samples_per_iteration(5)
-            .build()
-            .run();
-
-        let output = result.to_string();
-        assert!(output.contains("minimize"));
-    }
-
-    #[test]
-    fn single_iteration_produces_best() {
-        let inputs = vec!["input".to_string()];
-        let uc = TestUc("single-iter");
-
-        let result = OptimizeExperiment::builder()
-            .use_case(&uc)
-            .control_factor("factor")
-            .initial_value(FactorValue::Float(1.0))
-            .scorer(SuccessRateScorer)
-            .mutator(IncrementMutator)
-            .inputs(&inputs)
-            .trial(|_| TrialOutcome::success(Duration::ZERO))
-            .apply_factor(|_| {})
-            .max_iterations(1)
-            .samples_per_iteration(5)
-            .build()
-            .run();
-
-        assert_eq!(result.history().len(), 1);
-        assert_eq!(result.best_iteration(), Some(0));
-    }
-
-    #[test]
-    fn iteration_record_accessors() {
-        let inputs = vec!["input".to_string()];
-        let uc = TestUc("accessors");
-
-        let result = OptimizeExperiment::builder()
-            .use_case(&uc)
-            .control_factor("factor")
-            .initial_value(FactorValue::Float(1.0))
-            .scorer(SuccessRateScorer)
-            .mutator(IncrementMutator)
-            .inputs(&inputs)
-            .trial(|_| TrialOutcome::success(Duration::ZERO))
-            .apply_factor(|_| {})
-            .max_iterations(1)
-            .samples_per_iteration(5)
-            .build()
-            .run();
-
-        let record = &result.history()[0];
-        assert_eq!(record.iteration(), 0);
-        assert_eq!(record.successes(), 5);
-        assert_eq!(record.failures(), 0);
-        assert!((record.score() - 1.0).abs() < 1e-10);
-        assert!(matches!(record.factor_value(), FactorValue::Float(_)));
-    }
-
-    #[test]
-    fn result_accessors() {
-        let inputs = vec!["input".to_string()];
-        let uc = TestUc("result-acc");
-
-        let result = OptimizeExperiment::builder()
-            .use_case(&uc)
-            .control_factor("factor")
-            .initial_value(FactorValue::Float(1.0))
-            .scorer(SuccessRateScorer)
-            .mutator(IncrementMutator)
-            .inputs(&inputs)
-            .trial(|_| TrialOutcome::success(Duration::ZERO))
-            .apply_factor(|_| {})
-            .max_iterations(2)
-            .samples_per_iteration(5)
-            .experiment_id("exp-123")
-            .build()
-            .run();
-
-        assert_eq!(result.use_case_id(), "result-acc");
-        assert_eq!(result.control_factor(), "factor");
-        assert_eq!(result.experiment_id(), Some("exp-123"));
-        assert_eq!(result.objective(), Objective::Maximize);
-    }
-
     // --- Builder precondition tests (setter-level validation) ---
-
-    #[test]
-    #[should_panic(expected = "inputs must not be empty")]
-    fn rejects_empty_inputs() {
-        let empty: Vec<String> = vec![];
-        let _ = OptimizeExperiment::builder().inputs(&empty);
-    }
 
     #[test]
     #[should_panic(expected = "samples_per_iteration must be positive")]
     fn rejects_zero_samples_per_iteration() {
-        let _ = OptimizeExperiment::builder().samples_per_iteration(0);
+        let _ = OptimizeExperiment::<Temp, MockService>::builder().samples_per_iteration(0);
     }
 
     #[test]
     #[should_panic(expected = "max_iterations must be positive")]
     fn rejects_zero_max_iterations() {
-        let _ = OptimizeExperiment::builder().max_iterations(0);
+        let _ = OptimizeExperiment::<Temp, MockService>::builder().max_iterations(0);
     }
 
     #[test]
     #[should_panic(expected = "no_improvement_window must be positive")]
     fn rejects_zero_no_improvement_window() {
-        let _ = OptimizeExperiment::builder().no_improvement_window(0);
+        let _ = OptimizeExperiment::<Temp, MockService>::builder().no_improvement_window(0);
+    }
+
+    #[test]
+    #[should_panic(expected = "inputs must not be empty")]
+    fn rejects_empty_inputs() {
+        let empty: Vec<String> = vec![];
+        let _ = OptimizeExperiment::<Temp, MockService>::builder().inputs(&empty);
     }
 
     // --- Builder precondition tests (missing-required at build) ---
 
     #[test]
-    #[should_panic(expected = "use_case must be set via .use_case(")]
+    #[should_panic(expected = "use_case_id must be set")]
     fn build_without_any_required_fields_panics() {
-        let _ = OptimizeExperiment::builder().build();
+        let _ = OptimizeExperiment::<Temp, MockService>::builder().build();
     }
 }

@@ -13,7 +13,7 @@ use feotest::verdict::Verdict;
 
 /// Returns a deterministic trial closure that reports a fixed latency on
 /// every call.
-fn fixed_latency_trial(latency: Duration) -> impl FnMut(&str) -> TrialOutcome {
+fn fixed_latency_trial(latency: Duration) -> impl Fn(&str) -> TrialOutcome {
     move |_input: &str| TrialOutcome::success(latency)
 }
 
@@ -125,11 +125,13 @@ fn build_baseline_and_run(
     let inputs = vec!["input".to_string()];
 
     // Establish baseline with low-latency samples.
+    let baseline_trial = fixed_latency_trial(baseline_latency);
     feotest::experiment::MeasureExperiment::builder()
-        .use_case(&uc)
+        .use_case_id(uc_id)
+        .use_case(|| ())
         .samples(150)
         .inputs(&inputs)
-        .trial(fixed_latency_trial(baseline_latency))
+        .trial(move |(): &(), input| baseline_trial(input))
         .baseline_dir(dir.path())
         .build()
         .run();
@@ -196,11 +198,13 @@ fn scenario_p99_with_small_baseline_is_infeasible() {
     let dir = tempfile::tempdir().unwrap();
     let inputs = vec!["input".to_string()];
 
+    let trial_fn = fixed_latency_trial(Duration::from_millis(10));
     feotest::experiment::MeasureExperiment::builder()
-        .use_case(&Uc)
+        .use_case_id("latency-scenario-11")
+        .use_case(|| ())
         .samples(30)
         .inputs(&inputs)
-        .trial(fixed_latency_trial(Duration::from_millis(10)))
+        .trial(move |(): &(), input| trial_fn(input))
         .baseline_dir(dir.path())
         .build()
         .run();
@@ -244,11 +248,13 @@ fn measure_round_trip_preserves_latency_block() {
     let dir = tempfile::tempdir().unwrap();
     let inputs = vec!["input".to_string()];
 
+    let trial_fn = fixed_latency_trial(Duration::from_millis(42));
     let m = feotest::experiment::MeasureExperiment::builder()
-        .use_case(&Uc)
+        .use_case_id("latency-scenario-9")
+        .use_case(|| ())
         .samples(50)
         .inputs(&inputs)
-        .trial(fixed_latency_trial(Duration::from_millis(42)))
+        .trial(move |(): &(), input| trial_fn(input))
         .baseline_dir(dir.path())
         .build()
         .run();

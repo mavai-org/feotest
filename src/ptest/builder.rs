@@ -539,13 +539,13 @@ mod tests {
                 "ssf-pass"
             }
         }
-        let uc = Uc;
         let inputs = vec!["input".to_string()];
         crate::experiment::MeasureExperiment::builder()
-            .use_case(&uc)
+            .use_case_id("ssf-pass")
+            .use_case(|| ())
             .samples(200)
             .inputs(&inputs)
-            .trial(always_succeeds)
+            .trial(|(): &(), input| always_succeeds(input))
             .baseline_dir(dir.path())
             .build()
             .run();

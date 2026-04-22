@@ -60,11 +60,13 @@ fn matching_covariates_resolves_cleanly() {
 
     // Establish baseline with model=gpt-4o
     MeasureExperiment::builder()
-        .use_case(&uc)
+        .use_case_id(uc.id().to_owned())
+        .use_case(|| ())
         .samples(200)
         .inputs(&inputs)
-        .trial(always_succeeds)
+        .trial(|(): &(), input| always_succeeds(input))
         .baseline_dir(dir.path())
+        .covariates(vec!["model".to_owned()], uc.resolve_covariates())
         .build()
         .run();
 
@@ -107,11 +109,13 @@ fn mismatched_covariates_produce_warnings() {
 
     // Establish baseline with model=gpt-4o
     MeasureExperiment::builder()
-        .use_case(&baseline_uc)
+        .use_case_id(baseline_uc.id().to_owned())
+        .use_case(|| ())
         .samples(200)
         .inputs(&inputs)
-        .trial(always_succeeds)
+        .trial(|(): &(), input| always_succeeds(input))
         .baseline_dir(dir.path())
+        .covariates(vec!["model".to_owned()], baseline_uc.resolve_covariates())
         .build()
         .run();
 
@@ -157,11 +161,13 @@ fn baseline_provenance_present_with_covariates() {
     let inputs = vec!["input".to_string()];
 
     MeasureExperiment::builder()
-        .use_case(&uc)
+        .use_case_id(uc.id().to_owned())
+        .use_case(|| ())
         .samples(200)
         .inputs(&inputs)
-        .trial(always_succeeds)
+        .trial(|(): &(), input| always_succeeds(input))
         .baseline_dir(dir.path())
+        .covariates(vec!["model".to_owned()], uc.resolve_covariates())
         .build()
         .run();
 
@@ -198,11 +204,13 @@ fn threshold_first_with_covariates_loads_baseline() {
     let inputs = vec!["input".to_string()];
 
     MeasureExperiment::builder()
-        .use_case(&uc)
+        .use_case_id(uc.id().to_owned())
+        .use_case(|| ())
         .samples(200)
         .inputs(&inputs)
-        .trial(always_succeeds)
+        .trial(|(): &(), input| always_succeeds(input))
         .baseline_dir(dir.path())
+        .covariates(vec!["model".to_owned()], uc.resolve_covariates())
         .build()
         .run();
 
@@ -237,11 +245,13 @@ fn console_renders_covariate_warnings() {
     let inputs = vec!["input".to_string()];
 
     MeasureExperiment::builder()
-        .use_case(&baseline_uc)
+        .use_case_id(baseline_uc.id().to_owned())
+        .use_case(|| ())
         .samples(200)
         .inputs(&inputs)
-        .trial(always_succeeds)
+        .trial(|(): &(), input| always_succeeds(input))
         .baseline_dir(dir.path())
+        .covariates(vec!["model".to_owned()], baseline_uc.resolve_covariates())
         .build()
         .run();
 

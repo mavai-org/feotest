@@ -143,42 +143,50 @@ than guesswork.
 ### Step 1: Explore (optional)
 
 Before committing to a configuration (model, temperature, prompt), run an
-**explore experiment** to compare candidates. Each configuration is a
-pre-built, immutable use case instance; the trial closure receives a
-reference to the current configuration and an input string.
+**explore experiment** to compare candidates. The experiment is defined
+by a list of **factors** — one per configuration — and a **factory**
+that constructs a use case instance from each factor. The framework
+walks the factors, builds the corresponding instance, and runs a fixed
+number of trials against it.
 
 ```rust
 use feotest::experiment::ExploreExperiment;
 use feotest::model::TrialOutcome;
-use feotest::usecase::UseCase;
 use std::fmt;
 
-struct ModelConfig { name: &'static str }
-impl UseCase for ModelConfig {
-    fn id(&self) -> &str { "my-service" }
-}
-impl fmt::Display for ModelConfig {
+// The factor: what varies between configurations. Its `Display` impl
+// supplies the configuration name used in reports and output filenames.
+#[derive(Clone)]
+struct ModelChoice { model: &'static str }
+impl fmt::Display for ModelChoice {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.name)
-    }
-}
-impl ModelConfig {
-    fn call(&self, _instruction: &str) -> TrialOutcome {
-        // invoke this configuration and return a TrialOutcome
-        # TrialOutcome::success(std::time::Duration::ZERO)
+        write!(f, "{}", self.model)
     }
 }
 
-let model_a = ModelConfig { name: "model-a" };
-let model_b = ModelConfig { name: "model-b" };
+// The use case: what the factory produces from each factor.
+struct MyService { model: &'static str }
+impl MyService {
+    fn new(model: &'static str) -> Self { Self { model } }
+    fn call(&self, _instruction: &str) -> TrialOutcome {
+        // invoke the service using `self.model` and return a TrialOutcome
+        TrialOutcome::success(std::time::Duration::ZERO)
+    }
+}
+
+let factors = vec![
+    ModelChoice { model: "model-a" },
+    ModelChoice { model: "model-b" },
+];
 let inputs = vec!["Add 2 apples".to_string(), "Remove the milk".to_string()];
 
 let result = ExploreExperiment::builder()
-    .config(&model_a)
-    .config(&model_b)
+    .use_case_id("my-service")
+    .factors(factors)
+    .use_case(|f: &ModelChoice| MyService::new(f.model))
     .samples_per_config(20)
     .inputs(&inputs)
-    .trial(|svc: &ModelConfig, input| svc.call(input))
+    .trial(|svc: &MyService, input| svc.call(input))
     .build()
     .run();
 
@@ -188,8 +196,13 @@ for config in result.configs() {
 }
 ```
 
-Explore experiments use small sample sizes (10–20 per configuration). They are
-not statistically rigorous — they are for rapid filtering.
+Because there is exactly one factory, every instance compared in the
+experiment is by construction a variant of the same use case —
+the "one use case, many configurations" principle is guaranteed
+structurally, not by convention.
+
+Explore experiments use small sample sizes (10–20 per configuration).
+They are not statistically rigorous — they are for rapid filtering.
 
 ### Step 2: Measure
 
@@ -198,22 +211,25 @@ a statistical baseline:
 
 ```rust
 use feotest::experiment::MeasureExperiment;
-use feotest::usecase::UseCase;
+use feotest::model::TrialOutcome;
 
+// The use case: what the factory produces.
 struct MyService;
-impl UseCase for MyService {
-    fn id(&self) -> &str { "my-service" }
+impl MyService {
+    fn invoke(&self, _instruction: &str) -> TrialOutcome {
+        // call the service and return a TrialOutcome
+        TrialOutcome::success(std::time::Duration::from_millis(10))
+    }
 }
 
-let service = MyService;
 let inputs = standard_instructions();
-let mut use_case = MyUseCase::new();
 
 let result = MeasureExperiment::builder()
-    .use_case(&service)
+    .use_case_id("my-service")
+    .use_case(|| MyService)
     .samples(1000)
     .inputs(&inputs)
-    .trial(|instruction| use_case.invoke(instruction))
+    .trial(|uc: &MyService, instruction| uc.invoke(instruction))
     .experiment_id("baseline-v1")
     .baseline_dir("specs")
     .build()
@@ -223,6 +239,12 @@ let spec = result.spec();
 println!("Observed rate:     {:.4}", spec.statistics.success_rate.observed);
 println!("Derived threshold: {:.4}", spec.requirements.min_pass_rate);
 ```
+
+The API mirrors `ExploreExperiment` and `OptimizeExperiment`:
+`.use_case_id(...)` names the thing being measured, `.use_case(...)`
+takes a factory that builds the instance, and `.trial(...)` receives
+`&T` plus the input. Measure's factory takes no arguments — there's no
+factor to vary, unlike explore and optimize.
 
 `baseline_dir` sets the output directory for the spec YAML; the default
 is `tests/baselines`. For more control (e.g., a pre-configured
@@ -442,9 +464,16 @@ See [Part 2](#step-1-explore-optional) for a full example.
 
 ### Optimize
 
-Iteratively refines a single control factor to maximise or minimise a scoring
-function. Requires a `Scorer` (evaluates each iteration) and a `FactorMutator`
-(produces the next factor value).
+Iteratively refines a single factor to maximise or minimise a scoring
+function. The API shape mirrors `ExploreExperiment`: a factor is a
+user-defined type, a `use_case(factory)` builds an instance from a
+factor, and the trial closure runs against the instance. The only
+structural difference is how factors are supplied — optimize takes a
+single `initial_factor` plus a `FactorMutator` that drives subsequent
+factors from history; explore takes them all upfront as `factors(vec)`.
+
+Requires a `Scorer` (evaluates each iteration) and a `FactorMutator<F>`
+(produces the next factor from the current one and the history).
 
 ```rust
 use feotest::experiment::{
@@ -452,7 +481,22 @@ use feotest::experiment::{
     OptimizeExperiment, Scorer,
 };
 use feotest::model::TrialOutcome;
-use feotest::usecase::{FactorValue, UseCase};
+use serde::Serialize;
+
+// The factor: what varies between iterations. `Serialize` lets it
+// round-trip into the optimization YAML artefact.
+#[derive(Clone, Serialize)]
+struct Temperature(f64);
+
+// The use case: what the factory produces from each factor.
+struct MyService { temperature: f64 }
+impl MyService {
+    fn new(temperature: f64) -> Self { Self { temperature } }
+    fn call(&self, _instruction: &str) -> TrialOutcome {
+        // invoke the service using `self.temperature` and return a TrialOutcome
+        TrialOutcome::success(std::time::Duration::ZERO)
+    }
+}
 
 struct SuccessRateScorer;
 impl Scorer for SuccessRateScorer {
@@ -462,44 +506,29 @@ impl Scorer for SuccessRateScorer {
 }
 
 struct StepMutator;
-impl FactorMutator for StepMutator {
-    fn mutate(&self, current: &FactorValue, _history: &[IterationRecord]) -> FactorValue {
-        if let FactorValue::Float(v) = current {
-            FactorValue::Float(v - 0.1)
-        } else {
-            current.clone()
-        }
+impl FactorMutator<Temperature> for StepMutator {
+    fn mutate(
+        &self,
+        current: &Temperature,
+        _history: &[IterationRecord<Temperature>],
+    ) -> Temperature {
+        Temperature(current.0 - 0.1)
     }
 }
 
-struct MyService;
-impl UseCase for MyService {
-    fn id(&self) -> &str { "my-service" }
-}
-
-let service = MyService;
 let inputs = vec!["instruction".to_string()];
-let mut current_temperature = 0.9_f64;
 
 let result = OptimizeExperiment::builder()
-    .use_case(&service)
-    .control_factor("temperature")
-    .initial_value(FactorValue::Float(0.9))
+    .use_case_id("my-service")
+    .initial_factor(Temperature(0.9))
+    .use_case(|f: &Temperature| MyService::new(f.0))
     .scorer(SuccessRateScorer)
     .mutator(StepMutator)
+    .samples_per_iteration(20)
     .inputs(&inputs)
-    .trial(|_instruction| {
-        // call the service under test and return a TrialOutcome
-        # TrialOutcome::success(std::time::Duration::ZERO)
-    })
-    .apply_factor(move |value| {
-        if let FactorValue::Float(v) = value {
-            current_temperature = *v;
-        }
-    })
+    .trial(|uc: &MyService, input| uc.call(input))
     .objective(Objective::Maximize)
     .max_iterations(20)
-    .samples_per_iteration(20)
     .no_improvement_window(5)
     .experiment_id("temp-tune-v1")
     .build()
@@ -509,6 +538,12 @@ if let (Some(iter), Some(score)) = (result.best_iteration(), result.best_score()
     println!("Best: iteration {} → score {:.4}", iter, score);
 }
 ```
+
+Factor types are yours to design. Anything with `Clone + Serialize`
+works: newtype wrappers around scalars, structs with multiple fields,
+enums over variants. The YAML output captures whatever shape the factor
+has — scalars render as scalars, strings as strings (block scalars when
+multi-line), structs as mappings.
 
 ---
 

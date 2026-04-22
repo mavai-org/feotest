@@ -76,10 +76,11 @@ fn render_with_sample_size_first_approach() {
 
     // Establish a baseline
     feotest::experiment::MeasureExperiment::builder()
-        .use_case(&uc)
+        .use_case_id("transparent-ssf")
+        .use_case(|| ())
         .samples(200)
         .inputs(&inputs)
-        .trial(always_succeeds)
+        .trial(|(): &(), input| always_succeeds(input))
         .baseline_dir(dir.path())
         .build()
         .run();

@@ -1,50 +1,26 @@
 //! Optimization YAML output: full iteration history plus convergence metadata.
 //!
 //! Optimize experiments produce a single YAML artefact per run that records
-//! each iteration's factor value, score, and sample statistics along with
+//! each iteration's factor, score, and sample statistics along with
 //! convergence details (best iteration, termination reason). The schema is
 //! normative and shared across javai frameworks — only the `schemaVersion`
 //! identifier differs between implementations.
+//!
+//! Factor values are serialised through [`serde_yaml::Value`], so any factor
+//! type that implements [`serde::Serialize`] round-trips naturally. Scalars
+//! emit as their natural YAML type; multi-line strings emit as block scalars;
+//! struct factors emit as YAML mappings.
 
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
 use crate::experiment::{IterationRecord, Objective, OptimizeResult};
-use crate::usecase::FactorValue;
 
 /// Canonical schema identifier for feotest optimization output.
 pub const OPTIMIZATION_SCHEMA_VERSION: &str = "feotest-spec-1";
 
 const DEFAULT_EXPERIMENT_ID: &str = "optimize";
-
-/// A serde-friendly wrapper for factor values in optimization YAML output.
-///
-/// Serializes as the natural YAML type without enum tags. Multi-line strings
-/// are emitted as YAML block scalars by the underlying serializer.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(untagged)]
-pub enum OptimizationFactorValue {
-    /// A string factor value.
-    String(String),
-    /// A floating-point factor value.
-    Float(f64),
-    /// An integer factor value.
-    Int(i64),
-    /// A boolean factor value.
-    Bool(bool),
-}
-
-impl From<&FactorValue> for OptimizationFactorValue {
-    fn from(value: &FactorValue) -> Self {
-        match value {
-            FactorValue::String(s) => Self::String(s.clone()),
-            FactorValue::Float(v) => Self::Float(*v),
-            FactorValue::Int(v) => Self::Int(*v),
-            FactorValue::Bool(v) => Self::Bool(*v),
-        }
-    }
-}
 
 /// One row of the `iterations` sequence in the optimization YAML.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -52,8 +28,9 @@ impl From<&FactorValue> for OptimizationFactorValue {
 pub struct IterationBlock {
     /// Zero-indexed iteration number.
     pub iteration: u32,
-    /// The control factor value used in this iteration.
-    pub factor_value: OptimizationFactorValue,
+    /// The factor used in this iteration, serialised as its natural
+    /// YAML representation.
+    pub factor_value: serde_yaml::Value,
     /// The score produced by the [`crate::experiment::Scorer`].
     pub score: f64,
     /// Successful trials in this iteration.
@@ -64,11 +41,22 @@ pub struct IterationBlock {
     pub samples_executed: u32,
 }
 
-impl From<&IterationRecord> for IterationBlock {
-    fn from(record: &IterationRecord) -> Self {
+impl IterationBlock {
+    /// Builds a block from a typed [`IterationRecord`].
+    ///
+    /// # Panics
+    ///
+    /// Panics if the factor cannot be serialised via
+    /// [`serde_yaml::to_value`]. This is a programmer error: every
+    /// valid `Serialize` impl produces a valid `serde_yaml::Value`
+    /// (strings, numbers, bools, sequences, and maps all round-trip).
+    #[must_use]
+    pub fn from_record<F: Serialize>(record: &IterationRecord<F>) -> Self {
+        let factor_value = serde_yaml::to_value(record.factor())
+            .expect("factor serialisation must not fail for a valid Serialize impl");
         Self {
             iteration: record.iteration(),
-            factor_value: OptimizationFactorValue::from(record.factor_value()),
+            factor_value,
             score: record.score(),
             successes: record.successes(),
             failures: record.failures(),
@@ -103,8 +91,6 @@ pub struct OptimizationSpec {
     pub use_case_id: String,
     /// The experiment identifier. Used as the YAML filename stem.
     pub experiment_id: String,
-    /// Name of the factor that was optimised.
-    pub control_factor: String,
     /// "MAXIMIZE" or "MINIMIZE".
     pub objective: String,
     /// Full iteration history in execution order.
@@ -116,12 +102,16 @@ pub struct OptimizationSpec {
 impl OptimizationSpec {
     /// Builds a spec from an [`OptimizeResult`].
     ///
-    /// When the result carries no experiment identifier, the stem defaults to
-    /// `"optimize"` so the artefact always has a stable filename.
+    /// When the result carries no experiment identifier, the stem
+    /// defaults to `"optimize"` so the artefact always has a stable
+    /// filename.
     #[must_use]
-    pub fn from_result(result: &OptimizeResult) -> Self {
-        let iterations: Vec<IterationBlock> =
-            result.history().iter().map(IterationBlock::from).collect();
+    pub fn from_result<F: Serialize>(result: &OptimizeResult<F>) -> Self {
+        let iterations: Vec<IterationBlock> = result
+            .history()
+            .iter()
+            .map(IterationBlock::from_record)
+            .collect();
         let total_iterations = u32::try_from(iterations.len()).unwrap_or(u32::MAX);
         let objective = match result.objective() {
             Objective::Maximize => "MAXIMIZE",
@@ -136,7 +126,6 @@ impl OptimizationSpec {
                 .experiment_id()
                 .unwrap_or(DEFAULT_EXPERIMENT_ID)
                 .to_owned(),
-            control_factor: result.control_factor().to_owned(),
             objective,
             iterations,
             convergence: ConvergenceBlock {
@@ -161,7 +150,8 @@ impl OptimizationSpec {
     ///
     /// # Errors
     ///
-    /// Returns an error if the input is malformed or missing required fields.
+    /// Returns an error if the input is malformed or missing required
+    /// fields.
     pub fn from_yaml(yaml: &str) -> Result<Self, serde_yaml::Error> {
         serde_yaml::from_str(yaml)
     }
@@ -169,10 +159,10 @@ impl OptimizationSpec {
 
 /// Default root directory for feotest optimization output.
 ///
-/// Places artefacts under `target/` so that running an optimisation does not
-/// pollute the source tree. Projects that want to commit optimisation
-/// histories as a historical record can pass a different root to
-/// [`OptimizeSpecWriter::new`].
+/// Places artefacts under `target/` so that running an optimisation
+/// does not pollute the source tree. Projects that want to commit
+/// optimisation histories as a historical record can pass a different
+/// root to [`OptimizeSpecWriter::new`].
 #[must_use]
 pub fn default_output_root() -> PathBuf {
     PathBuf::from("target")
@@ -182,8 +172,8 @@ pub fn default_output_root() -> PathBuf {
 
 /// Writes optimization YAML artefacts to disk.
 ///
-/// Files land at `{root}/{use_case_id}/{experiment_id}.yaml`, where `root`
-/// defaults to [`default_output_root`].
+/// Files land at `{root}/{use_case_id}/{experiment_id}.yaml`, where
+/// `root` defaults to [`default_output_root`].
 pub struct OptimizeSpecWriter {
     root: PathBuf,
 }
@@ -207,13 +197,17 @@ impl OptimizeSpecWriter {
         &self.root
     }
 
-    /// Writes a spec built from the given result. Returns the written path.
+    /// Writes a spec built from the given result. Returns the written
+    /// path.
     ///
     /// # Errors
     ///
     /// Returns an error if directory creation, YAML serialisation, or
     /// file writing fails.
-    pub fn write(&self, result: &OptimizeResult) -> Result<PathBuf, std::io::Error> {
+    pub fn write<F: Serialize>(
+        &self,
+        result: &OptimizeResult<F>,
+    ) -> Result<PathBuf, std::io::Error> {
         let spec = OptimizationSpec::from_result(result);
         self.write_spec(&spec)
     }
@@ -244,12 +238,11 @@ mod tests {
             schema_version: OPTIMIZATION_SCHEMA_VERSION.to_owned(),
             use_case_id: "shopping-basket".to_owned(),
             experiment_id: "prompt-tune-v1".to_owned(),
-            control_factor: "systemPrompt".to_owned(),
             objective: "MAXIMIZE".to_owned(),
             iterations: vec![
                 IterationBlock {
                     iteration: 0,
-                    factor_value: OptimizationFactorValue::String(
+                    factor_value: serde_yaml::Value::String(
                         "You are a helpful assistant.".to_owned(),
                     ),
                     score: 0.65,
@@ -259,7 +252,7 @@ mod tests {
                 },
                 IterationBlock {
                     iteration: 1,
-                    factor_value: OptimizationFactorValue::String(
+                    factor_value: serde_yaml::Value::String(
                         "You are a shopping assistant.".to_owned(),
                     ),
                     score: 0.8,
@@ -283,7 +276,6 @@ mod tests {
         assert!(yaml.contains("schemaVersion"));
         assert!(yaml.contains("useCaseId"));
         assert!(yaml.contains("experimentId"));
-        assert!(yaml.contains("controlFactor"));
         assert!(yaml.contains("factorValue"));
         assert!(yaml.contains("samplesExecuted"));
         assert!(yaml.contains("totalIterations"));
@@ -310,7 +302,7 @@ mod tests {
         let spec = OptimizationSpec {
             iterations: vec![IterationBlock {
                 iteration: 0,
-                factor_value: OptimizationFactorValue::String(
+                factor_value: serde_yaml::Value::String(
                     "You are a helpful assistant.\nAlways be polite.\nReturn JSON.".to_owned(),
                 ),
                 score: 1.0,
@@ -322,12 +314,10 @@ mod tests {
         };
 
         let yaml = spec.to_yaml().unwrap();
-        // Block scalar marker for literal style.
         assert!(
             yaml.contains("factorValue: |") || yaml.contains("factorValue: |-"),
             "expected block scalar for multi-line factor value; got:\n{yaml}"
         );
-        // Body must not be serialised as quoted escape sequences.
         assert!(
             !yaml.contains("\\n"),
             "multi-line factor should not contain \\n escapes:\n{yaml}"
@@ -335,12 +325,12 @@ mod tests {
     }
 
     #[test]
-    fn factor_values_serialise_as_natural_yaml_types() {
+    fn scalar_factor_values_serialise_as_natural_yaml_types() {
         let spec = OptimizationSpec {
             iterations: vec![
                 IterationBlock {
                     iteration: 0,
-                    factor_value: OptimizationFactorValue::Float(0.7),
+                    factor_value: serde_yaml::to_value(0.7f64).unwrap(),
                     score: 0.9,
                     successes: 9,
                     failures: 1,
@@ -348,7 +338,7 @@ mod tests {
                 },
                 IterationBlock {
                     iteration: 1,
-                    factor_value: OptimizationFactorValue::Int(4),
+                    factor_value: serde_yaml::to_value(4i64).unwrap(),
                     score: 0.8,
                     successes: 8,
                     failures: 2,
@@ -356,7 +346,7 @@ mod tests {
                 },
                 IterationBlock {
                     iteration: 2,
-                    factor_value: OptimizationFactorValue::Bool(true),
+                    factor_value: serde_yaml::to_value(true).unwrap(),
                     score: 0.95,
                     successes: 19,
                     failures: 1,
@@ -370,6 +360,38 @@ mod tests {
         assert!(yaml.contains("factorValue: 0.7"));
         assert!(yaml.contains("factorValue: 4"));
         assert!(yaml.contains("factorValue: true"));
+    }
+
+    #[test]
+    fn struct_factor_serialises_as_yaml_mapping() {
+        #[derive(Serialize)]
+        struct ModelAndTemp {
+            model: &'static str,
+            temperature: f64,
+        }
+
+        let spec = OptimizationSpec {
+            iterations: vec![IterationBlock {
+                iteration: 0,
+                factor_value: serde_yaml::to_value(ModelAndTemp {
+                    model: "gpt-4",
+                    temperature: 0.7,
+                })
+                .unwrap(),
+                score: 0.9,
+                successes: 9,
+                failures: 1,
+                samples_executed: 10,
+            }],
+            ..sample_spec()
+        };
+
+        let yaml = spec.to_yaml().unwrap();
+        assert!(
+            yaml.contains("model: gpt-4"),
+            "expected struct factor to emit as mapping; got:\n{yaml}"
+        );
+        assert!(yaml.contains("temperature: 0.7"));
     }
 
     #[test]

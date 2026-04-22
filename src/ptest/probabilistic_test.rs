@@ -952,13 +952,13 @@ mod tests {
     #[should_panic(expected = "CONFLICT")]
     fn panics_conflict_non_normative_origin() {
         let dir = tempfile::tempdir().unwrap();
-        let uc = NamedUseCase("coherence-conflict");
         let inputs = vec!["input".to_string()];
         crate::experiment::MeasureExperiment::builder()
-            .use_case(&uc)
+            .use_case_id("coherence-conflict")
+            .use_case(|| ())
             .samples(200)
             .inputs(&inputs)
-            .trial(always_succeeds)
+            .trial(|(): &(), input| always_succeeds(input))
             .baseline_dir(dir.path())
             .build()
             .run();
@@ -974,13 +974,13 @@ mod tests {
     #[test]
     fn accepts_normative_override_sla() {
         let dir = tempfile::tempdir().unwrap();
-        let uc = NamedUseCase("coherence-normative-sla");
         let inputs = vec!["input".to_string()];
         crate::experiment::MeasureExperiment::builder()
-            .use_case(&uc)
+            .use_case_id("coherence-normative-sla")
+            .use_case(|| ())
             .samples(200)
             .inputs(&inputs)
-            .trial(always_succeeds)
+            .trial(|(): &(), input| always_succeeds(input))
             .baseline_dir(dir.path())
             .build()
             .run();

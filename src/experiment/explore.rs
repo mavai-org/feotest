@@ -1,12 +1,18 @@
 //! Explore experiment: rapid configuration comparison.
 //!
-//! Each configuration is a pre-built, immutable use case instance.
-//! The framework runs the same trial function against each configuration
-//! independently, collecting results for side-by-side comparison.
+//! An explore experiment compares configurations of a single use case.
+//! Each configuration is described by a **factor** (typically a struct
+//! carrying the values that distinguish this configuration from the
+//! others). The framework walks a list of factors, calling a
+//! user-supplied factory to produce one use case instance per factor,
+//! and runs a fixed number of trials against each instance.
 //!
-//! This design enforces the immutable use case principle: the experimental
-//! condition is fixed during sampling, which is a direct expression of the
-//! i.i.d. assumption required for valid statistical inference.
+//! This design enforces the immutable use case principle: the
+//! experimental condition (the factor) is fixed during sampling, which
+//! is a direct expression of the i.i.d. assumption required for valid
+//! statistical inference. It also makes the "one use case, many
+//! configurations" constraint structural — there is one factory, so
+//! every instance is by construction a variant of the same use case.
 
 use std::collections::BTreeMap;
 use std::fmt;
@@ -22,8 +28,8 @@ use crate::spec::explore::{
     ExplorationSpec, ExplorationStatisticsBlock, ExploreSpecWriter, FactorYamlValue,
 };
 use crate::spec::projection::{SampleProjection, build_projection, format_projections};
-use crate::usecase::UseCase;
 
+type UseCaseFactory<'a, F, T> = Box<dyn Fn(&F) -> T + 'a>;
 type TrialClosure<'a, T> = Box<dyn Fn(&T, &str) -> TrialOutcome + 'a>;
 
 /// A single configuration's exploration results.
@@ -35,7 +41,7 @@ pub struct ConfigResult {
 }
 
 impl ConfigResult {
-    /// The configuration name.
+    /// The configuration name, derived from the factor's `Display` impl.
     #[must_use]
     pub fn name(&self) -> &str {
         &self.name
@@ -54,12 +60,8 @@ impl ConfigResult {
     }
 }
 
-/// An explore experiment that compares multiple configurations.
-///
-/// Each configuration is a pre-built, immutable use case instance. The
-/// trial closure is declared once and shared across all configurations;
-/// it receives a reference to the current configuration and an input
-/// string.
+/// An explore experiment that compares multiple configurations of a
+/// single use case.
 ///
 /// Construct via [`ExploreExperiment::builder`]; there is no public
 /// constructor.
@@ -69,68 +71,76 @@ impl ConfigResult {
 /// ```
 /// use feotest::experiment::ExploreExperiment;
 /// use feotest::model::TrialOutcome;
-/// use feotest::usecase::UseCase;
 /// use std::fmt;
 /// use std::time::Duration;
 ///
-/// struct MyService { factor: f64 }
-/// impl MyService {
-///     fn call(&self, _input: &str) -> TrialOutcome {
-///         if self.factor > 0.5 {
-///             TrialOutcome::success(Duration::from_millis(1))
-///         } else {
-///             TrialOutcome::success(Duration::from_millis(2))
-///         }
-///     }
+/// // The factor: the values that distinguish one configuration from
+/// // another. `Display` yields the configuration's name in reports.
+/// #[derive(Clone)]
+/// struct BasketFactors {
+///     model: &'static str,
+///     temperature: f64,
 /// }
-/// impl UseCase for MyService {
-///     fn id(&self) -> &str { "my-service" }
-/// }
-/// impl fmt::Display for MyService {
+/// impl fmt::Display for BasketFactors {
 ///     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-///         write!(f, "MyService (factor={})", self.factor)
+///         write!(f, "{}_t{}", self.model, self.temperature)
 ///     }
 /// }
 ///
-/// let svc_a = MyService { factor: 0.3 };
-/// let svc_b = MyService { factor: 0.8 };
+/// // The use case: what the factory produces.
+/// struct ShoppingBasket { model: &'static str, temperature: f64 }
+/// impl ShoppingBasket {
+///     fn new(model: &'static str, temperature: f64) -> Self {
+///         Self { model, temperature }
+///     }
+///     fn search(&self, _input: &str) -> TrialOutcome {
+///         TrialOutcome::success(Duration::from_millis(1))
+///     }
+/// }
+///
+/// let factors = vec![
+///     BasketFactors { model: "gpt-4",    temperature: 0.0 },
+///     BasketFactors { model: "gpt-4",    temperature: 0.7 },
+///     BasketFactors { model: "claude-3", temperature: 0.0 },
+/// ];
 /// let inputs = vec!["request".to_string()];
 ///
 /// let result = ExploreExperiment::builder()
-///     .config(&svc_a)
-///     .config(&svc_b)
+///     .use_case_id("shopping-basket")
+///     .factors(factors)
+///     .use_case(|f: &BasketFactors| ShoppingBasket::new(f.model, f.temperature))
 ///     .samples_per_config(10)
 ///     .inputs(&inputs)
-///     .trial(|svc: &MyService, input| svc.call(input))
+///     .trial(|uc: &ShoppingBasket, input| uc.search(input))
 ///     .build()
 ///     .run();
 ///
-/// assert_eq!(result.configs().len(), 2);
-/// assert_eq!(result.configs()[0].name(), "MyService (factor=0.3)");
+/// assert_eq!(result.configs().len(), 3);
+/// assert_eq!(result.configs()[0].name(), "gpt-4_t0");
 /// ```
-pub struct ExploreExperiment<'a, T> {
+pub struct ExploreExperiment<'a, F, T> {
     use_case_id: String,
+    factors: Vec<F>,
+    factory: UseCaseFactory<'a, F, T>,
     samples_per_config: u32,
     inputs: &'a [String],
     trial: TrialClosure<'a, T>,
-    configs: Vec<(String, &'a T)>,
     experiment_id: Option<String>,
     output_dir: Option<PathBuf>,
-    factor_values: BTreeMap<String, BTreeMap<String, FactorYamlValue>>,
 }
 
-impl<'a, T> ExploreExperiment<'a, T>
+impl<'a, F, T> ExploreExperiment<'a, F, T>
 where
-    T: fmt::Display + UseCase,
+    F: fmt::Display,
 {
     /// Starts a new builder for an explore experiment.
     ///
-    /// Required fields (`config` — at least once, `samples_per_config`,
-    /// `inputs`, `trial`) must be set via the corresponding setters
-    /// before [`build`](ExploreExperimentBuilder::build) is called.
-    /// Optional fields carry documented defaults.
+    /// Required fields (`use_case_id`, `factors`, `use_case`,
+    /// `samples_per_config`, `inputs`, `trial`) must be set via their
+    /// corresponding setters before
+    /// [`build`](ExploreExperimentBuilder::build) is called.
     #[must_use]
-    pub fn builder() -> ExploreExperimentBuilder<'a, T> {
+    pub fn builder() -> ExploreExperimentBuilder<'a, F, T> {
         ExploreExperimentBuilder::default()
     }
 
@@ -138,7 +148,10 @@ where
     pub fn run(self) -> ExploreResult {
         let mut results = Vec::new();
 
-        for (name, use_case) in &self.configs {
+        for factor in &self.factors {
+            let use_case = (self.factory)(factor);
+            let name = factor.to_string();
+
             let exec_config = ExecutionConfig::new(self.samples_per_config);
             let recorder = TokenRecorder::new();
 
@@ -146,7 +159,7 @@ where
             let mut sample_idx: u32 = 0;
 
             let mut trial_fn = |input: &str| {
-                let outcome = (self.trial)(use_case, input);
+                let outcome = (self.trial)(&use_case, input);
                 projections.push(build_projection(sample_idx, input, &outcome));
                 sample_idx += 1;
                 outcome
@@ -161,7 +174,7 @@ where
             );
 
             results.push(ConfigResult {
-                name: name.clone(),
+                name,
                 execution,
                 projections,
             });
@@ -176,7 +189,9 @@ where
 
         if let Some(ref dir) = self.output_dir {
             let writer = ExploreSpecWriter::new(dir);
-            if let Ok(paths) = writer.write_all(&result, &self.factor_values) {
+            let empty_factor_values: BTreeMap<String, BTreeMap<String, FactorYamlValue>> =
+                BTreeMap::new();
+            if let Ok(paths) = writer.write_all(&result, &empty_factor_values) {
                 result.spec_paths = Some(paths);
             }
         }
@@ -187,70 +202,85 @@ where
 
 /// Fluent builder for [`ExploreExperiment`].
 ///
-/// Required fields — at least one configuration (via [`config`] or
-/// [`config_named`]), `samples_per_config`, `inputs`, and `trial` —
-/// must be set before [`build`] is called. Missing any of them produces
-/// a panic naming the field and the setter to call.
+/// Required fields — `use_case_id`, `factors`, `use_case` (factory),
+/// `samples_per_config`, `inputs`, and `trial` — must be set before
+/// [`build`](Self::build) is called. Missing any of them produces a
+/// panic naming the field and the setter to call.
 ///
-/// Optional fields have documented defaults. Setters that validate a
-/// single value (e.g., positive sample count, non-empty inputs) panic
-/// at the setter rather than deferring to `build`.
-///
-/// [`config`]: Self::config
-/// [`config_named`]: Self::config_named
-/// [`build`]: Self::build
-pub struct ExploreExperimentBuilder<'a, T> {
+/// Setters that validate a single value (e.g. a non-empty factor list,
+/// positive sample count, non-empty inputs) panic at the setter rather
+/// than deferring to `build`.
+pub struct ExploreExperimentBuilder<'a, F, T> {
+    use_case_id: Option<String>,
+    factors: Vec<F>,
+    factory: Option<UseCaseFactory<'a, F, T>>,
     samples_per_config: Option<u32>,
     inputs: Option<&'a [String]>,
     trial: Option<TrialClosure<'a, T>>,
-    configs: Vec<(String, &'a T)>,
     experiment_id: Option<String>,
     output_dir: Option<PathBuf>,
-    factor_values: BTreeMap<String, BTreeMap<String, FactorYamlValue>>,
 }
 
-impl<T> Default for ExploreExperimentBuilder<'_, T> {
+impl<F, T> Default for ExploreExperimentBuilder<'_, F, T> {
     fn default() -> Self {
         Self {
+            use_case_id: None,
+            factors: Vec::new(),
+            factory: None,
             samples_per_config: None,
             inputs: None,
             trial: None,
-            configs: Vec::new(),
             experiment_id: None,
             output_dir: None,
-            factor_values: BTreeMap::new(),
         }
     }
 }
 
-impl<'a, T> ExploreExperimentBuilder<'a, T>
+impl<'a, F, T> ExploreExperimentBuilder<'a, F, T>
 where
-    T: fmt::Display + UseCase,
+    F: fmt::Display,
 {
     // --- required fields ---
 
-    /// Adds a configuration to the experiment.
+    /// Sets the use case identifier.
     ///
-    /// The label is derived from the configuration's `Display`
-    /// implementation, which should describe its distinguishing factors.
-    /// Use [`config_named`](Self::config_named) when you need an
-    /// explicit label.
-    ///
-    /// At least one call to `config` (or `config_named`) is required
-    /// before [`build`](Self::build).
+    /// This appears in the spec YAML and in the output directory layout.
+    /// All configurations in the experiment share this id — the point of
+    /// an explore experiment is to compare variants of one use case.
     #[must_use]
-    pub fn config(mut self, use_case: &'a T) -> Self {
-        self.configs.push((use_case.to_string(), use_case));
+    pub fn use_case_id(mut self, id: impl Into<String>) -> Self {
+        self.use_case_id = Some(id.into());
         self
     }
 
-    /// Adds a configuration with an explicit label.
+    /// Sets the list of factors to explore.
     ///
-    /// Use this when the `Display` output of the configuration is not a
-    /// suitable label for reports (for example, a shorter name).
+    /// Each factor is one configuration of the use case. The factory
+    /// set via [`use_case`](Self::use_case) is called once per factor
+    /// to produce the corresponding use case instance.
+    ///
+    /// The factor's `Display` implementation provides the configuration
+    /// name used in reports and output filenames.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `factors` is empty.
     #[must_use]
-    pub fn config_named(mut self, name: impl Into<String>, use_case: &'a T) -> Self {
-        self.configs.push((name.into(), use_case));
+    pub fn factors(mut self, factors: Vec<F>) -> Self {
+        assert!(!factors.is_empty(), "factors must not be empty");
+        self.factors = factors;
+        self
+    }
+
+    /// Sets the use case factory.
+    ///
+    /// Given a factor, the factory produces one use case instance. The
+    /// framework calls the factory once per factor, runs
+    /// `samples_per_config` trials against the resulting instance, then
+    /// drops it.
+    #[must_use]
+    pub fn use_case(mut self, factory: impl Fn(&F) -> T + 'a) -> Self {
+        self.factory = Some(Box::new(factory));
         self
     }
 
@@ -280,10 +310,10 @@ where
 
     /// Sets the trial closure.
     ///
-    /// The closure receives a reference to the current configuration and
-    /// an input string, and returns a [`TrialOutcome`]. It may borrow
-    /// data that outlives the builder (the `'a` lifetime); it is not
-    /// required to be `'static`.
+    /// The closure receives a reference to the current configuration's
+    /// use case instance and an input string, and returns a
+    /// [`TrialOutcome`]. It may borrow data that outlives the builder
+    /// (the `'a` lifetime); it is not required to be `'static`.
     #[must_use]
     pub fn trial(mut self, trial: impl Fn(&T, &str) -> TrialOutcome + 'a) -> Self {
         self.trial = Some(Box::new(trial));
@@ -302,7 +332,8 @@ where
     /// Configures YAML spec output for each explored configuration.
     ///
     /// When set, running the experiment writes per-configuration specs
-    /// to `{output_dir}/{use_case_id}/{config_name}.yaml`. Default: no
+    /// to `{output_dir}/{use_case_id}/{config_name}.yaml`, where
+    /// `config_name` is the factor's `Display` output. Default: no
     /// output files are written.
     #[must_use]
     pub fn output_dir(mut self, dir: impl Into<PathBuf>) -> Self {
@@ -310,45 +341,36 @@ where
         self
     }
 
-    /// Records factor values for a named configuration.
-    ///
-    /// These appear in the `executionContext` block of the exploration
-    /// YAML. Default: no factor values are recorded.
-    #[must_use]
-    pub fn factors(
-        mut self,
-        config_name: impl Into<String>,
-        values: BTreeMap<String, FactorYamlValue>,
-    ) -> Self {
-        self.factor_values.insert(config_name.into(), values);
-        self
-    }
-
     /// Builds the [`ExploreExperiment`].
     ///
     /// # Panics
     ///
-    /// Panics if any required field is missing: at least one
-    /// configuration, `samples_per_config`, `inputs`, or `trial`.
+    /// Panics if any required field is missing: `use_case_id`,
+    /// `factors`, `use_case` (factory), `samples_per_config`, `inputs`,
+    /// or `trial`.
     #[must_use]
-    pub fn build(self) -> ExploreExperiment<'a, T> {
-        assert!(
-            !self.configs.is_empty(),
-            "at least one configuration must be set via .config(...) or .config_named(...)"
-        );
-        let use_case_id = self.configs[0].1.id().to_owned();
-
+    pub fn build(self) -> ExploreExperiment<'a, F, T> {
         ExploreExperiment {
-            use_case_id,
+            use_case_id: self
+                .use_case_id
+                .expect("use_case_id must be set via .use_case_id(...)"),
+            factors: {
+                assert!(
+                    !self.factors.is_empty(),
+                    "factors must be set via .factors(...)"
+                );
+                self.factors
+            },
+            factory: self
+                .factory
+                .expect("use_case factory must be set via .use_case(...)"),
             samples_per_config: self
                 .samples_per_config
                 .expect("samples_per_config must be set via .samples_per_config(...)"),
             inputs: self.inputs.expect("inputs must be set via .inputs(...)"),
             trial: self.trial.expect("trial must be set via .trial(...)"),
-            configs: self.configs,
             experiment_id: self.experiment_id,
             output_dir: self.output_dir,
-            factor_values: self.factor_values,
         }
     }
 }
@@ -375,7 +397,7 @@ impl ExploreResult {
         self.experiment_id.as_deref()
     }
 
-    /// Results for each configuration explored.
+    /// Results for each configuration explored, in factor order.
     #[must_use]
     pub fn configs(&self) -> &[ConfigResult] {
         &self.configs
@@ -387,19 +409,11 @@ impl ExploreResult {
         self.spec_paths.as_deref()
     }
 
-    /// Renders all configuration results as YAML to stdout.
+    /// Renders all configuration results as YAML.
     ///
-    /// Each configuration produces a separate YAML document, delimited by
-    /// `---`. Includes per-sample result projections when the trial
+    /// Each configuration produces a separate YAML document, delimited
+    /// by `---`. Includes per-sample result projections when the trial
     /// function enriched the `TrialOutcome` with projection metadata.
-    ///
-    /// This is the primary output mechanism for explore experiments.
-    /// The developer pipes or redirects as needed:
-    ///
-    /// ```text
-    /// cargo test --test my_explore -- --nocapture > results.yaml
-    /// cargo test --test my_explore -- --nocapture | less
-    /// ```
     pub fn to_yaml(&self) -> String {
         let timestamp = now_iso8601();
         let mut out = String::new();
@@ -451,38 +465,39 @@ mod tests {
     use super::*;
     use std::time::Duration;
 
+    #[derive(Clone)]
+    struct RateFactor {
+        success_rate: f64,
+    }
+    impl fmt::Display for RateFactor {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            write!(f, "rate={}", self.success_rate)
+        }
+    }
+
     struct MockService {
         success_rate: f64,
     }
-
     impl MockService {
-        const fn new(success_rate: f64) -> Self {
-            Self { success_rate }
-        }
-    }
-
-    impl UseCase for MockService {
-        fn id(&self) -> &str {
-            "test-uc"
-        }
-    }
-
-    impl fmt::Display for MockService {
-        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-            write!(f, "MockService (rate={})", self.success_rate)
+        const fn from_factor(factor: &RateFactor) -> Self {
+            Self {
+                success_rate: factor.success_rate,
+            }
         }
     }
 
     #[test]
     fn explores_multiple_configurations() {
         let inputs = vec!["input".to_string()];
-
-        let svc_a = MockService::new(1.0);
-        let svc_b = MockService::new(0.8);
+        let factors = vec![
+            RateFactor { success_rate: 1.0 },
+            RateFactor { success_rate: 0.8 },
+        ];
 
         let result = ExploreExperiment::builder()
-            .config(&svc_a)
-            .config(&svc_b)
+            .use_case_id("test-uc")
+            .factors(factors)
+            .use_case(MockService::from_factor)
             .samples_per_config(5)
             .inputs(&inputs)
             .trial(|_svc: &MockService, _input| TrialOutcome::success(Duration::ZERO))
@@ -490,49 +505,19 @@ mod tests {
             .run();
 
         assert_eq!(result.configs().len(), 2);
-        assert_eq!(result.configs()[0].name(), "MockService (rate=1)");
-        assert_eq!(result.configs()[1].name(), "MockService (rate=0.8)");
-    }
-
-    #[test]
-    fn default_label_uses_display() {
-        let inputs = vec!["input".to_string()];
-        let svc = MockService::new(1.0);
-
-        let result = ExploreExperiment::builder()
-            .config(&svc)
-            .samples_per_config(5)
-            .inputs(&inputs)
-            .trial(|_svc: &MockService, _input| TrialOutcome::success(Duration::ZERO))
-            .build()
-            .run();
-
-        assert_eq!(result.configs()[0].name(), "MockService (rate=1)");
-    }
-
-    #[test]
-    fn config_named_overrides_label() {
-        let inputs = vec!["input".to_string()];
-        let svc = MockService::new(1.0);
-
-        let result = ExploreExperiment::builder()
-            .config_named("short-name", &svc)
-            .samples_per_config(5)
-            .inputs(&inputs)
-            .trial(|_svc: &MockService, _input| TrialOutcome::success(Duration::ZERO))
-            .build()
-            .run();
-
-        assert_eq!(result.configs()[0].name(), "short-name");
+        assert_eq!(result.configs()[0].name(), "rate=1");
+        assert_eq!(result.configs()[1].name(), "rate=0.8");
     }
 
     #[test]
     fn each_config_gets_correct_sample_count() {
         let inputs = vec!["input".to_string()];
-        let svc = MockService::new(1.0);
+        let factors = vec![RateFactor { success_rate: 1.0 }];
 
         let result = ExploreExperiment::builder()
-            .config(&svc)
+            .use_case_id("test-uc")
+            .factors(factors)
+            .use_case(MockService::from_factor)
             .samples_per_config(10)
             .inputs(&inputs)
             .trial(|_svc: &MockService, _input| TrialOutcome::success(Duration::ZERO))
@@ -546,15 +531,17 @@ mod tests {
     }
 
     #[test]
-    fn trial_receives_correct_use_case() {
+    fn factory_receives_current_factor() {
         let inputs = vec!["input".to_string()];
-
-        let svc_good = MockService::new(1.0);
-        let svc_bad = MockService::new(0.0);
+        let factors = vec![
+            RateFactor { success_rate: 1.0 },
+            RateFactor { success_rate: 0.0 },
+        ];
 
         let result = ExploreExperiment::builder()
-            .config(&svc_good)
-            .config(&svc_bad)
+            .use_case_id("test-uc")
+            .factors(factors)
+            .use_case(MockService::from_factor)
             .samples_per_config(5)
             .inputs(&inputs)
             .trial(|svc: &MockService, _input| {
@@ -570,44 +557,37 @@ mod tests {
             .build()
             .run();
 
-        let good_result = &result.configs()[0];
-        let bad_result = &result.configs()[1];
-
-        assert_eq!(good_result.execution().summary().successes(), 5);
-        assert_eq!(bad_result.execution().summary().failures(), 5);
+        assert_eq!(result.configs()[0].execution().summary().successes(), 5);
+        assert_eq!(result.configs()[1].execution().summary().failures(), 5);
     }
 
     // --- Builder precondition tests (setter-level validation) ---
 
     #[test]
+    #[should_panic(expected = "factors must not be empty")]
+    fn rejects_empty_factors() {
+        let empty: Vec<RateFactor> = vec![];
+        let _ = ExploreExperiment::<RateFactor, MockService>::builder().factors(empty);
+    }
+
+    #[test]
     #[should_panic(expected = "samples_per_config must be positive")]
     fn rejects_zero_samples_per_config() {
-        let _ = ExploreExperiment::builder()
-            .config(&MockService::new(1.0))
-            .samples_per_config(0);
+        let _ = ExploreExperiment::<RateFactor, MockService>::builder().samples_per_config(0);
     }
 
     #[test]
     #[should_panic(expected = "inputs must not be empty")]
     fn rejects_empty_inputs() {
         let empty: Vec<String> = vec![];
-        let _ = ExploreExperiment::builder()
-            .config(&MockService::new(1.0))
-            .inputs(&empty);
+        let _ = ExploreExperiment::<RateFactor, MockService>::builder().inputs(&empty);
     }
 
     // --- Builder precondition tests (missing-required at build) ---
 
     #[test]
-    #[should_panic(expected = "at least one configuration must be set")]
-    fn build_without_any_configs_panics() {
-        let _ = ExploreExperiment::<MockService>::builder().build();
-    }
-
-    #[test]
-    #[should_panic(expected = "samples_per_config must be set")]
-    fn build_without_samples_panics() {
-        let svc = MockService::new(1.0);
-        let _ = ExploreExperiment::builder().config(&svc).build();
+    #[should_panic(expected = "use_case_id must be set")]
+    fn build_without_any_required_fields_panics() {
+        let _ = ExploreExperiment::<RateFactor, MockService>::builder().build();
     }
 }

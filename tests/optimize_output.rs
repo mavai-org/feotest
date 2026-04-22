@@ -3,11 +3,36 @@
 use std::time::Duration;
 
 use feotest::experiment::{
-    ExecutionResult, FactorMutator, Objective, OptimizeExperiment, Scorer, TerminationReason,
+    ExecutionResult, FactorMutator, IterationRecord, Objective, OptimizeExperiment, Scorer,
+    TerminationReason,
 };
 use feotest::model::TrialOutcome;
 use feotest::spec::optimization::OptimizationSpec;
-use feotest::usecase::{FactorValue, UseCase};
+use serde::Serialize;
+
+// ---------------------------------------------------------------------------
+// Factor and use case types shared by most tests
+// ---------------------------------------------------------------------------
+
+#[derive(Clone, Serialize)]
+struct Temp(f64);
+
+#[derive(Clone, Serialize)]
+struct Prompt(String);
+
+struct Service;
+
+fn build_service_from_temp(_t: &Temp) -> Service {
+    Service
+}
+
+fn build_service_from_prompt(_p: &Prompt) -> Service {
+    Service
+}
+
+fn always_succeed(_uc: &Service, _input: &str) -> TrialOutcome {
+    TrialOutcome::success(Duration::ZERO)
+}
 
 struct PassRateScorer;
 impl Scorer for PassRateScorer {
@@ -17,57 +42,41 @@ impl Scorer for PassRateScorer {
 }
 
 struct FloatIncrementMutator(f64);
-impl FactorMutator for FloatIncrementMutator {
-    fn mutate(
-        &self,
-        current: &FactorValue,
-        _history: &[feotest::experiment::IterationRecord],
-    ) -> FactorValue {
-        match current {
-            FactorValue::Float(v) => FactorValue::Float(v + self.0),
-            other => other.clone(),
-        }
+impl FactorMutator<Temp> for FloatIncrementMutator {
+    fn mutate(&self, current: &Temp, _history: &[IterationRecord<Temp>]) -> Temp {
+        Temp(current.0 + self.0)
     }
 }
 
 struct PromptMutator {
     variants: Vec<String>,
 }
-impl FactorMutator for PromptMutator {
-    fn mutate(
-        &self,
-        _current: &FactorValue,
-        history: &[feotest::experiment::IterationRecord],
-    ) -> FactorValue {
+impl FactorMutator<Prompt> for PromptMutator {
+    fn mutate(&self, _current: &Prompt, history: &[IterationRecord<Prompt>]) -> Prompt {
         let idx = history.len().min(self.variants.len() - 1);
-        FactorValue::String(self.variants[idx].clone())
+        Prompt(self.variants[idx].clone())
     }
 }
 
-struct SimpleUseCase(&'static str);
-impl UseCase for SimpleUseCase {
-    fn id(&self) -> &str {
-        self.0
-    }
-}
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
 
 #[test]
 fn writes_yaml_to_use_case_scoped_path() {
     let dir = tempfile::tempdir().unwrap();
     let inputs = vec!["input".to_string()];
-    let uc = SimpleUseCase("shopping-basket");
 
     let result = OptimizeExperiment::builder()
-        .use_case(&uc)
-        .control_factor("temperature")
-        .initial_value(FactorValue::Float(0.1))
+        .use_case_id("shopping-basket")
+        .initial_factor(Temp(0.1))
+        .use_case(build_service_from_temp)
         .scorer(PassRateScorer)
         .mutator(FloatIncrementMutator(0.1))
-        .inputs(&inputs)
-        .trial(|_input| TrialOutcome::success(Duration::ZERO))
-        .apply_factor(|_value| {})
-        .max_iterations(3)
         .samples_per_iteration(5)
+        .inputs(&inputs)
+        .trial(always_succeed)
+        .max_iterations(3)
         .no_improvement_window(10)
         .experiment_id("temp-tune-v1")
         .build()
@@ -86,7 +95,6 @@ fn writes_yaml_to_use_case_scoped_path() {
     assert_eq!(spec.schema_version, "feotest-spec-1");
     assert_eq!(spec.use_case_id, "shopping-basket");
     assert_eq!(spec.experiment_id, "temp-tune-v1");
-    assert_eq!(spec.control_factor, "temperature");
     assert_eq!(spec.objective, "MAXIMIZE");
     assert_eq!(spec.iterations.len(), 3);
     assert_eq!(spec.convergence.total_iterations, 3);
@@ -97,7 +105,6 @@ fn writes_yaml_to_use_case_scoped_path() {
 fn multi_line_factor_value_uses_block_scalar() {
     let dir = tempfile::tempdir().unwrap();
     let inputs = vec!["input".to_string()];
-    let uc = SimpleUseCase("prompt-tune");
 
     let prompts = vec![
         "You are a helpful assistant.\nAlways be polite.".to_string(),
@@ -105,16 +112,15 @@ fn multi_line_factor_value_uses_block_scalar() {
     ];
 
     let result = OptimizeExperiment::builder()
-        .use_case(&uc)
-        .control_factor("systemPrompt")
-        .initial_value(FactorValue::String(prompts[0].clone()))
+        .use_case_id("prompt-tune")
+        .initial_factor(Prompt(prompts[0].clone()))
+        .use_case(build_service_from_prompt)
         .scorer(PassRateScorer)
         .mutator(PromptMutator { variants: prompts })
-        .inputs(&inputs)
-        .trial(|_input| TrialOutcome::success(Duration::ZERO))
-        .apply_factor(|_value| {})
-        .max_iterations(2)
         .samples_per_iteration(3)
+        .inputs(&inputs)
+        .trial(always_succeed)
+        .max_iterations(2)
         .no_improvement_window(10)
         .experiment_id("prompt-v1")
         .build()
@@ -133,7 +139,6 @@ fn multi_line_factor_value_uses_block_scalar() {
         "factor value should not be escaped:\n{yaml}"
     );
 
-    // Deserialisation preserves the full multi-line content.
     let spec = OptimizationSpec::from_yaml(&yaml).unwrap();
     assert_eq!(spec.iterations.len(), 2);
 }
@@ -142,20 +147,18 @@ fn multi_line_factor_value_uses_block_scalar() {
 fn minimize_objective_is_recorded() {
     let dir = tempfile::tempdir().unwrap();
     let inputs = vec!["input".to_string()];
-    let uc = SimpleUseCase("cost-min");
 
     let result = OptimizeExperiment::builder()
-        .use_case(&uc)
-        .control_factor("latencyMs")
-        .initial_value(FactorValue::Float(100.0))
+        .use_case_id("cost-min")
+        .initial_factor(Temp(100.0))
+        .use_case(build_service_from_temp)
         .scorer(PassRateScorer)
         .mutator(FloatIncrementMutator(-10.0))
+        .samples_per_iteration(3)
         .inputs(&inputs)
-        .trial(|_input| TrialOutcome::success(Duration::ZERO))
-        .apply_factor(|_value| {})
+        .trial(always_succeed)
         .objective(Objective::Minimize)
         .max_iterations(2)
-        .samples_per_iteration(3)
         .no_improvement_window(10)
         .experiment_id("cost-tune")
         .build()
@@ -171,21 +174,19 @@ fn minimize_objective_is_recorded() {
 fn plateau_termination_recorded_as_no_improvement() {
     let dir = tempfile::tempdir().unwrap();
     let inputs = vec!["input".to_string()];
-    let uc = SimpleUseCase("plateau-case");
 
     // All iterations score 1.0, so after the first + no_improvement_window=2
     // the run terminates on plateau.
     let result = OptimizeExperiment::builder()
-        .use_case(&uc)
-        .control_factor("factor")
-        .initial_value(FactorValue::Float(1.0))
+        .use_case_id("plateau-case")
+        .initial_factor(Temp(1.0))
+        .use_case(build_service_from_temp)
         .scorer(PassRateScorer)
         .mutator(FloatIncrementMutator(0.1))
-        .inputs(&inputs)
-        .trial(|_input| TrialOutcome::success(Duration::ZERO))
-        .apply_factor(|_value| {})
-        .max_iterations(20)
         .samples_per_iteration(3)
+        .inputs(&inputs)
+        .trial(always_succeed)
+        .max_iterations(20)
         .no_improvement_window(2)
         .experiment_id("plateau-exp")
         .build()
@@ -207,21 +208,19 @@ fn plateau_termination_recorded_as_no_improvement() {
 fn max_iterations_termination_recorded() {
     let dir = tempfile::tempdir().unwrap();
     let inputs = vec!["input".to_string()];
-    let uc = SimpleUseCase("max-iter");
 
     // no_improvement_window exceeds max_iterations, so the run always exits
     // via the iteration cap rather than on plateau.
     let result = OptimizeExperiment::builder()
-        .use_case(&uc)
-        .control_factor("factor")
-        .initial_value(FactorValue::Float(1.0))
+        .use_case_id("max-iter")
+        .initial_factor(Temp(1.0))
+        .use_case(build_service_from_temp)
         .scorer(PassRateScorer)
         .mutator(FloatIncrementMutator(0.1))
-        .inputs(&inputs)
-        .trial(|_input| TrialOutcome::success(Duration::ZERO))
-        .apply_factor(|_value| {})
-        .max_iterations(3)
         .samples_per_iteration(3)
+        .inputs(&inputs)
+        .trial(always_succeed)
+        .max_iterations(3)
         .no_improvement_window(100)
         .experiment_id("cap-exp")
         .build()
@@ -243,19 +242,17 @@ fn max_iterations_termination_recorded() {
 fn iterations_record_samples_executed() {
     let dir = tempfile::tempdir().unwrap();
     let inputs = vec!["input".to_string()];
-    let uc = SimpleUseCase("samples-test");
 
     let result = OptimizeExperiment::builder()
-        .use_case(&uc)
-        .control_factor("factor")
-        .initial_value(FactorValue::Float(1.0))
+        .use_case_id("samples-test")
+        .initial_factor(Temp(1.0))
+        .use_case(build_service_from_temp)
         .scorer(PassRateScorer)
         .mutator(FloatIncrementMutator(0.1))
-        .inputs(&inputs)
-        .trial(|_input| TrialOutcome::success(Duration::ZERO))
-        .apply_factor(|_value| {})
-        .max_iterations(1)
         .samples_per_iteration(7)
+        .inputs(&inputs)
+        .trial(always_succeed)
+        .max_iterations(1)
         .experiment_id("samples-exp")
         .build()
         .run();
@@ -271,19 +268,17 @@ fn iterations_record_samples_executed() {
 #[test]
 fn result_to_yaml_without_writing_to_disk() {
     let inputs = vec!["input".to_string()];
-    let uc = SimpleUseCase("yaml-only");
 
     let result = OptimizeExperiment::builder()
-        .use_case(&uc)
-        .control_factor("factor")
-        .initial_value(FactorValue::Float(0.5))
+        .use_case_id("yaml-only")
+        .initial_factor(Temp(0.5))
+        .use_case(build_service_from_temp)
         .scorer(PassRateScorer)
         .mutator(FloatIncrementMutator(0.1))
-        .inputs(&inputs)
-        .trial(|_input| TrialOutcome::success(Duration::ZERO))
-        .apply_factor(|_value| {})
-        .max_iterations(2)
         .samples_per_iteration(3)
+        .inputs(&inputs)
+        .trial(always_succeed)
+        .max_iterations(2)
         .experiment_id("in-memory")
         .build()
         .run();
@@ -291,4 +286,57 @@ fn result_to_yaml_without_writing_to_disk() {
     let yaml = result.to_yaml().unwrap();
     assert!(yaml.contains("schemaVersion: feotest-spec-1"));
     assert!(yaml.contains("useCaseId: yaml-only"));
+}
+
+#[test]
+fn struct_factor_emits_as_yaml_mapping() {
+    // Demonstrates that multi-field struct factors serialise cleanly.
+    #[derive(Clone, Serialize)]
+    struct ModelAndTemp {
+        model: &'static str,
+        temperature: f64,
+    }
+
+    struct ModelTempMutator;
+    impl FactorMutator<ModelAndTemp> for ModelTempMutator {
+        fn mutate(
+            &self,
+            current: &ModelAndTemp,
+            _history: &[IterationRecord<ModelAndTemp>],
+        ) -> ModelAndTemp {
+            ModelAndTemp {
+                model: current.model,
+                temperature: current.temperature + 0.1,
+            }
+        }
+    }
+
+    let dir = tempfile::tempdir().unwrap();
+    let inputs = vec!["input".to_string()];
+
+    let result = OptimizeExperiment::builder()
+        .use_case_id("struct-factor")
+        .initial_factor(ModelAndTemp {
+            model: "gpt-4",
+            temperature: 0.3,
+        })
+        .use_case(|_f: &ModelAndTemp| Service)
+        .scorer(PassRateScorer)
+        .mutator(ModelTempMutator)
+        .samples_per_iteration(3)
+        .inputs(&inputs)
+        .trial(always_succeed)
+        .max_iterations(2)
+        .experiment_id("struct-v1")
+        .build()
+        .run();
+
+    let path = result.write_to(dir.path()).unwrap();
+    let yaml = std::fs::read_to_string(&path).unwrap();
+
+    assert!(
+        yaml.contains("model: gpt-4"),
+        "struct factor should serialise as a YAML mapping; got:\n{yaml}"
+    );
+    assert!(yaml.contains("temperature:"));
 }

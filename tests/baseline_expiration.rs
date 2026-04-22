@@ -26,14 +26,14 @@ const fn always_succeed(_input: &str) -> TrialOutcome {
 #[test]
 fn measure_writes_expiration_block_that_round_trips_through_resolver() {
     let dir = tempfile::tempdir().unwrap();
-    let uc = TestUc("expiry-uc");
     let inputs = vec!["input".to_string()];
 
     let measure_result = MeasureExperiment::builder()
-        .use_case(&uc)
+        .use_case_id("expiry-uc")
+        .use_case(|| ())
         .samples(30)
         .inputs(&inputs)
-        .trial(always_succeed)
+        .trial(|(): &(), input| always_succeed(input))
         .baseline_dir(dir.path())
         .expires_in_days(1)
         .build()
@@ -56,14 +56,14 @@ fn measure_writes_expiration_block_that_round_trips_through_resolver() {
 #[test]
 fn evaluate_at_future_time_crosses_expiry_boundary() {
     let dir = tempfile::tempdir().unwrap();
-    let uc = TestUc("boundary-uc");
     let inputs = vec!["input".to_string()];
 
     MeasureExperiment::builder()
-        .use_case(&uc)
+        .use_case_id("boundary-uc")
+        .use_case(|| ())
         .samples(30)
         .inputs(&inputs)
-        .trial(always_succeed)
+        .trial(|(): &(), input| always_succeed(input))
         .baseline_dir(dir.path())
         .expires_in_days(1)
         .build()
@@ -97,7 +97,6 @@ fn evaluate_at_future_time_crosses_expiry_boundary() {
 #[test]
 fn ptest_with_expired_baseline_warns_by_default_and_still_passes() {
     let dir = tempfile::tempdir().unwrap();
-    let uc = TestUc("warn-only");
     let inputs = vec!["input".to_string()];
 
     // Measure with a 1-day window, then hand-edit the baseline to claim it
@@ -105,10 +104,11 @@ fn ptest_with_expired_baseline_warns_by_default_and_still_passes() {
     // fingerprint covers the expiration block, we must recompute the spec
     // end-to-end rather than patching the YAML directly.
     MeasureExperiment::builder()
-        .use_case(&uc)
+        .use_case_id("warn-only")
+        .use_case(|| ())
         .samples(30)
         .inputs(&inputs)
-        .trial(always_succeed)
+        .trial(|(): &(), input| always_succeed(input))
         .baseline_dir(dir.path())
         .expires_in_days(1)
         .build()
@@ -160,10 +160,11 @@ fn ptest_with_fail_on_expired_produces_fail_verdict() {
 
     let end = "2020-01-01T00:00:00Z".to_string();
     let mut spec = MeasureExperiment::builder()
-        .use_case(&TestUc("strict"))
+        .use_case_id("strict")
+        .use_case(|| ())
         .samples(30)
         .inputs(&inputs)
-        .trial(always_succeed)
+        .trial(|(): &(), input| always_succeed(input))
         .build()
         .run();
     let mut spec_with_expiry = spec.spec().clone();
@@ -198,15 +199,15 @@ fn ptest_with_fail_on_expired_produces_fail_verdict() {
 #[test]
 fn ptest_with_no_expiration_block_attaches_no_info() {
     let dir = tempfile::tempdir().unwrap();
-    let uc = TestUc("no-block");
     let inputs = vec!["input".to_string()];
 
     // No expires_in_days: the block is omitted.
     MeasureExperiment::builder()
-        .use_case(&uc)
+        .use_case_id("no-block")
+        .use_case(|| ())
         .samples(30)
         .inputs(&inputs)
-        .trial(always_succeed)
+        .trial(|(): &(), input| always_succeed(input))
         .baseline_dir(dir.path())
         .build()
         .run();
@@ -231,14 +232,14 @@ fn ptest_with_no_expiration_block_attaches_no_info() {
 #[test]
 fn evaluate_at_now_matches_evaluate() {
     let dir = tempfile::tempdir().unwrap();
-    let uc = TestUc("matches-now");
     let inputs = vec!["input".to_string()];
 
     MeasureExperiment::builder()
-        .use_case(&uc)
+        .use_case_id("matches-now")
+        .use_case(|| ())
         .samples(30)
         .inputs(&inputs)
-        .trial(always_succeed)
+        .trial(|(): &(), input| always_succeed(input))
         .baseline_dir(dir.path())
         .expires_in_days(30)
         .build()

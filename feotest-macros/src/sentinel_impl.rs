@@ -448,37 +448,27 @@ fn emit_experiment(
                 .expect("sentinel invoker: spec type mismatch");
             let inputs: ::std::vec::Vec<::std::string::String> =
                 ::std::vec!["default".to_string()];
-            let trial = |_input: &str| -> ::feotest::model::TrialOutcome {
-                let start = ::std::time::Instant::now();
-                let success = spec.#method_name();
-                if success {
-                    ::feotest::model::TrialOutcome::success(start.elapsed())
-                } else {
-                    ::feotest::model::TrialOutcome::failure(
-                        ::feotest::model::ContractViolation::new(
-                            "sentinel_measure_experiment",
-                            "trial method returned false",
-                        ),
-                        start.elapsed(),
-                    )
-                }
-            };
-            struct SentinelUseCase {
-                id: ::std::string::String,
-            }
-            impl ::feotest::usecase::UseCase for SentinelUseCase {
-                fn id(&self) -> &str {
-                    &self.id
-                }
-            }
-            let use_case = SentinelUseCase {
-                id: ::std::format!("{}.{}", spec.name(), #target_use_case),
-            };
+            let use_case_id = ::std::format!("{}.{}", spec.name(), #target_use_case);
             ::feotest::experiment::MeasureExperiment::builder()
-                .use_case(&use_case)
+                .use_case_id(use_case_id)
+                .use_case(|| ())
                 .samples(#samples)
                 .inputs(&inputs)
-                .trial(trial)
+                .trial(|(): &(), _input: &str| -> ::feotest::model::TrialOutcome {
+                    let start = ::std::time::Instant::now();
+                    let success = spec.#method_name();
+                    if success {
+                        ::feotest::model::TrialOutcome::success(start.elapsed())
+                    } else {
+                        ::feotest::model::TrialOutcome::failure(
+                            ::feotest::model::ContractViolation::new(
+                                "sentinel_measure_experiment",
+                                "trial method returned false",
+                            ),
+                            start.elapsed(),
+                        )
+                    }
+                })
                 .build()
                 .run()
                 .spec()

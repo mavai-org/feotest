@@ -66,10 +66,11 @@ fn sample_size_first_terminates_on_failure_inevitable() {
     let baseline_uc = TestUc("ssf-fail-inev");
     let inputs = vec!["input".to_string()];
     MeasureExperiment::builder()
-        .use_case(&baseline_uc)
+        .use_case_id("ssf-fail-inev")
+        .use_case(|| ())
         .samples(200)
         .inputs(&inputs)
-        .trial(always_succeed)
+        .trial(|(): &(), input| always_succeed(input))
         .baseline_dir(dir.path())
         .build()
         .run();
@@ -163,10 +164,11 @@ fn measure_experiment_runs_all_samples_regardless_of_failures() {
     let uc = TestUc("measure-non-reg");
     let inputs = vec!["input".to_string()];
     let result = MeasureExperiment::builder()
-        .use_case(&uc)
+        .use_case_id("measure-non-reg")
+        .use_case(|| ())
         .samples(30)
         .inputs(&inputs)
-        .trial(always_fail)
+        .trial(|(): &(), input| always_fail(input))
         .build()
         .run();
     assert_eq!(result.execution().summary().samples_executed(), 30);

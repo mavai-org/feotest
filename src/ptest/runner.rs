@@ -740,13 +740,13 @@ mod tests {
                 "spec-test"
             }
         }
-        let uc = SpecTestUc;
         let inputs = vec!["input".to_string()];
         let measure_result = crate::experiment::MeasureExperiment::builder()
-            .use_case(&uc)
+            .use_case_id("spec-test")
+            .use_case(|| ())
             .samples(200)
             .inputs(&inputs)
-            .trial(always_succeeds)
+            .trial(|(): &(), input| always_succeeds(input))
             .baseline_dir(dir.path())
             .build()
             .run();
@@ -778,13 +778,13 @@ mod tests {
                 "conf-test"
             }
         }
-        let uc = ConfTestUc;
         let inputs = vec!["input".to_string()];
         crate::experiment::MeasureExperiment::builder()
-            .use_case(&uc)
+            .use_case_id("conf-test")
+            .use_case(|| ())
             .samples(200)
             .inputs(&inputs)
-            .trial(always_succeeds)
+            .trial(|(): &(), input| always_succeeds(input))
             .baseline_dir(dir.path())
             .build()
             .run();
@@ -841,10 +841,11 @@ mod tests {
         let profile = CovariateProfile::builder().put("model", "gpt-4o").build();
 
         crate::experiment::MeasureExperiment::builder()
-            .use_case(&uc)
+            .use_case_id("cov-integrity")
+            .use_case(|| ())
             .samples(100)
             .inputs(&inputs)
-            .trial(always_succeeds)
+            .trial(|(): &(), input| always_succeeds(input))
             .baseline_dir(dir.path())
             .covariates(vec!["model".to_string()], profile)
             .build()
@@ -889,13 +890,13 @@ mod tests {
             }
         }
 
-        let uc = SimpleUc;
         let inputs = vec!["input".to_string()];
         crate::experiment::MeasureExperiment::builder()
-            .use_case(&uc)
+            .use_case_id("integrity-simple")
+            .use_case(|| ())
             .samples(100)
             .inputs(&inputs)
-            .trial(always_succeeds)
+            .trial(|(): &(), input| always_succeeds(input))
             .baseline_dir(dir.path())
             .build()
             .run();

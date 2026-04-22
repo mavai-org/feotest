@@ -74,17 +74,17 @@ impl UseCase for SimpleUseCase {
 pub fn establish_baseline(
     use_case_id: &str,
     samples: u32,
-    trial: impl FnMut(&str) -> TrialOutcome + 'static,
+    trial: impl Fn(&str) -> TrialOutcome + 'static,
 ) -> tempfile::TempDir {
     let dir = tempfile::tempdir().unwrap();
-    let uc = SimpleUseCase::new(use_case_id);
     let inputs = vec!["input".to_string()];
 
     feotest::experiment::MeasureExperiment::builder()
-        .use_case(&uc)
+        .use_case_id(use_case_id)
+        .use_case(|| ())
         .samples(samples)
         .inputs(&inputs)
-        .trial(trial)
+        .trial(move |(): &(), input| trial(input))
         .baseline_dir(dir.path())
         .build()
         .run();
