@@ -29,3 +29,8 @@ pub mod validation;
 pub use builder::ProbabilisticTestBuilder;
 pub use probabilistic_test::ProbabilisticTest;
 pub use runner::ProbabilisticTestResult;
+
+pub mod validation_api {
+    //! Re-exports for the proc-macro's generated code.
+    pub use super::builder::ThresholdApproach;
+}
