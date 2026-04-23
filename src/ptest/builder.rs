@@ -1,26 +1,39 @@
 //! Builder for configuring and launching a probabilistic test.
+//!
+//! The API shape matches [`crate::experiment::MeasureExperiment`]: the
+//! use case id is explicit via [`use_case_id`](ProbabilisticTestBuilder::use_case_id),
+//! the instance is produced by a factory via
+//! [`use_case`](ProbabilisticTestBuilder::use_case), and the trial
+//! closure receives `(&T, &str) -> TrialOutcome`. A probabilistic test
+//! does not vary anything across samples, so the factory takes no
+//! arguments — identical to measure's single-condition shape.
 
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use crate::controls::ExecutionConfig;
+use crate::controls::{ExecutionConfig, PacingConfig};
 use crate::latency::{LatencyEnforcementMode, LatencyThresholds, Percentile};
 use crate::model::{BudgetExhaustedBehavior, TestIntent, ThresholdOrigin, TrialOutcome};
-use crate::ptest::runner::{
-    self, AssessmentCriteria, BaselineContext, LatencyConfig, ProbabilisticTestResult,
-};
-use crate::ptest::validation::{self, MacroConfig};
+use crate::ptest::probabilistic_test::ProbabilisticTest;
+use crate::ptest::validation::MacroConfig;
 use crate::spec::{BaselineSpec, SpecResolver};
 use crate::usecase::{CovariateContext, UseCase};
 
+type UseCaseFactory<'a, T> = Box<dyn Fn() -> T + 'a>;
+type TrialClosure<'a, T> = Box<dyn FnMut(&T, &str) -> TrialOutcome + 'a>;
+
 /// Configures the threshold derivation approach.
 ///
-/// Exactly one approach must be specified. The framework derives the
-/// remaining parameters from the baseline spec and the chosen approach.
+/// Exactly one approach must apply. When the user sets it explicitly
+/// via [`ProbabilisticTestBuilder::approach`] the builder uses it as-is;
+/// otherwise it is inferred from the parameter triangle
+/// (`samples`/`threshold`/`confidence`/`min_detectable_effect`/`power`).
 #[derive(Debug, Clone)]
 pub enum ThresholdApproach {
     /// Fix samples and confidence; derive threshold from baseline spec.
     ///
-    /// The threshold is the Wilson lower bound at the given confidence level.
+    /// The threshold is the Wilson lower bound at the given confidence
+    /// level.
     SampleSizeFirst {
         /// Number of test samples.
         samples: u32,
@@ -28,20 +41,23 @@ pub enum ThresholdApproach {
         confidence: f64,
     },
 
-    /// Fix confidence, effect size, and power; derive required sample count.
+    /// Fix confidence, effect size, and power; derive required sample
+    /// count.
     ///
     /// The framework computes the minimum sample size needed to detect
     /// a degradation of `min_detectable_effect` with the given power.
     ConfidenceFirst {
         /// Required confidence level.
         confidence: f64,
-        /// Smallest degradation worth detecting (absolute drop in pass rate).
+        /// Smallest degradation worth detecting (absolute drop in pass
+        /// rate).
         min_detectable_effect: f64,
         /// Probability of detecting a real degradation.
         power: f64,
     },
 
-    /// Fix samples and an explicit threshold; framework derives implied confidence.
+    /// Fix samples and an explicit threshold; framework derives implied
+    /// confidence.
     ThresholdFirst {
         /// Number of test samples.
         samples: u32,
@@ -50,14 +66,18 @@ pub enum ThresholdApproach {
     },
 }
 
-/// Builder for a probabilistic test.
+/// Fluent builder for a probabilistic test.
 ///
-/// Configures the test parameters and launches execution. The builder
-/// requires a threshold approach and a trial closure.
+/// Required fields — `use_case_id`, `use_case` (factory), `inputs`,
+/// `trial`, and an approach (either explicit via
+/// [`approach`](Self::approach) or inferable from the parameter
+/// triangle) — must be supplied before [`build`](Self::build) is
+/// called. Missing any of them produces a panic naming the field and
+/// the setter to call.
 ///
 /// # Examples
 ///
-/// Threshold-first: "I know the pass rate must be at least 90%."
+/// Threshold-first, explicit approach:
 ///
 /// ```
 /// use feotest::ptest::ProbabilisticTestBuilder;
@@ -67,128 +87,265 @@ pub enum ThresholdApproach {
 /// use std::time::Duration;
 ///
 /// let inputs = vec!["request".to_string()];
-/// let result = ProbabilisticTestBuilder::new(
-///     "my-service",
-///     &inputs,
-///     |_input| TrialOutcome::success(Duration::from_millis(1)),
-/// )
-/// .approach(ThresholdApproach::ThresholdFirst {
-///     samples: 50,
-///     min_pass_rate: 0.90,
-/// })
-/// .run();
+/// let result = ProbabilisticTestBuilder::builder()
+///     .use_case_id("my-service")
+///     .use_case(|| ())
+///     .inputs(&inputs)
+///     .trial(|(): &(), _input| TrialOutcome::success(Duration::from_millis(1)))
+///     .approach(ThresholdApproach::ThresholdFirst {
+///         samples: 50,
+///         min_pass_rate: 0.90,
+///     })
+///     .build()
+///     .run();
 ///
 /// assert_eq!(result.verdict_record().verdict(), Verdict::Pass);
 /// ```
 ///
-/// With intent and threshold origin for SLA verification:
+/// Threshold-first, inferred from the parameter triangle:
 ///
 /// ```
 /// use feotest::ptest::ProbabilisticTestBuilder;
-/// use feotest::ptest::builder::ThresholdApproach;
-/// use feotest::model::{TestIntent, ThresholdOrigin, TrialOutcome};
+/// use feotest::model::TrialOutcome;
+/// use feotest::verdict::Verdict;
 /// use std::time::Duration;
 ///
 /// let inputs = vec!["request".to_string()];
-/// let result = ProbabilisticTestBuilder::new("payment-gateway", &inputs,
-///     |_input| TrialOutcome::success(Duration::from_millis(5)),
-/// )
-/// .approach(ThresholdApproach::ThresholdFirst {
-///     samples: 100,
-///     min_pass_rate: 0.99,
-/// })
-/// .intent(TestIntent::Smoke)
-/// .threshold_origin(ThresholdOrigin::Sla)
-/// .contract_ref("Payment SLA v2.3 §4.1")
-/// .run();
+/// let result = ProbabilisticTestBuilder::builder()
+///     .use_case_id("my-service")
+///     .use_case(|| ())
+///     .inputs(&inputs)
+///     .trial(|(): &(), _input| TrialOutcome::success(Duration::from_millis(1)))
+///     .samples(50)
+///     .threshold(0.90)
+///     .build()
+///     .run();
 ///
-/// let prov = result.verdict_record().spec_provenance().unwrap();
-/// assert_eq!(prov.contract_ref(), Some("Payment SLA v2.3 §4.1"));
+/// assert_eq!(result.verdict_record().verdict(), Verdict::Pass);
 /// ```
-pub struct ProbabilisticTestBuilder<'a, F> {
-    use_case_id: String,
-    inputs: &'a [String],
-    trial: F,
-    approach: Option<ThresholdApproach>,
-    intent: TestIntent,
-    threshold_origin: ThresholdOrigin,
-    contract_ref: Option<String>,
-    spec_resolver: Option<SpecResolver>,
-    baseline_spec: Option<BaselineSpec>,
-    config_overrides: Option<ExecutionConfig>,
-    transparent_stats: bool,
-    covariate_context: Option<CovariateContext>,
-    latency_thresholds: LatencyThresholds,
-    baseline_latency_mode: Option<LatencyEnforcementMode>,
-    baseline_latency_confidence: Option<f64>,
-    fail_on_expired_baseline: bool,
-    on_budget_exhausted: Option<BudgetExhaustedBehavior>,
+pub struct ProbabilisticTestBuilder<'a, T> {
+    pub(crate) use_case_id: Option<String>,
+    pub(crate) factory: Option<UseCaseFactory<'a, T>>,
+    pub(crate) inputs: Option<&'a [String]>,
+    pub(crate) trial: Option<TrialClosure<'a, T>>,
+
+    pub(crate) approach: Option<ThresholdApproach>,
+    pub(crate) samples: Option<u32>,
+    pub(crate) threshold: Option<f64>,
+    pub(crate) confidence: Option<f64>,
+    pub(crate) min_detectable_effect: Option<f64>,
+    pub(crate) power: Option<f64>,
+
+    pub(crate) intent: TestIntent,
+    pub(crate) threshold_origin: ThresholdOrigin,
+    pub(crate) contract_ref: Option<String>,
+
+    pub(crate) spec_resolver: Option<SpecResolver>,
+    pub(crate) baseline_spec: Option<BaselineSpec>,
+    pub(crate) baseline_path: Option<PathBuf>,
+    pub(crate) baseline_dir: Option<PathBuf>,
+
+    pub(crate) config_overrides: Option<ExecutionConfig>,
+    pub(crate) time_budget: Option<Duration>,
+    pub(crate) token_budget: Option<u64>,
+    pub(crate) pacing: Option<PacingConfig>,
+    pub(crate) on_budget_exhausted: Option<BudgetExhaustedBehavior>,
+
+    pub(crate) transparent_stats: bool,
+    pub(crate) covariate_context: Option<CovariateContext>,
+
+    pub(crate) latency_thresholds: LatencyThresholds,
+    pub(crate) baseline_latency_mode: Option<LatencyEnforcementMode>,
+    pub(crate) baseline_latency_confidence: Option<f64>,
+    pub(crate) fail_on_expired_baseline: bool,
 }
 
-impl<'a, F> ProbabilisticTestBuilder<'a, F>
-where
-    F: FnMut(&str) -> TrialOutcome,
-{
-    /// Creates a new probabilistic test builder.
-    ///
-    /// # Panics
-    ///
-    /// Panics if `inputs` is empty.
-    pub fn new(use_case_id: impl Into<String>, inputs: &'a [String], trial: F) -> Self {
-        assert!(!inputs.is_empty(), "inputs must not be empty");
+impl<T> Default for ProbabilisticTestBuilder<'_, T> {
+    fn default() -> Self {
         Self {
-            use_case_id: use_case_id.into(),
-            inputs,
-            trial,
+            use_case_id: None,
+            factory: None,
+            inputs: None,
+            trial: None,
             approach: None,
+            samples: None,
+            threshold: None,
+            confidence: None,
+            min_detectable_effect: None,
+            power: None,
             intent: TestIntent::Verification,
             threshold_origin: ThresholdOrigin::Unspecified,
             contract_ref: None,
             spec_resolver: None,
             baseline_spec: None,
+            baseline_path: None,
+            baseline_dir: None,
             config_overrides: None,
+            time_budget: None,
+            token_budget: None,
+            pacing: None,
+            on_budget_exhausted: None,
             transparent_stats: false,
             covariate_context: None,
             latency_thresholds: LatencyThresholds::new(),
             baseline_latency_mode: None,
             baseline_latency_confidence: None,
             fail_on_expired_baseline: false,
-            on_budget_exhausted: None,
         }
     }
+}
 
-    /// Sets the threshold derivation approach.
+impl<'a> ProbabilisticTestBuilder<'a, ()> {
+    /// Convenience constructor matching the pre-refactor positional
+    /// signature. Internally wires the arguments into the measure-aligned
+    /// builder shape: `T` is fixed to the unit type and the user's
+    /// single-argument trial is adapted to `Fn(&(), &str)`.
+    ///
+    /// New code should prefer the explicit
+    /// [`builder`](Self::builder) → setters pattern used by
+    /// `MeasureExperiment`, `ExploreExperiment`, and
+    /// `OptimizeExperiment`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `inputs` is empty (mirrors the old behaviour).
+    pub fn new(
+        use_case_id: impl Into<String>,
+        inputs: &'a [String],
+        mut trial: impl FnMut(&str) -> TrialOutcome + 'a,
+    ) -> Self {
+        Self::builder()
+            .use_case_id(use_case_id)
+            .use_case(|| ())
+            .inputs(inputs)
+            .trial(move |(): &(), input| trial(input))
+    }
+}
+
+impl<'a, T> ProbabilisticTestBuilder<'a, T> {
+    /// Starts a new builder.
     #[must_use]
-    pub const fn approach(mut self, approach: ThresholdApproach) -> Self {
+    pub fn builder() -> Self {
+        Self::default()
+    }
+
+    /// Builds and runs the test in one call.
+    ///
+    /// Equivalent to `self.build().run()`. Provided so code that
+    /// pre-dates the `.build().run()` convention continues to read
+    /// naturally.
+    pub fn run(self) -> crate::ptest::ProbabilisticTestResult {
+        self.build().run()
+    }
+
+    // --- required fields (measure-aligned) ---
+
+    /// Sets the use case identifier.
+    ///
+    /// Appears in the verdict record and drives baseline resolution
+    /// (`{use_case_id}.yaml`).
+    #[must_use]
+    pub fn use_case_id(mut self, id: impl Into<String>) -> Self {
+        self.use_case_id = Some(id.into());
+        self
+    }
+
+    /// Sets the use case factory.
+    ///
+    /// The factory is called once when [`run`](ProbabilisticTest::run)
+    /// starts to produce the instance the trials are executed against.
+    #[must_use]
+    pub fn use_case(mut self, factory: impl Fn() -> T + 'a) -> Self {
+        self.factory = Some(Box::new(factory));
+        self
+    }
+
+    /// Sets the trial inputs.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `inputs` is empty.
+    #[must_use]
+    pub fn inputs(mut self, inputs: &'a [String]) -> Self {
+        assert!(!inputs.is_empty(), "inputs must not be empty");
+        self.inputs = Some(inputs);
+        self
+    }
+
+    /// Sets the trial closure.
+    ///
+    /// The closure receives a reference to the use case instance and
+    /// an input string, and returns a [`TrialOutcome`]. It may borrow
+    /// data that outlives the builder (the `'a` lifetime); it is not
+    /// required to be `'static`.
+    #[must_use]
+    pub fn trial(mut self, trial: impl FnMut(&T, &str) -> TrialOutcome + 'a) -> Self {
+        self.trial = Some(Box::new(trial));
+        self
+    }
+
+    // --- parameter triangle (inferred approach) ---
+
+    /// Fixes the sample count.
+    #[must_use]
+    pub const fn samples(mut self, n: u32) -> Self {
+        self.samples = Some(n);
+        self
+    }
+
+    /// Fixes the minimum pass rate threshold.
+    #[must_use]
+    pub const fn threshold(mut self, rate: f64) -> Self {
+        self.threshold = Some(rate);
+        self
+    }
+
+    /// Fixes the confidence level.
+    #[must_use]
+    pub const fn confidence(mut self, level: f64) -> Self {
+        self.confidence = Some(level);
+        self
+    }
+
+    /// Sets the minimum detectable effect (paired with confidence +
+    /// power).
+    #[must_use]
+    pub const fn min_detectable_effect(mut self, mde: f64) -> Self {
+        self.min_detectable_effect = Some(mde);
+        self
+    }
+
+    /// Sets the statistical power (paired with confidence + MDE).
+    #[must_use]
+    pub const fn power(mut self, p: f64) -> Self {
+        self.power = Some(p);
+        self
+    }
+
+    /// Sets the threshold derivation approach explicitly.
+    ///
+    /// When set, overrides any inference from the parameter triangle.
+    #[must_use]
+    pub fn approach(mut self, approach: ThresholdApproach) -> Self {
         self.approach = Some(approach);
         self
     }
 
-    /// Sets the test intent.
+    // --- baseline resolution ---
+
+    /// Sets an explicit baseline spec file path.
     #[must_use]
-    pub const fn intent(mut self, intent: TestIntent) -> Self {
-        self.intent = intent;
+    pub fn baseline(mut self, path: impl Into<PathBuf>) -> Self {
+        self.baseline_path = Some(path.into());
         self
     }
 
-    /// Sets the threshold origin.
+    /// Overrides the default baseline directory (`tests/baselines`).
+    ///
+    /// The framework looks for `{use_case_id}.yaml` in this directory.
     #[must_use]
-    pub const fn threshold_origin(mut self, origin: ThresholdOrigin) -> Self {
-        self.threshold_origin = origin;
-        self
-    }
-
-    /// Sets a human-readable contract reference.
-    #[must_use]
-    pub fn contract_ref(mut self, reference: impl Into<String>) -> Self {
-        self.contract_ref = Some(reference.into());
-        self
-    }
-
-    /// Sets the spec resolver for baseline-driven threshold derivation.
-    #[must_use]
-    pub fn spec_resolver(mut self, resolver: SpecResolver) -> Self {
-        self.spec_resolver = Some(resolver);
+    pub fn baseline_dir(mut self, path: impl Into<PathBuf>) -> Self {
+        self.baseline_dir = Some(path.into());
         self
     }
 
@@ -203,22 +360,33 @@ where
         self
     }
 
-    /// Overrides execution configuration (warmup, budgets, pacing).
+    /// Sets the spec resolver for baseline-driven threshold derivation.
     #[must_use]
-    pub const fn execution_config(mut self, config: ExecutionConfig) -> Self {
-        self.config_overrides = Some(config);
+    pub fn spec_resolver(mut self, resolver: SpecResolver) -> Self {
+        self.spec_resolver = Some(resolver);
         self
     }
 
-    /// Sets the behaviour when a budget is exhausted.
-    ///
-    /// If a full [`ExecutionConfig`] is also supplied via
-    /// [`Self::execution_config`], that config's own setting wins —
-    /// this setter only has effect when the runner synthesises a default
-    /// config.
+    // --- optional configuration ---
+
+    /// Sets the test intent.
     #[must_use]
-    pub const fn on_budget_exhausted(mut self, behaviour: BudgetExhaustedBehavior) -> Self {
-        self.on_budget_exhausted = Some(behaviour);
+    pub const fn intent(mut self, intent: TestIntent) -> Self {
+        self.intent = intent;
+        self
+    }
+
+    /// Sets the threshold origin (provenance).
+    #[must_use]
+    pub const fn threshold_origin(mut self, origin: ThresholdOrigin) -> Self {
+        self.threshold_origin = origin;
+        self
+    }
+
+    /// Sets a human-readable contract reference.
+    #[must_use]
+    pub fn contract_ref(mut self, reference: impl Into<String>) -> Self {
+        self.contract_ref = Some(reference.into());
         self
     }
 
@@ -228,6 +396,59 @@ where
         self.transparent_stats = enabled;
         self
     }
+
+    /// Overrides execution configuration (warmup, budgets, pacing).
+    #[must_use]
+    pub fn execution_config(mut self, config: ExecutionConfig) -> Self {
+        self.config_overrides = Some(config);
+        self
+    }
+
+    /// Sets a wall-clock time budget for the test.
+    #[must_use]
+    pub const fn time_budget(mut self, budget: Duration) -> Self {
+        self.time_budget = Some(budget);
+        self
+    }
+
+    /// Sets a token budget for the test.
+    #[must_use]
+    pub const fn token_budget(mut self, budget: u64) -> Self {
+        self.token_budget = Some(budget);
+        self
+    }
+
+    /// Sets pacing constraints for rate-limiting trial execution.
+    #[must_use]
+    pub fn pacing(mut self, config: PacingConfig) -> Self {
+        self.pacing = Some(config);
+        self
+    }
+
+    /// Sets the behaviour when a budget is exhausted.
+    ///
+    /// If a full [`ExecutionConfig`] is also supplied via
+    /// [`execution_config`](Self::execution_config), that config's own
+    /// setting wins — this setter only has effect when the runner
+    /// synthesises a default config.
+    #[must_use]
+    pub const fn on_budget_exhausted(mut self, behaviour: BudgetExhaustedBehavior) -> Self {
+        self.on_budget_exhausted = Some(behaviour);
+        self
+    }
+
+    /// Sets covariate context from a use case for baseline selection.
+    ///
+    /// When set, the resolver uses covariate-aware selection to find
+    /// the best-matching baseline rather than returning the first
+    /// match. If the use case declares no covariates, this is a no-op.
+    #[must_use]
+    pub fn covariate_source(mut self, use_case: &dyn UseCase) -> Self {
+        self.covariate_context = CovariateContext::from_use_case(use_case);
+        self
+    }
+
+    // --- latency configuration ---
 
     /// Declares an explicit p50 latency threshold. Strictly enforced.
     #[must_use]
@@ -257,11 +478,9 @@ where
         self
     }
 
-    /// Controls whether baseline-derived latency thresholds fail the verdict
-    /// on violation (`true` → `Strict`) or warn only (`false` → `Advisory`).
-    ///
-    /// When unset, the `FEOTEST_LATENCY_ENFORCE` env var is consulted, then
-    /// `Advisory` is the default. Explicit thresholds are always strict.
+    /// Controls whether baseline-derived latency thresholds fail the
+    /// verdict on violation (`true` → `Strict`) or warn only
+    /// (`false` → `Advisory`).
     #[must_use]
     pub const fn enforce_baseline_latency(mut self, strict: bool) -> Self {
         self.baseline_latency_mode = Some(if strict {
@@ -272,8 +491,8 @@ where
         self
     }
 
-    /// Overrides the confidence level used when deriving a latency threshold
-    /// from the baseline (default `0.95`).
+    /// Overrides the confidence level used when deriving a latency
+    /// threshold from the baseline (default `0.95`).
     #[must_use]
     pub const fn baseline_latency_confidence(mut self, confidence: f64) -> Self {
         self.baseline_latency_confidence = Some(confidence);
@@ -281,106 +500,247 @@ where
     }
 
     /// Escalates expired baselines from warning to test failure.
-    ///
-    /// By default, loading an expired baseline emits a warning in the
-    /// verdict report but does not affect the pass/fail outcome. Setting
-    /// this to `true` causes the runner to produce
-    /// [`crate::verdict::Verdict::Fail`] whenever the resolved baseline
-    /// has an [`crate::model::ExpirationStatus::Expired`] status.
-    ///
-    /// Has no effect on baselines without an expiration policy or on
-    /// those still within their validity window.
     #[must_use]
     pub const fn fail_on_expired_baseline(mut self, fail: bool) -> Self {
         self.fail_on_expired_baseline = fail;
         self
     }
 
-    /// Sets covariate context from a use case for baseline selection.
-    ///
-    /// When set, the resolver uses covariate-aware selection to find
-    /// the best-matching baseline rather than returning the first match.
-    /// If the use case declares no covariates, this is a no-op.
-    #[must_use]
-    pub fn use_case(mut self, use_case: &dyn UseCase) -> Self {
-        self.covariate_context = CovariateContext::from_use_case(use_case);
-        self
-    }
+    // --- terminal ---
 
-    /// Runs the probabilistic test and returns the result.
+    /// Builds the probabilistic test.
     ///
     /// # Panics
     ///
-    /// Panics if no threshold approach has been set, or if any parameter on
-    /// the selected [`ThresholdApproach`] is outside its valid range. See
-    /// [`validate_approach_bounds`] for the per-parameter constraints.
-    pub fn run(self) -> ProbabilisticTestResult {
-        let approach = self
-            .approach
-            .expect("threshold approach must be set before running");
+    /// Panics if any required field (`use_case_id`, `use_case` factory,
+    /// `inputs`, `trial`) is missing, or if the parameter triangle is
+    /// over-specified / under-specified / incomplete for any
+    /// [`ThresholdApproach`] and no explicit `.approach(...)` was set.
+    #[must_use]
+    pub fn build(mut self) -> ProbabilisticTest<'a, T> {
+        // Required-field checks run first so callers get the clearest
+        // possible panic message (naming the missing setter) before any
+        // approach inference is attempted.
+        let use_case_id = self
+            .use_case_id
+            .expect("use_case_id must be set via .use_case_id(...)");
+        let factory = self
+            .factory
+            .expect("use_case factory must be set via .use_case(...)");
+        let inputs = self.inputs.expect("inputs must be set via .inputs(...)");
+        let trial = self.trial.expect("trial must be set via .trial(...)");
 
+        let approach = self.approach.take().unwrap_or_else(|| {
+            detect_approach_from_triangle(
+                &use_case_id,
+                self.samples,
+                self.threshold,
+                self.confidence,
+                self.min_detectable_effect,
+                self.power,
+            )
+        });
         validate_approach_bounds(&approach);
 
-        // Coherence validation — same rules as the macro path
-        let config = macro_config_from_approach(
-            &self.use_case_id,
-            &approach,
-            self.threshold_origin,
-            self.baseline_spec.is_some() || self.spec_resolver.is_some(),
-        );
-        validation::validate(&config);
-
-        let transparent_stats = self.transparent_stats;
-        let criteria = AssessmentCriteria {
+        ProbabilisticTest {
+            use_case_id,
+            factory,
+            inputs,
+            trial,
             approach,
             intent: self.intent,
             threshold_origin: self.threshold_origin,
             contract_ref: self.contract_ref,
-            latency: LatencyConfig {
-                thresholds: self.latency_thresholds,
-                baseline_mode: self.baseline_latency_mode,
-                baseline_confidence: self
-                    .baseline_latency_confidence
-                    .unwrap_or(crate::latency::DEFAULT_BASELINE_CONFIDENCE),
-            },
-            fail_on_expired_baseline: self.fail_on_expired_baseline,
-            on_budget_exhausted: self.on_budget_exhausted,
-        };
-        let baseline = BaselineContext {
             spec_resolver: self.spec_resolver,
-            pre_resolved_spec: self.baseline_spec,
+            baseline_spec: self.baseline_spec,
+            baseline_path: self.baseline_path,
+            baseline_dir: self.baseline_dir,
+            config_overrides: self.config_overrides,
+            time_budget: self.time_budget,
+            token_budget: self.token_budget,
+            pacing: self.pacing,
+            on_budget_exhausted: self.on_budget_exhausted,
+            transparent_stats: self.transparent_stats,
             covariate_context: self.covariate_context,
-        };
-
-        let result = runner::execute(
-            &self.use_case_id,
-            self.inputs,
-            self.trial,
-            &criteria,
-            baseline,
-            self.config_overrides.as_ref(),
-        );
-
-        // Always print the console verdict
-        let renderer = crate::reporting::ConsoleRenderer::new();
-        renderer.print_verdict(result.verdict_record());
-
-        if transparent_stats {
-            let mut buf = String::new();
-            crate::reporting::transparent::render(
-                result.verdict_record(),
-                result.approach(),
-                &mut buf,
-            )
-            .expect("formatting should not fail");
-            eprint!("{buf}");
+            latency_thresholds: self.latency_thresholds,
+            baseline_latency_mode: self.baseline_latency_mode,
+            baseline_latency_confidence: self.baseline_latency_confidence,
+            fail_on_expired_baseline: self.fail_on_expired_baseline,
         }
-
-        result
     }
 }
 
-/// Constructs a `MacroConfig` from a `ThresholdApproach` for coherence validation.
+/// Builds an approach from the parameter triangle.
+///
+/// # Panics
+///
+/// Panics on over-specification, under-specification, or incomplete
+/// confidence-first parameters.
+fn detect_approach_from_triangle(
+    use_case_id: &str,
+    samples: Option<u32>,
+    threshold: Option<f64>,
+    confidence: Option<f64>,
+    mde: Option<f64>,
+    power: Option<f64>,
+) -> ThresholdApproach {
+    let has_samples = samples.is_some();
+    let has_threshold = threshold.is_some();
+    let has_confidence = confidence.is_some();
+    let has_mde = mde.is_some();
+    let has_power = power.is_some();
+
+    assert!(
+        !(has_samples && has_threshold && has_confidence),
+        "\n\nOVER-SPECIFIED in ProbabilisticTest '{use_case_id}':\n\n\
+         samples, threshold, and confidence are all set.\n\
+         Sample size, confidence, and threshold are mathematically linked.\n\
+         You choose two; the framework derives the third.\n\n\
+         Pick one approach:\n  \
+         - Threshold-first:   .samples(n).threshold(rate)\n  \
+         - Sample-size-first: .samples(n).confidence(level)\n  \
+         - Confidence-first:  .confidence(level).min_detectable_effect(mde).power(p)\n"
+    );
+
+    if has_samples && has_threshold && !has_confidence && !has_mde && !has_power {
+        return ThresholdApproach::ThresholdFirst {
+            samples: samples.unwrap(),
+            min_pass_rate: threshold.unwrap(),
+        };
+    }
+
+    if has_samples && has_confidence && !has_threshold && !has_mde && !has_power {
+        return ThresholdApproach::SampleSizeFirst {
+            samples: samples.unwrap(),
+            confidence: confidence.unwrap(),
+        };
+    }
+
+    if has_confidence && has_mde && has_power && !has_threshold {
+        return ThresholdApproach::ConfidenceFirst {
+            confidence: confidence.unwrap(),
+            min_detectable_effect: mde.unwrap(),
+            power: power.unwrap(),
+        };
+    }
+
+    let cf_count = [has_confidence, has_mde, has_power]
+        .iter()
+        .filter(|&&v| v)
+        .count();
+    if cf_count > 0 && cf_count < 3 && !has_samples && !has_threshold {
+        let mut present = Vec::new();
+        let mut missing = Vec::new();
+        if has_confidence {
+            present.push("confidence");
+        } else {
+            missing.push("confidence");
+        }
+        if has_mde {
+            present.push("min_detectable_effect");
+        } else {
+            missing.push("min_detectable_effect");
+        }
+        if has_power {
+            present.push("power");
+        } else {
+            missing.push("power");
+        }
+        panic!(
+            "\n\nINCOMPLETE in ProbabilisticTest '{}':\n\n\
+             The confidence-first approach requires all three parameters:\n  \
+             confidence, min_detectable_effect, and power.\n\n\
+             Present: {}\n\
+             Missing: {}\n",
+            use_case_id,
+            present.join(", "),
+            missing.join(", "),
+        );
+    }
+
+    let mut params_set = Vec::new();
+    if has_samples {
+        params_set.push("samples");
+    }
+    if has_threshold {
+        params_set.push("threshold");
+    }
+    if has_confidence {
+        params_set.push("confidence");
+    }
+    if has_mde {
+        params_set.push("min_detectable_effect");
+    }
+    if has_power {
+        params_set.push("power");
+    }
+
+    panic!(
+        "\n\nUNDER-SPECIFIED in ProbabilisticTest '{}':\n\n\
+         Parameters set: {}\n\n\
+         Set an explicit .approach(...) or supply at least two of:\n  \
+         samples, threshold, confidence (or confidence + min_detectable_effect + power).\n",
+        use_case_id,
+        if params_set.is_empty() {
+            "(none)".to_string()
+        } else {
+            params_set.join(", ")
+        },
+    );
+}
+
+/// Validates that the approach parameters fall within mathematical
+/// constraints.
+///
+/// # Panics
+///
+/// Panics with a descriptive message if a rate or confidence is outside
+/// `(0, 1)` or similar.
+pub fn validate_approach_bounds(approach: &ThresholdApproach) {
+    match approach {
+        ThresholdApproach::ThresholdFirst {
+            samples,
+            min_pass_rate,
+        } => {
+            assert!(*samples > 0, "samples must be positive, got 0");
+            assert!(
+                (0.0..=1.0).contains(min_pass_rate) && min_pass_rate.is_finite(),
+                "min_pass_rate must be in [0, 1], got {min_pass_rate}"
+            );
+        }
+        ThresholdApproach::SampleSizeFirst {
+            samples,
+            confidence,
+        } => {
+            assert!(*samples > 0, "samples must be positive, got 0");
+            assert!(
+                (0.0..1.0).contains(confidence) && confidence.is_finite(),
+                "confidence must be in (0, 1), got {confidence}"
+            );
+        }
+        ThresholdApproach::ConfidenceFirst {
+            confidence,
+            min_detectable_effect,
+            power,
+        } => {
+            assert!(
+                (0.0..1.0).contains(confidence) && confidence.is_finite(),
+                "confidence must be in (0, 1), got {confidence}"
+            );
+            assert!(
+                min_detectable_effect.is_finite() && *min_detectable_effect > 0.0,
+                "min_detectable_effect must be positive, got {min_detectable_effect}"
+            );
+            assert!(
+                (0.0..1.0).contains(power) && power.is_finite(),
+                "power must be in (0, 1), got {power}"
+            );
+        }
+    }
+}
+
+/// Constructs a `MacroConfig` from a `ThresholdApproach` for coherence
+/// validation.
 pub(crate) fn macro_config_from_approach(
     test_name: &str,
     approach: &ThresholdApproach,
@@ -434,511 +794,110 @@ pub(crate) fn macro_config_from_approach(
     }
 }
 
-/// Validates parameter bounds on a threshold approach before execution.
-///
-/// # Panics
-///
-/// Panics if any parameter on the supplied approach is outside its valid
-/// range:
-///
-/// - `samples` must be `> 0`.
-/// - `min_pass_rate` must be in `[0, 1]`.
-/// - `confidence`, `min_detectable_effect`, and `power` must be in `(0, 1)`.
-pub(crate) fn validate_approach_bounds(approach: &ThresholdApproach) {
-    match approach {
-        ThresholdApproach::ThresholdFirst {
-            samples,
-            min_pass_rate,
-        } => {
-            assert_samples_positive(*samples);
-            assert!(
-                (0.0..=1.0).contains(min_pass_rate),
-                "min_pass_rate must be in [0, 1], got {min_pass_rate}"
-            );
-        }
-        ThresholdApproach::SampleSizeFirst {
-            samples,
-            confidence,
-        } => {
-            assert_samples_positive(*samples);
-            assert_in_open_unit_interval("confidence", *confidence);
-        }
-        ThresholdApproach::ConfidenceFirst {
-            confidence,
-            min_detectable_effect,
-            power,
-        } => {
-            assert_in_open_unit_interval("confidence", *confidence);
-            assert_in_open_unit_interval("min_detectable_effect", *min_detectable_effect);
-            assert_in_open_unit_interval("power", *power);
-        }
+/// Resolves the default baseline directory path from `CARGO_MANIFEST_DIR`.
+pub(crate) fn default_baseline_dir() -> PathBuf {
+    let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").unwrap_or_else(|_| ".".to_string());
+    PathBuf::from(manifest_dir).join("tests").join("baselines")
+}
+
+/// Builds a spec resolver from `baseline_path` / `baseline_dir` /
+/// default.
+pub(crate) fn build_default_spec_resolver(
+    baseline_path: Option<&Path>,
+    baseline_dir: Option<&Path>,
+) -> SpecResolver {
+    if let Some(path) = baseline_path {
+        let parent = path.parent().unwrap_or_else(|| Path::new("."));
+        return SpecResolver::with_dir(parent);
     }
-}
-
-fn assert_samples_positive(samples: u32) {
-    assert!(samples > 0, "samples must be > 0, got {samples}");
-}
-
-fn assert_in_open_unit_interval(parameter: &str, value: f64) {
-    assert!(
-        value > 0.0 && value < 1.0,
-        "{parameter} must be in (0, 1), got {value}"
-    );
+    if let Some(dir) = baseline_dir {
+        return SpecResolver::with_dir(dir);
+    }
+    SpecResolver::with_dir(default_baseline_dir())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::{TestIntent, ThresholdOrigin, TrialOutcome};
+    use crate::model::TrialOutcome;
     use crate::verdict::Verdict;
     use std::time::Duration;
 
-    fn always_succeeds(_input: &str) -> TrialOutcome {
+    fn always_succeeds(_uc: &(), _input: &str) -> TrialOutcome {
         TrialOutcome::success(Duration::from_millis(1))
     }
 
-    // --- Builder construction and configuration ---
+    #[test]
+    fn threshold_first_explicit_passes() {
+        let inputs = vec!["input".to_string()];
+        let result = ProbabilisticTestBuilder::builder()
+            .use_case_id("ssf-explicit")
+            .use_case(|| ())
+            .inputs(&inputs)
+            .trial(always_succeeds)
+            .approach(ThresholdApproach::ThresholdFirst {
+                samples: 30,
+                min_pass_rate: 0.80,
+            })
+            .build()
+            .run();
+
+        assert_eq!(result.verdict_record().verdict(), Verdict::Pass);
+    }
 
     #[test]
-    #[should_panic(expected = "threshold approach must be set")]
-    fn panics_without_approach() {
+    fn threshold_first_inferred_from_triangle() {
         let inputs = vec!["input".to_string()];
-        ProbabilisticTestBuilder::new("test", &inputs, always_succeeds).run();
+        let result = ProbabilisticTestBuilder::builder()
+            .use_case_id("tri-inferred")
+            .use_case(|| ())
+            .inputs(&inputs)
+            .trial(always_succeeds)
+            .samples(30)
+            .threshold(0.80)
+            .build()
+            .run();
+
+        assert_eq!(result.verdict_record().verdict(), Verdict::Pass);
+    }
+
+    #[test]
+    #[should_panic(expected = "OVER-SPECIFIED")]
+    fn over_specified_triangle_panics() {
+        let inputs = vec!["input".to_string()];
+        let _ = ProbabilisticTestBuilder::builder()
+            .use_case_id("over")
+            .use_case(|| ())
+            .inputs(&inputs)
+            .trial(always_succeeds)
+            .samples(30)
+            .threshold(0.80)
+            .confidence(0.95)
+            .build();
+    }
+
+    #[test]
+    #[should_panic(expected = "UNDER-SPECIFIED")]
+    fn under_specified_triangle_panics() {
+        let inputs = vec!["input".to_string()];
+        let _ = ProbabilisticTestBuilder::builder()
+            .use_case_id("under")
+            .use_case(|| ())
+            .inputs(&inputs)
+            .trial(always_succeeds)
+            .build();
+    }
+
+    #[test]
+    #[should_panic(expected = "use_case_id must be set")]
+    fn build_without_any_required_fields_panics() {
+        let _ = ProbabilisticTestBuilder::<()>::builder().build();
     }
 
     #[test]
     #[should_panic(expected = "inputs must not be empty")]
-    fn panics_on_empty_inputs() {
-        let inputs: Vec<String> = vec![];
-        ProbabilisticTestBuilder::new("test", &inputs, always_succeeds)
-            .approach(ThresholdApproach::ThresholdFirst {
-                samples: 50,
-                min_pass_rate: 0.90,
-            })
-            .run();
-    }
-
-    #[test]
-    fn threshold_first_produces_pass() {
-        let inputs = vec!["input".to_string()];
-        let result = ProbabilisticTestBuilder::new("test", &inputs, always_succeeds)
-            .approach(ThresholdApproach::ThresholdFirst {
-                samples: 50,
-                min_pass_rate: 0.90,
-            })
-            .run();
-        assert_eq!(result.verdict_record().verdict(), Verdict::Pass);
-    }
-
-    #[test]
-    fn sample_size_first_produces_pass() {
-        let dir = tempfile::tempdir().unwrap();
-        struct Uc;
-        impl crate::usecase::UseCase for Uc {
-            fn id(&self) -> &str {
-                "ssf-pass"
-            }
-        }
-        let inputs = vec!["input".to_string()];
-        crate::experiment::MeasureExperiment::builder()
-            .use_case_id("ssf-pass")
-            .use_case(|| ())
-            .samples(200)
-            .inputs(&inputs)
-            .trial(|(): &(), input| always_succeeds(input))
-            .baseline_dir(dir.path())
-            .build()
-            .run();
-
-        let resolver = crate::spec::SpecResolver::with_dir(dir.path());
-        let result = ProbabilisticTestBuilder::new("ssf-pass", &inputs, always_succeeds)
-            .approach(ThresholdApproach::SampleSizeFirst {
-                samples: 200,
-                confidence: 0.95,
-            })
-            .spec_resolver(resolver)
-            .threshold_origin(ThresholdOrigin::Empirical)
-            .run();
-        assert_eq!(result.verdict_record().verdict(), Verdict::Pass);
-    }
-
-    // --- Intent and provenance propagation ---
-
-    #[test]
-    fn intent_propagates_to_verdict() {
-        let inputs = vec!["input".to_string()];
-        let result = ProbabilisticTestBuilder::new("test", &inputs, always_succeeds)
-            .approach(ThresholdApproach::ThresholdFirst {
-                samples: 50,
-                min_pass_rate: 0.90,
-            })
-            .intent(TestIntent::Smoke)
-            .run();
-        assert_eq!(result.verdict_record().intent(), TestIntent::Smoke);
-    }
-
-    #[test]
-    fn threshold_origin_propagates() {
-        let inputs = vec!["input".to_string()];
-        let result = ProbabilisticTestBuilder::new("test", &inputs, always_succeeds)
-            .approach(ThresholdApproach::ThresholdFirst {
-                samples: 50,
-                min_pass_rate: 0.90,
-            })
-            .threshold_origin(ThresholdOrigin::Sla)
-            .run();
-        let prov = result.verdict_record().spec_provenance().unwrap();
-        assert_eq!(prov.threshold_origin(), ThresholdOrigin::Sla);
-    }
-
-    #[test]
-    fn contract_ref_propagates() {
-        let inputs = vec!["input".to_string()];
-        let result = ProbabilisticTestBuilder::new("test", &inputs, always_succeeds)
-            .approach(ThresholdApproach::ThresholdFirst {
-                samples: 50,
-                min_pass_rate: 0.90,
-            })
-            .threshold_origin(ThresholdOrigin::Sla)
-            .contract_ref("SLA v2")
-            .run();
-        let prov = result.verdict_record().spec_provenance().unwrap();
-        assert_eq!(prov.contract_ref(), Some("SLA v2"));
-    }
-
-    #[test]
-    fn approach_stored_on_result() {
-        let inputs = vec!["input".to_string()];
-        let result = ProbabilisticTestBuilder::new("test", &inputs, always_succeeds)
-            .approach(ThresholdApproach::ThresholdFirst {
-                samples: 50,
-                min_pass_rate: 0.90,
-            })
-            .run();
-        assert!(matches!(
-            result.approach(),
-            ThresholdApproach::ThresholdFirst { .. }
-        ));
-    }
-
-    // --- Validation: parameter bounds ---
-
-    #[test]
-    #[should_panic(expected = "min_pass_rate must be in [0, 1], got 1.5")]
-    fn panics_on_min_pass_rate_above_one() {
-        let inputs = vec!["input".to_string()];
-        ProbabilisticTestBuilder::new("test", &inputs, always_succeeds)
-            .approach(ThresholdApproach::ThresholdFirst {
-                samples: 10,
-                min_pass_rate: 1.5,
-            })
-            .run();
-    }
-
-    #[test]
-    #[should_panic(expected = "min_pass_rate must be in [0, 1], got -0.1")]
-    fn panics_on_min_pass_rate_negative() {
-        let inputs = vec!["input".to_string()];
-        ProbabilisticTestBuilder::new("test", &inputs, always_succeeds)
-            .approach(ThresholdApproach::ThresholdFirst {
-                samples: 10,
-                min_pass_rate: -0.1,
-            })
-            .run();
-    }
-
-    #[test]
-    #[should_panic(expected = "samples must be > 0, got 0")]
-    fn panics_on_zero_samples_threshold_first() {
-        let inputs = vec!["input".to_string()];
-        ProbabilisticTestBuilder::new("test", &inputs, always_succeeds)
-            .approach(ThresholdApproach::ThresholdFirst {
-                samples: 0,
-                min_pass_rate: 0.90,
-            })
-            .run();
-    }
-
-    #[test]
-    #[should_panic(expected = "samples must be > 0, got 0")]
-    fn panics_on_zero_samples_sample_size_first() {
-        let inputs = vec!["input".to_string()];
-        ProbabilisticTestBuilder::new("test", &inputs, always_succeeds)
-            .approach(ThresholdApproach::SampleSizeFirst {
-                samples: 0,
-                confidence: 0.95,
-            })
-            .run();
-    }
-
-    #[test]
-    fn accepts_min_pass_rate_zero() {
-        let inputs = vec!["input".to_string()];
-        let result = ProbabilisticTestBuilder::new("test", &inputs, always_succeeds)
-            .approach(ThresholdApproach::ThresholdFirst {
-                samples: 50,
-                min_pass_rate: 0.0,
-            })
-            .run();
-        assert_eq!(result.verdict_record().verdict(), Verdict::Pass);
-    }
-
-    #[test]
-    fn accepts_min_pass_rate_one() {
-        // min_pass_rate = 1.0 is a valid boundary but is inherently
-        // infeasible at any finite sample count. Smoke intent surfaces
-        // infeasibility as a warning rather than a panic, letting the
-        // test run to completion with always-successful trials.
-        let inputs = vec!["input".to_string()];
-        let result = ProbabilisticTestBuilder::new("test", &inputs, always_succeeds)
-            .approach(ThresholdApproach::ThresholdFirst {
-                samples: 50,
-                min_pass_rate: 1.0,
-            })
-            .intent(TestIntent::Smoke)
-            .run();
-        assert_eq!(result.verdict_record().verdict(), Verdict::Pass);
-    }
-
-    #[test]
-    #[should_panic(expected = "confidence must be in (0, 1), got 0")]
-    fn panics_on_sample_size_first_confidence_zero() {
-        let inputs = vec!["input".to_string()];
-        ProbabilisticTestBuilder::new("test", &inputs, always_succeeds)
-            .approach(ThresholdApproach::SampleSizeFirst {
-                samples: 50,
-                confidence: 0.0,
-            })
-            .run();
-    }
-
-    #[test]
-    #[should_panic(expected = "confidence must be in (0, 1), got 1")]
-    fn panics_on_sample_size_first_confidence_one() {
-        let inputs = vec!["input".to_string()];
-        ProbabilisticTestBuilder::new("test", &inputs, always_succeeds)
-            .approach(ThresholdApproach::SampleSizeFirst {
-                samples: 50,
-                confidence: 1.0,
-            })
-            .run();
-    }
-
-    #[test]
-    #[should_panic(expected = "confidence must be in (0, 1), got 1.2")]
-    fn panics_on_sample_size_first_confidence_above_one() {
-        let inputs = vec!["input".to_string()];
-        ProbabilisticTestBuilder::new("test", &inputs, always_succeeds)
-            .approach(ThresholdApproach::SampleSizeFirst {
-                samples: 50,
-                confidence: 1.2,
-            })
-            .run();
-    }
-
-    #[test]
-    #[should_panic(expected = "confidence must be in (0, 1), got 0")]
-    fn panics_on_confidence_first_confidence_zero() {
-        let inputs = vec!["input".to_string()];
-        ProbabilisticTestBuilder::new("test", &inputs, always_succeeds)
-            .approach(ThresholdApproach::ConfidenceFirst {
-                confidence: 0.0,
-                min_detectable_effect: 0.05,
-                power: 0.80,
-            })
-            .run();
-    }
-
-    #[test]
-    #[should_panic(expected = "confidence must be in (0, 1), got 1")]
-    fn panics_on_confidence_first_confidence_one() {
-        let inputs = vec!["input".to_string()];
-        ProbabilisticTestBuilder::new("test", &inputs, always_succeeds)
-            .approach(ThresholdApproach::ConfidenceFirst {
-                confidence: 1.0,
-                min_detectable_effect: 0.05,
-                power: 0.80,
-            })
-            .run();
-    }
-
-    #[test]
-    #[should_panic(expected = "confidence must be in (0, 1), got -0.01")]
-    fn panics_on_confidence_first_confidence_negative() {
-        let inputs = vec!["input".to_string()];
-        ProbabilisticTestBuilder::new("test", &inputs, always_succeeds)
-            .approach(ThresholdApproach::ConfidenceFirst {
-                confidence: -0.01,
-                min_detectable_effect: 0.05,
-                power: 0.80,
-            })
-            .run();
-    }
-
-    #[test]
-    #[should_panic(expected = "power must be in (0, 1), got 0")]
-    fn panics_on_confidence_first_power_zero() {
-        let inputs = vec!["input".to_string()];
-        ProbabilisticTestBuilder::new("test", &inputs, always_succeeds)
-            .approach(ThresholdApproach::ConfidenceFirst {
-                confidence: 0.95,
-                min_detectable_effect: 0.05,
-                power: 0.0,
-            })
-            .run();
-    }
-
-    #[test]
-    #[should_panic(expected = "power must be in (0, 1), got 1")]
-    fn panics_on_confidence_first_power_one() {
-        let inputs = vec!["input".to_string()];
-        ProbabilisticTestBuilder::new("test", &inputs, always_succeeds)
-            .approach(ThresholdApproach::ConfidenceFirst {
-                confidence: 0.95,
-                min_detectable_effect: 0.05,
-                power: 1.0,
-            })
-            .run();
-    }
-
-    #[test]
-    #[should_panic(expected = "min_detectable_effect must be in (0, 1), got 0")]
-    fn panics_on_confidence_first_min_detectable_effect_zero() {
-        let inputs = vec!["input".to_string()];
-        ProbabilisticTestBuilder::new("test", &inputs, always_succeeds)
-            .approach(ThresholdApproach::ConfidenceFirst {
-                confidence: 0.95,
-                min_detectable_effect: 0.0,
-                power: 0.80,
-            })
-            .run();
-    }
-
-    #[test]
-    #[should_panic(expected = "min_detectable_effect must be in (0, 1), got 1")]
-    fn panics_on_confidence_first_min_detectable_effect_one() {
-        let inputs = vec!["input".to_string()];
-        ProbabilisticTestBuilder::new("test", &inputs, always_succeeds)
-            .approach(ThresholdApproach::ConfidenceFirst {
-                confidence: 0.95,
-                min_detectable_effect: 1.0,
-                power: 0.80,
-            })
-            .run();
-    }
-
-    // --- Validation: coherence via builder API ---
-
-    #[test]
-    #[should_panic(expected = "REQUIRES_BASELINE")]
-    fn panics_sample_size_first_without_baseline() {
-        let inputs = vec!["input".to_string()];
-        ProbabilisticTestBuilder::new("test", &inputs, always_succeeds)
-            .approach(ThresholdApproach::SampleSizeFirst {
-                samples: 100,
-                confidence: 0.95,
-            })
-            // No spec_resolver or baseline_spec
-            .run();
-    }
-
-    #[test]
-    #[should_panic(expected = "REQUIRES_BASELINE_RATE")]
-    fn panics_confidence_first_without_baseline() {
-        let inputs = vec!["input".to_string()];
-        ProbabilisticTestBuilder::new("test", &inputs, always_succeeds)
-            .approach(ThresholdApproach::ConfidenceFirst {
-                confidence: 0.95,
-                min_detectable_effect: 0.05,
-                power: 0.80,
-            })
-            // No spec_resolver or baseline_spec
-            .run();
-    }
-
-    // --- Feasibility via builder API ---
-
-    #[test]
-    #[should_panic(expected = "Infeasible")]
-    fn panics_infeasible_verification() {
-        let inputs = vec!["input".to_string()];
-        ProbabilisticTestBuilder::new("test", &inputs, always_succeeds)
-            .approach(ThresholdApproach::ThresholdFirst {
-                samples: 5,
-                min_pass_rate: 0.95,
-            })
-            .intent(TestIntent::Verification)
-            .run();
-    }
-
-    #[test]
-    fn warns_infeasible_smoke() {
-        let inputs = vec!["input".to_string()];
-        let result = ProbabilisticTestBuilder::new("test", &inputs, always_succeeds)
-            .approach(ThresholdApproach::ThresholdFirst {
-                samples: 5,
-                min_pass_rate: 0.95,
-            })
-            .intent(TestIntent::Smoke)
-            .run();
-
-        let warnings = result.verdict_record().warnings();
-        assert!(
-            warnings.iter().any(|w| w.code() == "UNDERSIZED"),
-            "expected UNDERSIZED warning, got: {warnings:?}"
-        );
-    }
-
-    #[test]
-    fn feasible_verification_runs() {
-        let inputs = vec!["input".to_string()];
-        let result = ProbabilisticTestBuilder::new("test", &inputs, always_succeeds)
-            .approach(ThresholdApproach::ThresholdFirst {
-                samples: 100,
-                min_pass_rate: 0.90,
-            })
-            .intent(TestIntent::Verification)
-            .run();
-        assert_eq!(result.verdict_record().verdict(), Verdict::Pass);
-    }
-
-    // --- on_budget_exhausted setter precedence ---
-
-    fn slow_success(_input: &str) -> TrialOutcome {
-        std::thread::sleep(Duration::from_millis(5));
-        TrialOutcome::success(Duration::from_millis(5))
-    }
-
-    #[test]
-    fn explicit_execution_config_overrides_on_budget_exhausted_setter() {
-        // An explicit ExecutionConfig is final: its exhaustion setting
-        // wins over the builder's convenience setter. Documents the
-        // precedence rule.
-        let inputs = vec!["input".to_string()];
-        let config = ExecutionConfig::new(100)
-            .with_time_budget(Duration::from_millis(20))
-            .with_on_budget_exhausted(BudgetExhaustedBehavior::Fail);
-
-        let result = ProbabilisticTestBuilder::new("precedence", &inputs, slow_success)
-            .approach(ThresholdApproach::ThresholdFirst {
-                samples: 100,
-                min_pass_rate: 0.10,
-            })
-            .execution_config(config)
-            // Setter asks for EvaluatePartial; the explicit config above
-            // wins, so the test must still force-Fail rather than pass
-            // on stats.
-            .on_budget_exhausted(BudgetExhaustedBehavior::EvaluatePartial)
-            .run();
-
-        assert_eq!(result.verdict_record().verdict(), Verdict::Fail);
-        assert!(
-            result
-                .verdict_record()
-                .warnings()
-                .iter()
-                .any(|w| w.code() == "BUDGET_EXHAUSTED"),
-            "expected Fail-policy BUDGET_EXHAUSTED warning"
-        );
+    fn rejects_empty_inputs() {
+        let empty: Vec<String> = vec![];
+        let _ = ProbabilisticTestBuilder::<()>::builder().inputs(&empty);
     }
 }

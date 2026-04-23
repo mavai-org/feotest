@@ -79,7 +79,7 @@ fn matching_covariates_resolves_cleanly() {
         })
         .spec_resolver(resolver)
         .threshold_origin(ThresholdOrigin::Empirical)
-        .use_case(&uc)
+        .covariate_source(&uc)
         .run();
 
     let record = result.verdict_record();
@@ -132,7 +132,7 @@ fn mismatched_covariates_produce_warnings() {
         })
         .spec_resolver(resolver)
         .threshold_origin(ThresholdOrigin::Empirical)
-        .use_case(&test_uc)
+        .covariate_source(&test_uc)
         .run();
 
     let record = result.verdict_record();
@@ -179,7 +179,7 @@ fn baseline_provenance_present_with_covariates() {
         })
         .spec_resolver(resolver)
         .threshold_origin(ThresholdOrigin::Empirical)
-        .use_case(&uc)
+        .covariate_source(&uc)
         .run();
 
     let bp = result
@@ -222,7 +222,7 @@ fn threshold_first_with_covariates_loads_baseline() {
         })
         .threshold_origin(ThresholdOrigin::Sla)
         .spec_resolver(resolver)
-        .use_case(&uc)
+        .covariate_source(&uc)
         .run();
 
     let record = result.verdict_record();
@@ -267,7 +267,7 @@ fn console_renders_covariate_warnings() {
         })
         .spec_resolver(resolver)
         .threshold_origin(ThresholdOrigin::Empirical)
-        .use_case(&test_uc)
+        .covariate_source(&test_uc)
         .run();
 
     let renderer = feotest::reporting::ConsoleRenderer::without_colour();

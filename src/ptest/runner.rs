@@ -805,7 +805,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "threshold approach must be set")]
+    #[should_panic(expected = "UNDER-SPECIFIED")]
     fn panics_without_approach() {
         let inputs = vec!["input".to_string()];
         ProbabilisticTestBuilder::new("test-uc", &inputs, always_succeeds).run();
@@ -872,7 +872,7 @@ mod tests {
             })
             .spec_resolver(resolver)
             .threshold_origin(ThresholdOrigin::Sla)
-            .use_case(&uc)
+            .covariate_source(&uc)
             .run();
     }
 

@@ -79,15 +79,16 @@ pub fn expand(attr: TokenStream, item: TokenStream) -> syn::Result<TokenStream> 
 
             #validation
 
-            let __feotest_result = feotest::ptest::ProbabilisticTestBuilder::new(
-                #fn_name_str,
-                &__feotest_inputs,
-                __feotest_trial_wrapper,
-            )
-            #approach_expr
-            #optional_calls
-            #exec_config
-            .run();
+            let __feotest_result = feotest::ptest::ProbabilisticTestBuilder::builder()
+                .use_case_id(#fn_name_str)
+                .use_case(|| ())
+                .inputs(&__feotest_inputs)
+                .trial(|(): &(), input: &str| __feotest_trial_wrapper(input))
+                #approach_expr
+                #optional_calls
+                #exec_config
+                .build()
+                .run();
 
             assert!(
                 __feotest_result.passed(),
