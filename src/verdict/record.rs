@@ -1,5 +1,7 @@
 //! The verdict record: the single source of truth for all verdict rendering.
 
+use serde::Serialize;
+
 use crate::latency::LatencyDimension;
 use crate::model::{
     ExecutionSummary, ExpirationInfo, PacingSummary, TestIdentity, TestIntent, ThresholdOrigin,
@@ -10,8 +12,10 @@ use crate::verdict::Verdict;
 /// The complete record of a probabilistic test verdict.
 ///
 /// This is consumed by all rendering paths: `JUnit` XML, HTML reports,
-/// console output, and sentinel verdict sinks.
-#[derive(Debug, Clone)]
+/// console output, and sentinel verdict sinks. Serialises as a `camelCase`
+/// JSON object — the wire shape consumed by file and webhook sinks.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct VerdictRecord {
     identity: TestIdentity,
     verdict: Verdict,
@@ -19,15 +23,41 @@ pub struct VerdictRecord {
     intent: TestIntent,
     execution: ExecutionSummary,
     functional: FunctionalDimension,
+    #[serde(skip_serializing_if = "Option::is_none")]
     statistical_analysis: Option<StatisticalAnalysis>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     spec_provenance: Option<SpecProvenance>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     baseline_provenance: Option<BaselineProvenance>,
     covariate_status: CovariateStatus,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
     warnings: Vec<Warning>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     latency: Option<LatencyDimension>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     correlation_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pacing: Option<PacingSummary>,
+    #[serde(
+        skip_serializing_if = "Vec::is_empty",
+        serialize_with = "serialize_environment"
+    )]
     environment: Vec<(String, String)>,
+}
+
+/// Serialises the environment metadata as a JSON object (key/value map)
+/// rather than an array of tuples. Callers reading the wire shape expect
+/// an object they can index by key.
+fn serialize_environment<S: serde::Serializer>(
+    entries: &[(String, String)],
+    serializer: S,
+) -> Result<S::Ok, S::Error> {
+    use serde::ser::SerializeMap;
+    let mut map = serializer.serialize_map(Some(entries.len()))?;
+    for (k, v) in entries {
+        map.serialize_entry(k, v)?;
+    }
+    map.end()
 }
 
 impl VerdictRecord {
@@ -317,14 +347,29 @@ impl VerdictRecordBuilder {
 }
 
 /// Functional dimension of a verdict: success/failure counts and pass rate.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct FunctionalDimension {
     successes: u32,
     failures: u32,
     pass_rate: f64,
+    #[serde(serialize_with = "serialize_string_u32_pairs")]
     failure_distribution: Vec<(String, u32)>,
     conformance_mismatches: u32,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
     example_mismatches: Vec<String>,
+}
+
+fn serialize_string_u32_pairs<S: serde::Serializer>(
+    pairs: &[(String, u32)],
+    serializer: S,
+) -> Result<S::Ok, S::Error> {
+    use serde::ser::SerializeMap;
+    let mut map = serializer.serialize_map(Some(pairs.len()))?;
+    for (k, v) in pairs {
+        map.serialize_entry(k, v)?;
+    }
+    map.end()
 }
 
 impl FunctionalDimension {
@@ -397,7 +442,8 @@ impl FunctionalDimension {
 }
 
 /// Statistical analysis attached to a verdict.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct StatisticalAnalysis {
     confidence_level: f64,
     standard_error: f64,
@@ -405,7 +451,9 @@ pub struct StatisticalAnalysis {
     ci_upper: f64,
     threshold: f64,
     threshold_origin: ThresholdOrigin,
+    #[serde(skip_serializing_if = "Option::is_none")]
     test_statistic: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     p_value: Option<f64>,
 }
 
@@ -494,12 +542,34 @@ impl StatisticalAnalysis {
 /// When no covariates are declared, both profiles are empty and `aligned`
 /// is `true`. When covariates are declared but all values match, `aligned`
 /// is `true` and `misalignments` is empty.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct CovariateStatus {
     aligned: bool,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
     misalignments: Vec<Misalignment>,
+    #[serde(
+        skip_serializing_if = "Vec::is_empty",
+        serialize_with = "serialize_string_string_pairs"
+    )]
     baseline_profile: Vec<(String, String)>,
+    #[serde(
+        skip_serializing_if = "Vec::is_empty",
+        serialize_with = "serialize_string_string_pairs"
+    )]
     observed_profile: Vec<(String, String)>,
+}
+
+fn serialize_string_string_pairs<S: serde::Serializer>(
+    pairs: &[(String, String)],
+    serializer: S,
+) -> Result<S::Ok, S::Error> {
+    use serde::ser::SerializeMap;
+    let mut map = serializer.serialize_map(Some(pairs.len()))?;
+    for (k, v) in pairs {
+        map.serialize_entry(k, v)?;
+    }
+    map.end()
 }
 
 impl CovariateStatus {
@@ -556,7 +626,8 @@ impl CovariateStatus {
 }
 
 /// A single covariate key whose baseline and observed values differ.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Misalignment {
     key: String,
     baseline_value: String,
@@ -602,7 +673,8 @@ impl Misalignment {
 /// Carries enough data to render the baseline provenance block in the
 /// console output: which file, when it was generated, and the key
 /// statistical parameters.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct BaselineProvenance {
     source_file: String,
     generated_at: String,
@@ -662,11 +734,15 @@ impl BaselineProvenance {
 }
 
 /// Provenance of the baseline spec used for threshold derivation.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SpecProvenance {
+    #[serde(skip_serializing_if = "Option::is_none")]
     spec_filename: Option<String>,
     threshold_origin: ThresholdOrigin,
+    #[serde(skip_serializing_if = "Option::is_none")]
     contract_ref: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     expiration: Option<ExpirationInfo>,
 }
 

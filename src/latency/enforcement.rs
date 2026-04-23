@@ -1,5 +1,6 @@
 //! Enforcement mode for baseline-derived latency thresholds.
 
+use serde::{Serialize, Serializer};
 use std::env;
 
 /// Policy for baseline-derived latency thresholds.
@@ -17,6 +18,15 @@ pub enum LatencyEnforcementMode {
     Advisory,
     /// Violations fail the verdict.
     Strict,
+}
+
+impl Serialize for LatencyEnforcementMode {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(match self {
+            Self::Advisory => "ADVISORY",
+            Self::Strict => "STRICT",
+        })
+    }
 }
 
 /// Environment variable consulted when no builder setting is provided.

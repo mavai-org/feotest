@@ -1,0 +1,51 @@
+---
+source: tests/verdict_serde.rs
+assertion_line: 86
+expression: "serde_json::to_value(&record).unwrap()"
+---
+{
+  "covariateStatus": {
+    "aligned": false,
+    "baselineProfile": {
+      "model": "gpt-4o"
+    },
+    "misalignments": [
+      {
+        "baselineValue": "gpt-4o",
+        "key": "model",
+        "observedValue": "gpt-3.5"
+      }
+    ],
+    "observedProfile": {
+      "model": "gpt-3.5"
+    }
+  },
+  "execution": {
+    "cost": {
+      "samplesExecuted": 100,
+      "totalTimeMs": 500,
+      "totalTokens": 1234
+    },
+    "failures": 5,
+    "samplesExecuted": 100,
+    "samplesPlanned": 100,
+    "successes": 95,
+    "termination": {
+      "reason": "COMPLETED"
+    }
+  },
+  "functional": {
+    "conformanceMismatches": 0,
+    "failureDistribution": {},
+    "failures": 15,
+    "passRate": 0.85,
+    "successes": 85
+  },
+  "identity": {
+    "testName": "accurate_enough",
+    "useCaseId": "classifier"
+  },
+  "intent": "VERIFICATION",
+  "verdict": "INCONCLUSIVE",
+  "verdictReason": "covariate misalignment"
+}

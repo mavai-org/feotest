@@ -5,7 +5,7 @@
 
 mod outcome;
 mod sample;
-mod types;
+pub(crate) mod types;
 
 pub use outcome::{ContractViolation, Outcome, TrialOutcome};
 pub use sample::SampleAggregate;

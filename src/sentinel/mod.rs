@@ -47,6 +47,7 @@ pub mod content;
 pub mod embedded;
 pub mod resolver;
 pub mod runner;
+pub mod sinks;
 
 pub use content::{
     ContentDescriptor, ContentInvoker, ContentKind, MeasureExperimentConfig,
@@ -58,6 +59,11 @@ pub use resolver::{
     baseline_output_from_env, baseline_source_from_env, resolve_baseline,
 };
 pub use runner::{SentinelOutcome, SentinelResult, SentinelRunner, run_cli};
+pub use sinks::{
+    CompositeVerdictSink, ConsoleVerdictSink, FileVerdictSink, SinkError, VerdictSink,
+};
+#[cfg(feature = "webhook")]
+pub use sinks::{WebhookVerdictSink, WebhookVerdictSinkBuilder};
 
 /// The authoring contract every `#[sentinel]`-annotated struct satisfies.
 ///
