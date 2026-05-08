@@ -60,7 +60,7 @@ pub fn estimate(successes: u32, trials: u32, confidence: ConfidenceLevel) -> Pro
     ProportionEstimate::new(p_hat, trials, lower, upper, confidence)
 }
 
-/// Computes the one-sided Wilson lower bound.
+/// Computes the one-sided Wilson lower bound from discrete counts.
 ///
 /// This is the critical function for threshold derivation: it gives the
 /// lowest plausible success rate at the given confidence level. Uses
@@ -72,9 +72,30 @@ pub fn estimate(successes: u32, trials: u32, confidence: ConfidenceLevel) -> Pro
 #[must_use]
 pub fn lower_bound(successes: u32, trials: u32, confidence: ConfidenceLevel) -> f64 {
     assert_valid_successes_trials(successes, trials);
+    let p_hat = f64::from(successes) / f64::from(trials);
+    lower_bound_from_rate(p_hat, trials, confidence)
+}
+
+/// Computes the one-sided Wilson lower bound from a continuous rate.
+///
+/// Same Wilson formula as [`lower_bound`], but takes a continuous
+/// proportion `p_hat` rather than discrete successes. Used by the
+/// two-step threshold construction (statistical companion §4.3.2),
+/// where the second step needs to apply Wilson at `n_test` with a
+/// rate already derived from the baseline.
+///
+/// # Panics
+///
+/// Panics if `trials` is zero or `p_hat` is not in `[0, 1]`.
+#[must_use]
+pub fn lower_bound_from_rate(p_hat: f64, trials: u32, confidence: ConfidenceLevel) -> f64 {
+    assert!(trials > 0, "trials must be positive");
+    assert!(
+        (0.0..=1.0).contains(&p_hat),
+        "p_hat must be in [0, 1], got {p_hat}"
+    );
 
     let n = f64::from(trials);
-    let p_hat = f64::from(successes) / n;
     let z = z_score_one_sided(confidence);
     let z2 = z * z;
 

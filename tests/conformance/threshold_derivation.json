@@ -1,7 +1,7 @@
 {
   "suite": "threshold_derivation",
-  "description": "Threshold derivation via sample-size-first and threshold-first approaches",
-  "method": "Wilson lower bound (sample-size-first); binary search for implied confidence (threshold-first)",
+  "description": "Threshold derivation per the statistical companion: §3.4 for the general case, §4.3.2 for the perfect-baseline two-step, §6.3 for threshold-first inversion. The threshold is the one-sided Wilson lower bound at the *test* sample size; smaller test samples lower the threshold (§3.5).",
+  "method": "Wilson lower bound at test sample size (§3.4 / §4.3.2); binary search for implied confidence (§6.3)",
   "tolerance": 1e-06,
   "cases": [
     {
@@ -14,7 +14,7 @@
         "confidence": 0.95
       },
       "expected": {
-        "threshold": 0.900838914720947
+        "threshold": 0.872384625855458
       }
     },
     {
@@ -27,7 +27,7 @@
         "confidence": 0.95
       },
       "expected": {
-        "threshold": 0.937399796580391
+        "threshold": 0.900838914720947
       }
     },
     {
@@ -40,7 +40,46 @@
         "confidence": 0.95
       },
       "expected": {
-        "threshold": 0.973657279216826
+        "threshold": 0.905664335522471
+      }
+    },
+    {
+      "name": "ssf_perfect_baseline_n1000_test100_95pct",
+      "approach": "sample_size_first",
+      "inputs": {
+        "baseline_successes": 1000,
+        "baseline_trials": 1000,
+        "test_samples": 100,
+        "confidence": 0.95
+      },
+      "expected": {
+        "threshold": 0.968628914619744
+      }
+    },
+    {
+      "name": "ssf_950_of_1000_test50_95pct",
+      "approach": "sample_size_first",
+      "inputs": {
+        "baseline_successes": 950,
+        "baseline_trials": 1000,
+        "test_samples": 50,
+        "confidence": 0.95
+      },
+      "expected": {
+        "threshold": 0.872384625855458
+      }
+    },
+    {
+      "name": "ssf_950_of_1000_test200_95pct",
+      "approach": "sample_size_first",
+      "inputs": {
+        "baseline_successes": 950,
+        "baseline_trials": 1000,
+        "test_samples": 200,
+        "confidence": 0.95
+      },
+      "expected": {
+        "threshold": 0.918108167081791
       }
     },
     {
@@ -53,15 +92,16 @@
         "confidence": 0.99
       },
       "expected": {
-        "threshold": 0.872376803787502
+        "threshold": 0.824989729472328
       }
     },
     {
-      "name": "tf_baseline_95pct_threshold_90",
+      "name": "tf_baseline_95pct_test100_threshold_90",
       "approach": "threshold_first",
       "inputs": {
         "baseline_successes": 95,
         "baseline_trials": 100,
+        "test_samples": 100,
         "threshold": 0.9
       },
       "expected": {
@@ -70,11 +110,12 @@
       }
     },
     {
-      "name": "tf_baseline_95pct_threshold_85",
+      "name": "tf_baseline_95pct_test100_threshold_85",
       "approach": "threshold_first",
       "inputs": {
         "baseline_successes": 95,
         "baseline_trials": 100,
+        "test_samples": 100,
         "threshold": 0.85
       },
       "expected": {
@@ -83,11 +124,12 @@
       }
     },
     {
-      "name": "tf_baseline_95pct_threshold_94",
+      "name": "tf_baseline_95pct_test100_threshold_94",
       "approach": "threshold_first",
       "inputs": {
         "baseline_successes": 95,
         "baseline_trials": 100,
+        "test_samples": 100,
         "threshold": 0.94
       },
       "expected": {
