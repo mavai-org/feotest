@@ -1,0 +1,68 @@
+{
+  "suite": "latency_threshold_bootstrap",
+  "description": "Bootstrap vs. binomial order-statistic upper bound comparison (informational)",
+  "method": "10,000-replicate percentile bootstrap (type-1 quantile) vs. exact binomial rank",
+  "tolerance": 0,
+  "cases": [
+    {
+      "name": "lognormal_n200_p95",
+      "inputs": {
+        "n": 200,
+        "p": 0.95,
+        "confidence": 0.95
+      },
+      "expected": {
+        "point_estimate": 356,
+        "binomial_bound": 419,
+        "binomial_rank": 196,
+        "bootstrap_upper": 393,
+        "diff": 26
+      }
+    },
+    {
+      "name": "lognormal_n200_p99",
+      "inputs": {
+        "n": 200,
+        "p": 0.99,
+        "confidence": 0.95
+      },
+      "expected": {
+        "point_estimate": 448,
+        "binomial_bound": 589,
+        "binomial_rank": 200,
+        "bootstrap_upper": 589,
+        "diff": 0
+      }
+    },
+    {
+      "name": "lognormal_n935_p95",
+      "inputs": {
+        "n": 935,
+        "p": 0.95,
+        "confidence": 0.95
+      },
+      "expected": {
+        "point_estimate": 787,
+        "binomial_bound": 812,
+        "binomial_rank": 900,
+        "bootstrap_upper": 810,
+        "diff": 2
+      }
+    },
+    {
+      "name": "lognormal_n935_p99",
+      "inputs": {
+        "n": 935,
+        "p": 0.99,
+        "confidence": 0.95
+      },
+      "expected": {
+        "point_estimate": 980,
+        "binomial_bound": 1125,
+        "binomial_rank": 931,
+        "bootstrap_upper": 1098,
+        "diff": 27
+      }
+    }
+  ]
+}
