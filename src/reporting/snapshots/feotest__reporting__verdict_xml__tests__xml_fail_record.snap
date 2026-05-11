@@ -1,6 +1,5 @@
 ---
 source: src/reporting/verdict_xml.rs
-assertion_line: 698
 expression: xml
 ---
 <?xml version="1.0" encoding="UTF-8"?>
@@ -13,7 +12,7 @@ expression: xml
       <check name="content" count="8"/>
     </failure-distribution>
   </functional>
-  <statistics confidence-level="0.9500" standard-error="0.0400" ci-lower="0.7220" ci-upper="0.8780" threshold="0.9000" threshold-origin="EMPIRICAL" test-statistic="-1.5000" p-value="0.9330"/>
+  <statistics confidence-level="0.9500" standard-error="0.0400" wilson-lower="0.7220" threshold="0.9000" threshold-origin="EMPIRICAL" test-statistic="-1.5000" p-value="0.9330"/>
   <covariates aligned="true"/>
   <termination reason="COMPLETED"/>
   <cost total-time-ms="500" total-tokens="1000" avg-time-per-sample-ms="5" avg-tokens-per-sample="10"/>

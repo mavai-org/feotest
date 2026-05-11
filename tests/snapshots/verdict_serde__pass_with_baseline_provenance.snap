@@ -1,6 +1,5 @@
 ---
 source: tests/verdict_serde.rs
-assertion_line: 129
 expression: "serde_json::to_value(&record).unwrap()"
 ---
 {
@@ -54,12 +53,11 @@ expression: "serde_json::to_value(&record).unwrap()"
     "thresholdOrigin": "EMPIRICAL"
   },
   "statisticalAnalysis": {
-    "ciLower": 0.907,
-    "ciUpper": 0.993,
     "confidenceLevel": 0.95,
     "standardError": 0.022,
     "threshold": 0.9,
-    "thresholdOrigin": "EMPIRICAL"
+    "thresholdOrigin": "EMPIRICAL",
+    "wilsonLower": 0.907
   },
   "verdict": "PASS",
   "verdictReason": "0.9500 >= 0.9000"

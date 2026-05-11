@@ -1,6 +1,5 @@
 ---
 source: src/reporting/transparent.rs
-assertion_line: 530
 expression: buf
 ---
 ║═════════════════════════════════════════════════════════════║
@@ -24,7 +23,7 @@ expression: buf
 ║   (computed sample size: 100)                               ║
 ║ z-statistic:          -1.500                                ║
 ║ p-value:              0.933                                 ║
-║ CI [95%]:       [0.722, 0.878]                              ║
+║ Wilson lower [95%]: 0.722                                   ║
 ║ Standard error:       0.040                                 ║
 ║─────────────────────────────────────────────────────────────║
 ║ VERDICT                                                     ║

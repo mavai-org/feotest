@@ -1,6 +1,5 @@
 ---
 source: src/reporting/console.rs
-assertion_line: 580
 expression: output
 ---
 ═ VERDICT: PASS (0.9600 >= 0.9000) ═
@@ -9,7 +8,7 @@ Test:                my-service
 Pass rate:           0.9600 (96/100 samples)
 Threshold:           0.9000
 Confidence:          0.9500
-CI:                  [0.9070, 0.9930]
+Wilson lower:        0.9070
 
 Baseline:            my-service.yaml
                      (measured 2026-03-27, 200 samples, minPassRate=0.9000)

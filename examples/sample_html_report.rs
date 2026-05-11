@@ -35,9 +35,8 @@ fn execution(
 }
 
 fn full_pass_record() -> VerdictRecord {
-    let analysis =
-        StatisticalAnalysis::new(0.95, 0.014, 0.932, 0.988, 0.920, ThresholdOrigin::Empirical)
-            .with_test_results(3.14, 0.001);
+    let analysis = StatisticalAnalysis::new(0.95, 0.014, 0.932, 0.920, ThresholdOrigin::Empirical)
+        .with_test_results(3.14, 0.001);
 
     let provenance = SpecProvenance::new(ThresholdOrigin::Empirical)
         .with_spec_filename("translation-service.yaml")
@@ -98,7 +97,7 @@ fn full_pass_record() -> VerdictRecord {
 }
 
 fn fail_record() -> VerdictRecord {
-    let analysis = StatisticalAnalysis::new(0.95, 0.040, 0.722, 0.878, 0.900, ThresholdOrigin::Sla)
+    let analysis = StatisticalAnalysis::new(0.95, 0.040, 0.722, 0.900, ThresholdOrigin::Sla)
         .with_test_results(-1.50, 0.933);
 
     let provenance = SpecProvenance::new(ThresholdOrigin::Sla)
@@ -160,9 +159,8 @@ fn fail_record() -> VerdictRecord {
 }
 
 fn inconclusive_covariate_record() -> VerdictRecord {
-    let analysis =
-        StatisticalAnalysis::new(0.95, 0.031, 0.838, 0.962, 0.850, ThresholdOrigin::Empirical)
-            .with_test_results(1.61, 0.054);
+    let analysis = StatisticalAnalysis::new(0.95, 0.031, 0.838, 0.850, ThresholdOrigin::Empirical)
+        .with_test_results(1.61, 0.054);
 
     let provenance = SpecProvenance::new(ThresholdOrigin::Empirical)
         .with_spec_filename("sentiment-analyser.yaml");

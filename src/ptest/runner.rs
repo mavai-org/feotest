@@ -561,23 +561,22 @@ fn build_analysis(
 ) -> StatisticalAnalysis {
     let confidence_level = derived_threshold.context().confidence().value();
 
-    let (se, ci_lower, ci_upper) = if summary.samples_executed() > 0 {
+    let (se, wilson_lower) = if summary.samples_executed() > 0 {
         let se = proportion::standard_error(summary.successes(), summary.samples_executed());
-        let estimate = proportion::estimate(
+        let lower = proportion::lower_bound(
             summary.successes(),
             summary.samples_executed(),
             derived_threshold.context().confidence(),
         );
-        (se, estimate.lower_bound(), estimate.upper_bound())
+        (se, lower)
     } else {
-        (0.0, 0.0, 0.0)
+        (0.0, 0.0)
     };
 
     let mut analysis = StatisticalAnalysis::new(
         confidence_level,
         se,
-        ci_lower,
-        ci_upper,
+        wilson_lower,
         derived_threshold.value(),
         threshold_origin,
     );

@@ -137,9 +137,9 @@ impl JunitXmlWriter {
         if let Some(stats) = verdict.statistical_analysis() {
             lines.push(format!("Threshold: {:.4}", stats.threshold()));
             lines.push(format!(
-                "CI 95%: [{:.4}, {:.4}]",
-                stats.ci_lower(),
-                stats.ci_upper()
+                "Wilson lower [{:.0}%]: {:.4}",
+                stats.confidence_level() * 100.0,
+                stats.wilson_lower()
             ));
             if let Some(p) = stats.p_value() {
                 lines.push(format!("p-value: {p:.4}"));
@@ -162,11 +162,7 @@ impl JunitXmlWriter {
                 stats.confidence_level() * 100.0
             ));
             lines.push(format!("SE: {:.4}", stats.standard_error()));
-            lines.push(format!(
-                "CI: [{:.4}, {:.4}]",
-                stats.ci_lower(),
-                stats.ci_upper()
-            ));
+            lines.push(format!("Wilson lower: {:.4}", stats.wilson_lower()));
             lines.push(format!(
                 "Threshold: {:.4} ({})",
                 stats.threshold(),
@@ -249,7 +245,6 @@ mod tests {
             0.95,
             0.0458,
             0.6071,
-            0.7929,
             0.80,
             ThresholdOrigin::Empirical,
         ))
@@ -342,15 +337,9 @@ mod tests {
 
     #[test]
     fn system_out_includes_statistical_details() {
-        let analysis = StatisticalAnalysis::new(
-            0.95,
-            0.0458,
-            0.6071,
-            0.7929,
-            0.80,
-            ThresholdOrigin::Empirical,
-        )
-        .with_test_results(-2.18, 0.985);
+        let analysis =
+            StatisticalAnalysis::new(0.95, 0.0458, 0.6071, 0.80, ThresholdOrigin::Empirical)
+                .with_test_results(-2.18, 0.985);
 
         let provenance = crate::verdict::SpecProvenance::new(ThresholdOrigin::Empirical)
             .with_spec_filename("my-service.yaml")
@@ -421,7 +410,6 @@ mod tests {
             0.95,
             0.158,
             0.204,
-            0.796,
             0.80,
             ThresholdOrigin::Sla,
         ))
