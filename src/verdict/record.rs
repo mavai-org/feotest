@@ -447,8 +447,7 @@ impl FunctionalDimension {
 pub struct StatisticalAnalysis {
     confidence_level: f64,
     standard_error: f64,
-    ci_lower: f64,
-    ci_upper: f64,
+    wilson_lower: f64,
     threshold: f64,
     threshold_origin: ThresholdOrigin,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -463,16 +462,14 @@ impl StatisticalAnalysis {
     pub const fn new(
         confidence_level: f64,
         standard_error: f64,
-        ci_lower: f64,
-        ci_upper: f64,
+        wilson_lower: f64,
         threshold: f64,
         threshold_origin: ThresholdOrigin,
     ) -> Self {
         Self {
             confidence_level,
             standard_error,
-            ci_lower,
-            ci_upper,
+            wilson_lower,
             threshold,
             threshold_origin,
             test_statistic: None,
@@ -500,16 +497,14 @@ impl StatisticalAnalysis {
         self.standard_error
     }
 
-    /// Lower bound of the confidence interval.
+    /// Wilson one-sided lower bound at the verdict's confidence level.
+    ///
+    /// The verdict path is left-tailed (degradation only); the upper
+    /// bound carries no operational meaning here and is therefore not
+    /// retained.
     #[must_use]
-    pub const fn ci_lower(&self) -> f64 {
-        self.ci_lower
-    }
-
-    /// Upper bound of the confidence interval.
-    #[must_use]
-    pub const fn ci_upper(&self) -> f64 {
-        self.ci_upper
+    pub const fn wilson_lower(&self) -> f64 {
+        self.wilson_lower
     }
 
     /// The threshold used for the verdict.
@@ -879,15 +874,9 @@ mod tests {
 
     #[test]
     fn builds_full_verdict_record() {
-        let analysis = StatisticalAnalysis::new(
-            0.95,
-            0.0218,
-            0.9073,
-            0.9927,
-            0.90,
-            ThresholdOrigin::Empirical,
-        )
-        .with_test_results(2.29, 0.011);
+        let analysis =
+            StatisticalAnalysis::new(0.95, 0.0218, 0.9073, 0.90, ThresholdOrigin::Empirical)
+                .with_test_results(2.29, 0.011);
 
         let provenance = SpecProvenance::new(ThresholdOrigin::Empirical)
             .with_spec_filename("shopping-basket.yaml")
@@ -948,7 +937,6 @@ mod tests {
             0.95,
             0.022,
             0.907,
-            0.993,
             0.900,
             ThresholdOrigin::Empirical,
         ))
@@ -970,7 +958,6 @@ mod tests {
             0.95,
             0.040,
             0.722,
-            0.878,
             0.900,
             ThresholdOrigin::Empirical,
         ))

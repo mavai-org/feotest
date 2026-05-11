@@ -189,8 +189,8 @@ fn render_pass_rate(record: &VerdictRecord, writer: &mut dyn fmt::Write) -> fmt:
         )?;
         label_value(
             writer,
-            "CI:",
-            &format!("[{:.4}, {:.4}]", analysis.ci_lower(), analysis.ci_upper()),
+            "Wilson lower:",
+            &format!("{:.4}", analysis.wilson_lower()),
         )?;
     }
 
@@ -418,7 +418,7 @@ mod tests {
 
     fn pass_record() -> VerdictRecord {
         let analysis =
-            StatisticalAnalysis::new(0.95, 0.022, 0.907, 0.993, 0.900, ThresholdOrigin::Empirical)
+            StatisticalAnalysis::new(0.95, 0.022, 0.907, 0.900, ThresholdOrigin::Empirical)
                 .with_test_results(2.294, 0.011);
         let provenance =
             SpecProvenance::new(ThresholdOrigin::Empirical).with_spec_filename("my-service.yaml");
@@ -445,7 +445,7 @@ mod tests {
 
     fn fail_record() -> VerdictRecord {
         let analysis =
-            StatisticalAnalysis::new(0.95, 0.040, 0.722, 0.878, 0.900, ThresholdOrigin::Empirical)
+            StatisticalAnalysis::new(0.95, 0.040, 0.722, 0.900, ThresholdOrigin::Empirical)
                 .with_test_results(-1.500, 0.933);
         let provenance =
             SpecProvenance::new(ThresholdOrigin::Empirical).with_spec_filename("my-service.yaml");
@@ -593,7 +593,7 @@ mod tests {
             FunctionalDimension::new(20, 22, vec![]),
         )
         .statistical_analysis(
-            StatisticalAnalysis::new(0.95, 0.077, 0.342, 0.658, 0.900, ThresholdOrigin::Empirical)
+            StatisticalAnalysis::new(0.95, 0.077, 0.342, 0.900, ThresholdOrigin::Empirical)
                 .with_test_results(-5.195, 1.000),
         )
         .spec_provenance(SpecProvenance::new(ThresholdOrigin::Empirical))

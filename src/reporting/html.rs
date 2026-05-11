@@ -150,7 +150,7 @@ mod tests {
 
     fn pass_record() -> VerdictRecord {
         let analysis =
-            StatisticalAnalysis::new(0.95, 0.022, 0.907, 0.993, 0.900, ThresholdOrigin::Empirical)
+            StatisticalAnalysis::new(0.95, 0.022, 0.907, 0.900, ThresholdOrigin::Empirical)
                 .with_test_results(2.294, 0.011);
         let provenance =
             SpecProvenance::new(ThresholdOrigin::Empirical).with_spec_filename("my-service.yaml");
@@ -179,7 +179,6 @@ mod tests {
             0.95,
             0.040,
             0.722,
-            0.878,
             0.900,
             ThresholdOrigin::Empirical,
         ))

@@ -42,7 +42,7 @@ fn pass_with_baseline_renders_all_sections() {
     assert!(output.contains("Pass rate:"));
     assert!(output.contains("Threshold:"));
     assert!(output.contains("Confidence:"));
-    assert!(output.contains("CI:"));
+    assert!(output.contains("Wilson lower:"));
     assert!(output.contains("Baseline:"));
     assert!(output.contains("cr-pass-full.yaml"));
     assert!(output.contains("minPassRate="));

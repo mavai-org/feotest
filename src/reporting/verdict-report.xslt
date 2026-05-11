@@ -327,11 +327,9 @@
         <pre class="level3">
           <xsl:text>Confidence level: </xsl:text>
           <xsl:value-of select="v:statistics/@confidence-level"/>
-          <xsl:text>&#10;CI bounds: [</xsl:text>
-          <xsl:value-of select="v:statistics/@ci-lower"/>
-          <xsl:text>, </xsl:text>
-          <xsl:value-of select="v:statistics/@ci-upper"/>
-          <xsl:text>]&#10;</xsl:text>
+          <xsl:text>&#10;Wilson lower: </xsl:text>
+          <xsl:value-of select="v:statistics/@wilson-lower"/>
+          <xsl:text>&#10;</xsl:text>
           <xsl:text>Standard error: </xsl:text>
           <xsl:value-of select="v:statistics/@standard-error"/>
           <xsl:text>&#10;Threshold: </xsl:text>

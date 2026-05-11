@@ -271,8 +271,7 @@ fn write_statistics(w: &mut String, record: &VerdictRecord) {
     write!(w, "  <statistics").unwrap();
     write!(w, " confidence-level=\"{:.4}\"", stats.confidence_level()).unwrap();
     write!(w, " standard-error=\"{:.4}\"", stats.standard_error()).unwrap();
-    write!(w, " ci-lower=\"{:.4}\"", stats.ci_lower()).unwrap();
-    write!(w, " ci-upper=\"{:.4}\"", stats.ci_upper()).unwrap();
+    write!(w, " wilson-lower=\"{:.4}\"", stats.wilson_lower()).unwrap();
     write!(w, " threshold=\"{:.4}\"", stats.threshold()).unwrap();
     write!(w, " threshold-origin=\"{}\"", stats.threshold_origin()).unwrap();
     if let Some(z) = stats.test_statistic() {
@@ -521,7 +520,7 @@ mod tests {
 
     fn pass_record() -> VerdictRecord {
         let analysis =
-            StatisticalAnalysis::new(0.95, 0.022, 0.907, 0.993, 0.900, ThresholdOrigin::Empirical)
+            StatisticalAnalysis::new(0.95, 0.022, 0.907, 0.900, ThresholdOrigin::Empirical)
                 .with_test_results(2.294, 0.011);
         let provenance =
             SpecProvenance::new(ThresholdOrigin::Empirical).with_spec_filename("my-service.yaml");
@@ -548,7 +547,7 @@ mod tests {
 
     fn fail_record() -> VerdictRecord {
         let analysis =
-            StatisticalAnalysis::new(0.95, 0.040, 0.722, 0.878, 0.900, ThresholdOrigin::Empirical)
+            StatisticalAnalysis::new(0.95, 0.040, 0.722, 0.900, ThresholdOrigin::Empirical)
                 .with_test_results(-1.500, 0.933);
 
         VerdictRecord::builder(
@@ -593,7 +592,7 @@ mod tests {
 
     fn record_with_latency() -> VerdictRecord {
         let analysis =
-            StatisticalAnalysis::new(0.95, 0.022, 0.907, 0.993, 0.900, ThresholdOrigin::Empirical)
+            StatisticalAnalysis::new(0.95, 0.022, 0.907, 0.900, ThresholdOrigin::Empirical)
                 .with_test_results(2.294, 0.011);
 
         let latency = LatencyDimension::from_parts(
@@ -845,7 +844,7 @@ mod tests {
         let pacing_summary = PacingSummary::from_config(&pacing_config);
 
         let analysis =
-            StatisticalAnalysis::new(0.95, 0.022, 0.907, 0.993, 0.900, ThresholdOrigin::Empirical)
+            StatisticalAnalysis::new(0.95, 0.022, 0.907, 0.900, ThresholdOrigin::Empirical)
                 .with_test_results(2.294, 0.011);
 
         let provenance = SpecProvenance::new(ThresholdOrigin::Empirical)

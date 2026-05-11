@@ -36,9 +36,8 @@ fn sample_execution(
 }
 
 fn pass_record() -> VerdictRecord {
-    let analysis =
-        StatisticalAnalysis::new(0.95, 0.022, 0.907, 0.993, 0.900, ThresholdOrigin::Empirical)
-            .with_test_results(2.294, 0.011);
+    let analysis = StatisticalAnalysis::new(0.95, 0.022, 0.907, 0.900, ThresholdOrigin::Empirical)
+        .with_test_results(2.294, 0.011);
     let provenance =
         SpecProvenance::new(ThresholdOrigin::Empirical).with_spec_filename("my-service.yaml");
 
@@ -55,9 +54,8 @@ fn pass_record() -> VerdictRecord {
 }
 
 fn fail_record() -> VerdictRecord {
-    let analysis =
-        StatisticalAnalysis::new(0.95, 0.040, 0.722, 0.878, 0.900, ThresholdOrigin::Empirical)
-            .with_test_results(-1.500, 0.933);
+    let analysis = StatisticalAnalysis::new(0.95, 0.040, 0.722, 0.900, ThresholdOrigin::Empirical)
+        .with_test_results(-1.500, 0.933);
 
     VerdictRecord::builder(
         TestIdentity::new("payment-service").with_test_name("test_payment_accuracy"),

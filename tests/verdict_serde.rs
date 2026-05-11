@@ -53,7 +53,7 @@ fn fail_verdict_with_distribution_and_warnings() {
             .conformance(3, vec!["diff-1".into(), "diff-2".into()]),
     )
     .statistical_analysis(
-        StatisticalAnalysis::new(0.95, 0.04, 0.722, 0.878, 0.90, ThresholdOrigin::Empirical)
+        StatisticalAnalysis::new(0.95, 0.04, 0.722, 0.90, ThresholdOrigin::Empirical)
             .with_test_results(2.29, 0.011),
     )
     .warning(Warning::new("BASELINE_EXPIRED", "Baseline is 45 days old"))
@@ -101,7 +101,6 @@ fn pass_verdict_with_baseline_provenance_and_spec_provenance() {
         0.95,
         0.022,
         0.907,
-        0.993,
         0.90,
         ThresholdOrigin::Empirical,
     ))

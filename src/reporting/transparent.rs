@@ -267,14 +267,13 @@ fn write_observed_data(
             write_line(w, &format!("p-value:              {p:.3}"))?;
         }
 
-        // Confidence interval
+        // Wilson one-sided lower bound at the verdict's confidence level
         write_line(
             w,
             &format!(
-                "CI [{:.0}%]:       [{:.3}, {:.3}]",
+                "Wilson lower [{:.0}%]: {:.3}",
                 analysis.confidence_level() * 100.0,
-                analysis.ci_lower(),
-                analysis.ci_upper(),
+                analysis.wilson_lower(),
             ),
         )?;
 
@@ -478,7 +477,7 @@ mod tests {
 
     fn pass_record() -> VerdictRecord {
         let analysis =
-            StatisticalAnalysis::new(0.95, 0.022, 0.907, 0.993, 0.900, ThresholdOrigin::Empirical)
+            StatisticalAnalysis::new(0.95, 0.022, 0.907, 0.900, ThresholdOrigin::Empirical)
                 .with_test_results(2.294, 0.011);
         let provenance =
             SpecProvenance::new(ThresholdOrigin::Empirical).with_spec_filename("my-service.yaml");
@@ -497,7 +496,7 @@ mod tests {
 
     fn fail_record() -> VerdictRecord {
         let analysis =
-            StatisticalAnalysis::new(0.95, 0.040, 0.722, 0.878, 0.900, ThresholdOrigin::Empirical)
+            StatisticalAnalysis::new(0.95, 0.040, 0.722, 0.900, ThresholdOrigin::Empirical)
                 .with_test_results(-1.500, 0.933);
         let provenance =
             SpecProvenance::new(ThresholdOrigin::Empirical).with_spec_filename("my-service.yaml");
@@ -584,9 +583,8 @@ mod tests {
 
     #[test]
     fn smoke_intent_label() {
-        let analysis =
-            StatisticalAnalysis::new(0.95, 0.022, 0.907, 0.993, 0.900, ThresholdOrigin::Sla)
-                .with_test_results(2.294, 0.011);
+        let analysis = StatisticalAnalysis::new(0.95, 0.022, 0.907, 0.900, ThresholdOrigin::Sla)
+            .with_test_results(2.294, 0.011);
         let provenance =
             SpecProvenance::new(ThresholdOrigin::Sla).with_contract_ref("API SLA v3.2 §2.1");
 
@@ -624,7 +622,7 @@ mod tests {
             FunctionalDimension::new(20, 22, vec![]),
         )
         .statistical_analysis(
-            StatisticalAnalysis::new(0.95, 0.077, 0.342, 0.658, 0.900, ThresholdOrigin::Empirical)
+            StatisticalAnalysis::new(0.95, 0.077, 0.342, 0.900, ThresholdOrigin::Empirical)
                 .with_test_results(-5.195, 1.000),
         )
         .spec_provenance(SpecProvenance::new(ThresholdOrigin::Empirical))
@@ -649,7 +647,7 @@ mod tests {
             FunctionalDimension::new(58, 2, vec![]),
         )
         .statistical_analysis(
-            StatisticalAnalysis::new(0.95, 0.025, 0.918, 0.998, 0.900, ThresholdOrigin::Empirical)
+            StatisticalAnalysis::new(0.95, 0.025, 0.918, 0.900, ThresholdOrigin::Empirical)
                 .with_test_results(3.867, 0.000),
         )
         .spec_provenance(SpecProvenance::new(ThresholdOrigin::Empirical))
@@ -666,9 +664,8 @@ mod tests {
 
     #[test]
     fn feasibility_warning() {
-        let analysis =
-            StatisticalAnalysis::new(0.95, 0.075, 0.753, 1.000, 0.950, ThresholdOrigin::Sla)
-                .with_test_results(0.667, 0.252);
+        let analysis = StatisticalAnalysis::new(0.95, 0.075, 0.753, 0.950, ThresholdOrigin::Sla)
+            .with_test_results(0.667, 0.252);
         let provenance = SpecProvenance::new(ThresholdOrigin::Sla);
 
         let record = VerdictRecord::builder(
@@ -697,9 +694,8 @@ mod tests {
 
     #[test]
     fn contract_ref_present() {
-        let analysis =
-            StatisticalAnalysis::new(0.95, 0.022, 0.907, 0.993, 0.900, ThresholdOrigin::Sla)
-                .with_test_results(2.294, 0.011);
+        let analysis = StatisticalAnalysis::new(0.95, 0.022, 0.907, 0.900, ThresholdOrigin::Sla)
+            .with_test_results(2.294, 0.011);
         let provenance = SpecProvenance::new(ThresholdOrigin::Sla)
             .with_spec_filename("payment-gateway.yaml")
             .with_contract_ref("API SLA v3.2 §2.1");
@@ -729,7 +725,7 @@ mod tests {
     #[test]
     fn contract_ref_absent() {
         let analysis =
-            StatisticalAnalysis::new(0.95, 0.022, 0.907, 0.993, 0.900, ThresholdOrigin::Empirical)
+            StatisticalAnalysis::new(0.95, 0.022, 0.907, 0.900, ThresholdOrigin::Empirical)
                 .with_test_results(2.294, 0.011);
         let provenance =
             SpecProvenance::new(ThresholdOrigin::Empirical).with_spec_filename("my-service.yaml");
@@ -793,15 +789,14 @@ mod tests {
         assert!(buf.contains("0.900")); // threshold
         assert!(buf.contains("2.294")); // z-statistic
         assert!(buf.contains("0.011")); // p-value
-        assert!(buf.contains("0.907")); // CI lower
-        assert!(buf.contains("0.993")); // CI upper
+        assert!(buf.contains("0.907")); // Wilson one-sided lower bound
         assert!(buf.contains("0.022")); // standard error
     }
 
     #[test]
     fn test_name_used_when_present() {
         let analysis =
-            StatisticalAnalysis::new(0.95, 0.022, 0.907, 0.993, 0.900, ThresholdOrigin::Empirical)
+            StatisticalAnalysis::new(0.95, 0.022, 0.907, 0.900, ThresholdOrigin::Empirical)
                 .with_test_results(2.294, 0.011);
 
         let record = VerdictRecord::builder(
@@ -911,7 +906,7 @@ mod tests {
     #[test]
     fn verdict_line_uses_test_name_when_present() {
         let analysis =
-            StatisticalAnalysis::new(0.95, 0.022, 0.907, 0.993, 0.900, ThresholdOrigin::Empirical)
+            StatisticalAnalysis::new(0.95, 0.022, 0.907, 0.900, ThresholdOrigin::Empirical)
                 .with_test_results(2.294, 0.011);
 
         let record = VerdictRecord::builder(

@@ -33,9 +33,8 @@ fn sample_execution(
 }
 
 fn full_record() -> VerdictRecord {
-    let analysis =
-        StatisticalAnalysis::new(0.95, 0.022, 0.907, 0.993, 0.900, ThresholdOrigin::Empirical)
-            .with_test_results(2.294, 0.011);
+    let analysis = StatisticalAnalysis::new(0.95, 0.022, 0.907, 0.900, ThresholdOrigin::Empirical)
+        .with_test_results(2.294, 0.011);
 
     let provenance = SpecProvenance::new(ThresholdOrigin::Empirical)
         .with_spec_filename("full-service.yaml")
@@ -89,6 +88,11 @@ fn full_verdict_contains_all_rp07_elements() {
     assert!(xml.contains("<execution "));
     assert!(xml.contains("<functional "));
     assert!(xml.contains("<statistics "));
+    // <statistics> carries the one-sided Wilson lower bound — `wilson-lower` —
+    // not the legacy two-sided `ci-lower` / `ci-upper` pair.
+    assert!(xml.contains("wilson-lower="));
+    assert!(!xml.contains("ci-lower="));
+    assert!(!xml.contains("ci-upper="));
     assert!(xml.contains("<covariates "));
     assert!(xml.contains("<provenance "));
     assert!(xml.contains("<baseline "));
