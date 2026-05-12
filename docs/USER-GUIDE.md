@@ -181,7 +181,7 @@ let factors = vec![
 let inputs = vec!["Add 2 apples".to_string(), "Remove the milk".to_string()];
 
 let result = ExploreExperiment::builder()
-    .use_case_id("my-service")
+    .service_contract_id("my-service")
     .factors(factors)
     .service_contract(|f: &ModelChoice| MyService::new(f.model))
     .samples_per_config(20)
@@ -225,7 +225,7 @@ impl MyService {
 let inputs = standard_instructions();
 
 let result = MeasureExperiment::builder()
-    .use_case_id("my-service")
+    .service_contract_id("my-service")
     .service_contract(|| MyService)
     .samples(1000)
     .inputs(&inputs)
@@ -241,7 +241,7 @@ println!("Derived threshold: {:.4}", spec.requirements.min_pass_rate);
 ```
 
 The API mirrors `ExploreExperiment` and `OptimizeExperiment`:
-`.use_case_id(...)` names the thing being measured, `.service_contract(...)`
+`.service_contract_id(...)` names the thing being measured, `.service_contract(...)`
 takes a factory that builds the instance, and `.trial(...)` receives
 `&T` plus the input. Measure's factory takes no arguments — there's no
 factor to vary, unlike explore and optimize.
@@ -519,7 +519,7 @@ impl FactorMutator<Temperature> for StepMutator {
 let inputs = vec!["instruction".to_string()];
 
 let result = OptimizeExperiment::builder()
-    .use_case_id("my-service")
+    .service_contract_id("my-service")
     .initial_factor(Temperature(0.9))
     .service_contract(|f: &Temperature| MyService::new(f.0))
     .scorer(SuccessRateScorer)
@@ -591,7 +591,7 @@ The `SpecResolver` searches for spec files by service contract ID:
 1. The directory specified by `FEOTEST_SPEC_DIR` (if set)
 2. The directory passed to `SpecResolver::new` or `SpecResolver::with_dir`
 
-The spec file is expected at `{spec_dir}/{use_case_id}.yaml`.
+The spec file is expected at `{spec_dir}/{service_contract_id}.yaml`.
 
 ### Spec lifecycle
 
