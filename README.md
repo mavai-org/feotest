@@ -173,7 +173,7 @@ it behind opaque abstractions.
 - **[User Guide](docs/USER-GUIDE.md)** — comprehensive guide to the framework's
   concepts, workflows, and API
 - **[feotest-examples](https://github.com/javai-org/feotest-examples)** — worked
-  examples with two complete use cases
+  examples with two complete service contracts
 
 ## Project status
 

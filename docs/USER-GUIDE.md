@@ -145,7 +145,7 @@ than guesswork.
 Before committing to a configuration (model, temperature, prompt), run an
 **explore experiment** to compare candidates. The experiment is defined
 by a list of **factors** — one per configuration — and a **factory**
-that constructs a use case instance from each factor. The framework
+that constructs a service contract instance from each factor. The framework
 walks the factors, builds the corresponding instance, and runs a fixed
 number of trials against it.
 
@@ -164,7 +164,7 @@ impl fmt::Display for ModelChoice {
     }
 }
 
-// The use case: what the factory produces from each factor.
+// The service contract: what the factory produces from each factor.
 struct MyService { model: &'static str }
 impl MyService {
     fn new(model: &'static str) -> Self { Self { model } }
@@ -183,7 +183,7 @@ let inputs = vec!["Add 2 apples".to_string(), "Remove the milk".to_string()];
 let result = ExploreExperiment::builder()
     .use_case_id("my-service")
     .factors(factors)
-    .use_case(|f: &ModelChoice| MyService::new(f.model))
+    .service_contract(|f: &ModelChoice| MyService::new(f.model))
     .samples_per_config(20)
     .inputs(&inputs)
     .trial(|svc: &MyService, input| svc.call(input))
@@ -197,8 +197,8 @@ for config in result.configs() {
 ```
 
 Because there is exactly one factory, every instance compared in the
-experiment is by construction a variant of the same use case —
-the "one use case, many configurations" principle is guaranteed
+experiment is by construction a variant of the same service contract —
+the "one service contract, many configurations" principle is guaranteed
 structurally, not by convention.
 
 Explore experiments use small sample sizes (10–20 per configuration).
@@ -213,7 +213,7 @@ a statistical baseline:
 use feotest::experiment::MeasureExperiment;
 use feotest::model::TrialOutcome;
 
-// The use case: what the factory produces.
+// The service contract: what the factory produces.
 struct MyService;
 impl MyService {
     fn invoke(&self, _instruction: &str) -> TrialOutcome {
@@ -226,7 +226,7 @@ let inputs = standard_instructions();
 
 let result = MeasureExperiment::builder()
     .use_case_id("my-service")
-    .use_case(|| MyService)
+    .service_contract(|| MyService)
     .samples(1000)
     .inputs(&inputs)
     .trial(|uc: &MyService, instruction| uc.invoke(instruction))
@@ -241,7 +241,7 @@ println!("Derived threshold: {:.4}", spec.requirements.min_pass_rate);
 ```
 
 The API mirrors `ExploreExperiment` and `OptimizeExperiment`:
-`.use_case_id(...)` names the thing being measured, `.use_case(...)`
+`.use_case_id(...)` names the thing being measured, `.service_contract(...)`
 takes a factory that builds the instance, and `.trial(...)` receives
 `&T` plus the input. Measure's factory takes no arguments — there's no
 factor to vary, unlike explore and optimize.
@@ -268,10 +268,10 @@ use feotest::spec::SpecResolver;
 
 let inputs = standard_instructions();
 let resolver = SpecResolver::with_dir("specs");
-let mut use_case = MyUseCase::new();
+let mut service_contract = MyServiceContract::new();
 
 let result = ProbabilisticTestBuilder::new("my-service", &inputs, |instruction| {
-    use_case.invoke(instruction)
+    service_contract.invoke(instruction)
 })
 .approach(ThresholdApproach::SampleSizeFirst {
     samples: 100,
@@ -375,11 +375,11 @@ ProbabilisticTestBuilder::new("my-service", &inputs, trial)
 
 ### Contract evaluation
 
-Contracts are evaluated by `UseCaseOutcome::evaluate`, which times the service
+Contracts are evaluated by `ServiceContractOutcome::evaluate`, which times the service
 call and runs all postconditions:
 
 ```rust
-use feotest::contract::{ServiceContract, UseCaseOutcome};
+use feotest::contract::{ServiceContract, ServiceContractOutcome};
 use feotest::model::ContractViolation;
 
 let contract = ServiceContract::<String, String>::builder()
@@ -392,7 +392,7 @@ let contract = ServiceContract::<String, String>::builder()
     })
     .build();
 
-let outcome = UseCaseOutcome::evaluate(&contract, &"request".into(), || {
+let outcome = ServiceContractOutcome::evaluate(&contract, &"request".into(), || {
     my_service.call("request")
 });
 
@@ -419,7 +419,7 @@ must not be statistically analysed.
 
 ### Trial closures
 
-In most cases, you will not use `UseCaseOutcome` directly. Instead, you pass a
+In most cases, you will not use `ServiceContractOutcome` directly. Instead, you pass a
 **trial closure** to the experiment or test builder. The closure receives an
 input string and returns a `TrialOutcome`:
 
@@ -466,7 +466,7 @@ See [Part 2](#step-1-explore-optional) for a full example.
 
 Iteratively refines a single factor to maximise or minimise a scoring
 function. The API shape mirrors `ExploreExperiment`: a factor is a
-user-defined type, a `use_case(factory)` builds an instance from a
+user-defined type, a `service_contract(factory)` builds an instance from a
 factor, and the trial closure runs against the instance. The only
 structural difference is how factors are supplied — optimize takes a
 single `initial_factor` plus a `FactorMutator` that drives subsequent
@@ -488,7 +488,7 @@ use serde::Serialize;
 #[derive(Clone, Serialize)]
 struct Temperature(f64);
 
-// The use case: what the factory produces from each factor.
+// The service contract: what the factory produces from each factor.
 struct MyService { temperature: f64 }
 impl MyService {
     fn new(temperature: f64) -> Self { Self { temperature } }
@@ -521,7 +521,7 @@ let inputs = vec!["instruction".to_string()];
 let result = OptimizeExperiment::builder()
     .use_case_id("my-service")
     .initial_factor(Temperature(0.9))
-    .use_case(|f: &Temperature| MyService::new(f.0))
+    .service_contract(|f: &Temperature| MyService::new(f.0))
     .scorer(SuccessRateScorer)
     .mutator(StepMutator)
     .samples_per_iteration(20)
@@ -586,7 +586,7 @@ cost:
 
 ### Spec resolution
 
-The `SpecResolver` searches for spec files by use case ID:
+The `SpecResolver` searches for spec files by service contract ID:
 
 1. The directory specified by `FEOTEST_SPEC_DIR` (if set)
 2. The directory passed to `SpecResolver::new` or `SpecResolver::with_dir`
@@ -612,7 +612,7 @@ A verdict record contains:
 
 | Field | Content |
 |---|---|
-| `identity` | Use case ID and test name |
+| `identity` | Service contract ID and test name |
 | `verdict` | Pass, Fail, or Inconclusive |
 | `intent` | Verification or Smoke |
 | `execution` | Samples planned/executed, successes, failures, cost |
