@@ -1,4 +1,4 @@
-//! Use case outcome: the result of executing a trial and evaluating its contract.
+//! Service contract outcome: the result of executing a trial and evaluating its contract.
 
 use std::fmt;
 use std::time::{Duration, Instant};
@@ -8,7 +8,7 @@ use crate::contract::conformance::{ConformanceResult, VerificationMatcher};
 use crate::contract::duration::DurationResult;
 use crate::model::{ContractViolation, TrialOutcome};
 
-/// The result of executing a use case trial and evaluating its contract.
+/// The result of executing a service contract trial and evaluating its contract.
 ///
 /// Bundles the service response with contract evaluation results, timing,
 /// and duration constraint results. Postconditions and duration constraints

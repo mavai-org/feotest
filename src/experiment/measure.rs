@@ -31,7 +31,7 @@ const DEFAULT_BASELINE_DIR: &str = "tests/baselines";
 /// constructor.
 ///
 /// The API shape matches [`super::ExploreExperiment`] and
-/// [`super::OptimizeExperiment`]: the use case id is explicit via
+/// [`super::OptimizeExperiment`]: the service contract id is explicit via
 /// [`service_contract_id`](MeasureExperimentBuilder::service_contract_id), the instance
 /// is produced by a factory closure set via
 /// [`service_contract`](MeasureExperimentBuilder::service_contract), and the trial
@@ -227,7 +227,7 @@ impl<T> Default for MeasureExperimentBuilder<'_, T> {
 impl<'a, T> MeasureExperimentBuilder<'a, T> {
     // --- required fields ---
 
-    /// Sets the use case identifier.
+    /// Sets the service contract identifier.
     ///
     /// Appears in the baseline spec YAML and in the spec resolver's
     /// output path.
@@ -237,10 +237,10 @@ impl<'a, T> MeasureExperimentBuilder<'a, T> {
         self
     }
 
-    /// Sets the use case factory.
+    /// Sets the service contract factory.
     ///
     /// The factory is called once at the start of
-    /// [`run`](MeasureExperiment::run) to produce the use case instance
+    /// [`run`](MeasureExperiment::run) to produce the service contract instance
     /// the experiment measures. The instance is owned by the
     /// experiment, referenced by the trial closure on every sample,
     /// and dropped when the run completes.
@@ -276,7 +276,7 @@ impl<'a, T> MeasureExperimentBuilder<'a, T> {
 
     /// Sets the trial closure.
     ///
-    /// The closure receives a reference to the use case instance
+    /// The closure receives a reference to the service contract instance
     /// produced by the factory and an input string, and returns a
     /// [`TrialOutcome`]. It may borrow data that outlives the builder
     /// (the `'a` lifetime); it is not required to be `'static`.

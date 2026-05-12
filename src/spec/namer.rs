@@ -1,6 +1,6 @@
 //! Baseline filename generation with covariate encoding.
 //!
-//! Baseline filenames encode the use case identity and the environmental
+//! Baseline filenames encode the service contract identity and the environmental
 //! conditions (covariates) under which the baseline was established. This
 //! enables the spec resolver to select the most appropriate baseline for
 //! the current test context.
@@ -11,8 +11,8 @@
 //! {ServiceContractId}-{footprintHash}-{covHash1}-{covHash2}.yaml
 //! ```
 //!
-//! - **ServiceContractId**: sanitized use case name (unsafe characters replaced with `_`)
-//! - **footprintHash**: 8-char SHA-256 of use case ID + covariate *declarations*
+//! - **ServiceContractId**: sanitized service contract name (unsafe characters replaced with `_`)
+//! - **footprintHash**: 8-char SHA-256 of service contract ID + covariate *declarations*
 //!   (names only, not values). Identifies *what* covariates exist.
 //! - **covHash1..N**: 4-char SHA-256 per covariate of `key=value`. Identifies
 //!   the specific *conditions*.
@@ -22,7 +22,7 @@
 //!
 //! # Cross-framework compatibility
 //!
-//! This scheme matches punit's `BaselineFileNamer`. The same use case with
+//! This scheme matches punit's `BaselineFileNamer`. The same service contract with
 //! the same covariates produces the same filename structure in both
 //! frameworks (though hash values may differ due to implementation details).
 
@@ -142,10 +142,10 @@ impl CovariateProfileBuilder {
     }
 }
 
-/// Computes the invocation footprint for a use case.
+/// Computes the invocation footprint for a service contract.
 ///
 /// The footprint uniquely identifies the combination of:
-/// 1. Use case identity
+/// 1. Service contract identity
 /// 2. Covariate declaration (names only, not values)
 ///
 /// Two baselines with the same footprint are candidates for matching.

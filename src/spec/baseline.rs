@@ -17,7 +17,7 @@ pub struct BaselineSpec {
     /// Schema version identifier.
     pub schema_version: String,
 
-    /// The use case identifier.
+    /// The service contract identifier.
     #[serde(rename = "useCaseId")]
     pub service_contract_id: String,
 
@@ -28,7 +28,7 @@ pub struct BaselineSpec {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub experiment_id: Option<String>,
 
-    /// Invocation footprint: 8-char hex hash of use case ID + covariate
+    /// Invocation footprint: 8-char hex hash of service contract ID + covariate
     /// declarations. Identifies *what* covariates are declared.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub footprint: Option<String>,
@@ -195,12 +195,12 @@ pub enum SpecLoadError {
     Parse(serde_yaml::Error),
     /// The content fingerprint is missing.
     MissingFingerprint {
-        /// The use case ID of the spec.
+        /// The service contract ID of the spec.
         service_contract_id: String,
     },
     /// The content fingerprint does not match the spec content.
     IntegrityFailure {
-        /// The use case ID of the spec.
+        /// The service contract ID of the spec.
         service_contract_id: String,
         /// The fingerprint stored in the spec.
         expected: String,

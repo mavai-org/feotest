@@ -20,7 +20,7 @@ impl fmt::Display for ConfigFactor {
     }
 }
 
-/// A minimal use case that the factory produces from each factor.
+/// A minimal service contract that the factory produces from each factor.
 struct MockService;
 
 fn mock_service_factory(_factor: &ConfigFactor) -> MockService {

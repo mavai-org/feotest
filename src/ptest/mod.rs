@@ -1,6 +1,6 @@
 //! Probabilistic test execution.
 //!
-//! A probabilistic test runs a use case repeatedly, applies statistical
+//! A probabilistic test runs a service contract repeatedly, applies statistical
 //! inference to the observed outcomes, and produces a verdict: does the
 //! service meet its threshold?
 //!

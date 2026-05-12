@@ -11,7 +11,7 @@ use feotest::spec::optimization::OptimizationSpec;
 use serde::Serialize;
 
 // ---------------------------------------------------------------------------
-// Factor and use case types shared by most tests
+// Factor and service contract types shared by most tests
 // ---------------------------------------------------------------------------
 
 #[derive(Clone, Serialize)]

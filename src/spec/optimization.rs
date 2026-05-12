@@ -87,7 +87,7 @@ pub struct ConvergenceBlock {
 pub struct OptimizationSpec {
     /// Schema version identifier.
     pub schema_version: String,
-    /// The use case identifier.
+    /// The service contract identifier.
     #[serde(rename = "useCaseId")]
     pub service_contract_id: String,
     /// The experiment identifier. Used as the YAML filename stem.

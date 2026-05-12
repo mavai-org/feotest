@@ -241,7 +241,7 @@ pub struct TestIdentity {
 }
 
 impl TestIdentity {
-    /// Creates a test identity from a use case ID.
+    /// Creates a test identity from a service contract ID.
     #[must_use]
     pub fn new(service_contract_id: impl Into<String>) -> Self {
         Self {
@@ -257,7 +257,7 @@ impl TestIdentity {
         self
     }
 
-    /// The use case identifier.
+    /// The service contract identifier.
     #[must_use]
     pub fn service_contract_id(&self) -> &str {
         &self.service_contract_id

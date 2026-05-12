@@ -1,7 +1,7 @@
 //! Builder for configuring and launching a probabilistic test.
 //!
 //! The API shape matches [`crate::experiment::MeasureExperiment`]: the
-//! use case id is explicit via [`service_contract_id`](ProbabilisticTestBuilder::service_contract_id),
+//! service contract id is explicit via [`service_contract_id`](ProbabilisticTestBuilder::service_contract_id),
 //! the instance is produced by a factory via
 //! [`service_contract`](ProbabilisticTestBuilder::service_contract), and the trial
 //! closure receives `(&T, &str) -> TrialOutcome`. A probabilistic test
@@ -240,7 +240,7 @@ impl<'a, T> ProbabilisticTestBuilder<'a, T> {
 
     // --- required fields (measure-aligned) ---
 
-    /// Sets the use case identifier.
+    /// Sets the service contract identifier.
     ///
     /// Appears in the verdict record and drives baseline resolution
     /// (`{service_contract_id}.yaml`).
@@ -250,7 +250,7 @@ impl<'a, T> ProbabilisticTestBuilder<'a, T> {
         self
     }
 
-    /// Sets the use case factory.
+    /// Sets the service contract factory.
     ///
     /// The factory is called once when [`run`](ProbabilisticTest::run)
     /// starts to produce the instance the trials are executed against.
@@ -274,7 +274,7 @@ impl<'a, T> ProbabilisticTestBuilder<'a, T> {
 
     /// Sets the trial closure.
     ///
-    /// The closure receives a reference to the use case instance and
+    /// The closure receives a reference to the service contract instance and
     /// an input string, and returns a [`TrialOutcome`]. It may borrow
     /// data that outlives the builder (the `'a` lifetime); it is not
     /// required to be `'static`.
@@ -437,11 +437,11 @@ impl<'a, T> ProbabilisticTestBuilder<'a, T> {
         self
     }
 
-    /// Sets covariate context from a use case for baseline selection.
+    /// Sets covariate context from a service contract for baseline selection.
     ///
     /// When set, the resolver uses covariate-aware selection to find
     /// the best-matching baseline rather than returning the first
-    /// match. If the use case declares no covariates, this is a no-op.
+    /// match. If the service contract declares no covariates, this is a no-op.
     #[must_use]
     pub fn covariate_source(mut self, service_contract: &dyn ServiceContract) -> Self {
         self.covariate_context = CovariateContext::from_service_contract(service_contract);

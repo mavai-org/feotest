@@ -1,18 +1,18 @@
 //! Explore experiment: rapid configuration comparison.
 //!
-//! An explore experiment compares configurations of a single use case.
+//! An explore experiment compares configurations of a single service contract.
 //! Each configuration is described by a **factor** (typically a struct
 //! carrying the values that distinguish this configuration from the
 //! others). The framework walks a list of factors, calling a
-//! user-supplied factory to produce one use case instance per factor,
+//! user-supplied factory to produce one service contract instance per factor,
 //! and runs a fixed number of trials against each instance.
 //!
-//! This design enforces the immutable use case principle: the
+//! This design enforces the immutable service contract principle: the
 //! experimental condition (the factor) is fixed during sampling, which
 //! is a direct expression of the i.i.d. assumption required for valid
-//! statistical inference. It also makes the "one use case, many
+//! statistical inference. It also makes the "one service contract, many
 //! configurations" constraint structural — there is one factory, so
-//! every instance is by construction a variant of the same use case.
+//! every instance is by construction a variant of the same service contract.
 
 use std::collections::BTreeMap;
 use std::fmt;
@@ -61,7 +61,7 @@ impl ConfigResult {
 }
 
 /// An explore experiment that compares multiple configurations of a
-/// single use case.
+/// single service contract.
 ///
 /// Construct via [`ExploreExperiment::builder`]; there is no public
 /// constructor.
@@ -87,7 +87,7 @@ impl ConfigResult {
 ///     }
 /// }
 ///
-/// // The use case: what the factory produces.
+/// // The service contract: what the factory produces.
 /// struct ShoppingBasket { model: &'static str, temperature: f64 }
 /// impl ShoppingBasket {
 ///     fn new(model: &'static str, temperature: f64) -> Self {
@@ -242,11 +242,11 @@ where
 {
     // --- required fields ---
 
-    /// Sets the use case identifier.
+    /// Sets the service contract identifier.
     ///
     /// This appears in the spec YAML and in the output directory layout.
     /// All configurations in the experiment share this id — the point of
-    /// an explore experiment is to compare variants of one use case.
+    /// an explore experiment is to compare variants of one service contract.
     #[must_use]
     pub fn service_contract_id(mut self, id: impl Into<String>) -> Self {
         self.service_contract_id = Some(id.into());
@@ -255,9 +255,9 @@ where
 
     /// Sets the list of factors to explore.
     ///
-    /// Each factor is one configuration of the use case. The factory
+    /// Each factor is one configuration of the service contract. The factory
     /// set via [`service_contract`](Self::service_contract) is called once per factor
-    /// to produce the corresponding use case instance.
+    /// to produce the corresponding service contract instance.
     ///
     /// The factor's `Display` implementation provides the configuration
     /// name used in reports and output filenames.
@@ -272,9 +272,9 @@ where
         self
     }
 
-    /// Sets the use case factory.
+    /// Sets the service contract factory.
     ///
-    /// Given a factor, the factory produces one use case instance. The
+    /// Given a factor, the factory produces one service contract instance. The
     /// framework calls the factory once per factor, runs
     /// `samples_per_config` trials against the resulting instance, then
     /// drops it.
@@ -311,7 +311,7 @@ where
     /// Sets the trial closure.
     ///
     /// The closure receives a reference to the current configuration's
-    /// use case instance and an input string, and returns a
+    /// service contract instance and an input string, and returns a
     /// [`TrialOutcome`]. It may borrow data that outlives the builder
     /// (the `'a` lifetime); it is not required to be `'static`.
     #[must_use]
@@ -385,7 +385,7 @@ pub struct ExploreResult {
 }
 
 impl ExploreResult {
-    /// The use case identifier.
+    /// The service contract identifier.
     #[must_use]
     pub fn service_contract_id(&self) -> &str {
         &self.service_contract_id

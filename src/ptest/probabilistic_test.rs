@@ -60,7 +60,7 @@ pub struct ProbabilisticTest<'a, T> {
 impl<T> ProbabilisticTest<'_, T> {
     /// Runs the probabilistic test and returns the result.
     ///
-    /// The factory is invoked once to produce the use case instance,
+    /// The factory is invoked once to produce the service contract instance,
     /// the trials run against it, the verdict is assembled, and the
     /// console verdict line is printed. The result is returned
     /// regardless of outcome — callers decide what to do with a `Fail`.

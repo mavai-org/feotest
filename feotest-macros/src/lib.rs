@@ -6,7 +6,7 @@
 //! - `#[sentinel]` — marks a struct as a reliability specification and
 //!   registers it into the sentinel inventory.
 //! - `#[service_contract_factory]` — marks a method within a `#[sentinel]` struct
-//!   as producing a use case.
+//!   as producing a service contract.
 
 mod expand;
 mod include_baselines;

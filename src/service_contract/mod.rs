@@ -1,6 +1,6 @@
 //! The unit of work under test.
 //!
-//! A use case represents a named service invocation together with its
+//! A service contract represents a named service invocation together with its
 //! associated configuration, contract, and operational controls. It is the
 //! central organising concept that ties together what is being tested, how
 //! success is defined, and under what conditions testing occurs.
@@ -11,11 +11,11 @@ use crate::spec::namer::CovariateProfile;
 
 /// A named, repeatable service invocation.
 ///
-/// Implementations define the identity and metadata of a use case.
+/// Implementations define the identity and metadata of a service contract.
 /// The actual service call logic lives in trial closures passed to
 /// experiment and test builders, not in this trait.
 pub trait ServiceContract: Send + Sync {
-    /// Unique identifier for this use case.
+    /// Unique identifier for this service contract.
     ///
     /// Used in spec filenames, reports, and CLI output.
     /// Convention: lowercase with dots as separators (e.g., `"shopping.product.search"`).
@@ -39,7 +39,7 @@ pub trait ServiceContract: Send + Sync {
         0
     }
 
-    /// Covariate declarations for this use case.
+    /// Covariate declarations for this service contract.
     fn covariates(&self) -> Vec<CovariateDeclaration> {
         vec![]
     }
@@ -47,17 +47,17 @@ pub trait ServiceContract: Send + Sync {
     /// Resolves covariate values at the current point in time.
     ///
     /// Returns a profile with resolved values for all declared covariates.
-    /// The default implementation returns an empty profile. Use cases that
+    /// The default implementation returns an empty profile. Service contracts that
     /// declare covariates should override this to provide resolved values.
     fn resolve_covariates(&self) -> CovariateProfile {
         CovariateProfile::empty()
     }
 }
 
-/// A use case that exposes configurable factors.
+/// A service contract that exposes configurable factors.
 ///
 /// Experiments that need to manipulate configuration (explore, optimize)
-/// require `T: ServiceContract + Configurable`. Use cases that do not expose
+/// require `T: ServiceContract + Configurable`. Service contracts that do not expose
 /// configurable factors simply do not implement this trait.
 pub trait Configurable: ServiceContract {
     /// Returns the current value of a named factor.
@@ -177,10 +177,10 @@ impl fmt::Display for CovariateCategory {
     }
 }
 
-/// A covariate declaration on a use case.
+/// A covariate declaration on a service contract.
 ///
 /// Covariates represent contextual factors that drive variance in system
-/// behaviour. They are declared on use cases for baseline matching.
+/// behaviour. They are declared on service contracts for baseline matching.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CovariateDeclaration {
     key: String,
@@ -251,10 +251,10 @@ pub struct CovariateContext {
 }
 
 impl CovariateContext {
-    /// Creates a covariate context from a use case.
+    /// Creates a covariate context from a service contract.
     ///
     /// Extracts declarations and resolves the current profile. Returns
-    /// `None` if the use case declares no covariates.
+    /// `None` if the service contract declares no covariates.
     #[must_use]
     pub fn from_service_contract(service_contract: &dyn ServiceContract) -> Option<Self> {
         let declarations = service_contract.covariates();
@@ -291,7 +291,7 @@ pub fn validate_covariates(covariates: &[CovariateDeclaration]) {
     for cov in covariates {
         assert!(
             seen.insert(cov.key()),
-            "duplicate covariate key '{}': each covariate must have a unique name within a use case",
+            "duplicate covariate key '{}': each covariate must have a unique name within a service contract",
             cov.key()
         );
     }
@@ -309,7 +309,7 @@ mod tests {
         }
 
         fn description(&self) -> &str {
-            "A test use case"
+            "A test service contract"
         }
 
         fn warmup(&self) -> u32 {
@@ -321,7 +321,7 @@ mod tests {
     fn service_contract_provides_identity() {
         let uc = TestServiceContract;
         assert_eq!(uc.id(), "test.use-case");
-        assert_eq!(uc.description(), "A test use case");
+        assert_eq!(uc.description(), "A test service contract");
         assert_eq!(uc.warmup(), 5);
     }
 

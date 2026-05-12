@@ -106,12 +106,12 @@ impl SelectionResult {
 pub enum SelectionError {
     /// No candidate baselines found at all.
     NoCandidates {
-        /// The use case ID that was searched.
+        /// The service contract ID that was searched.
         service_contract_id: String,
     },
     /// Candidates exist but none match the required configuration covariates.
     ConfigurationMismatch {
-        /// The use case ID.
+        /// The service contract ID.
         service_contract_id: String,
         /// The configuration covariate values from the test profile that
         /// could not be matched.
@@ -127,7 +127,7 @@ impl fmt::Display for SelectionError {
             Self::NoCandidates { service_contract_id } => {
                 write!(
                     f,
-                    "no baseline candidates found for use case '{service_contract_id}'"
+                    "no baseline candidates found for service contract '{service_contract_id}'"
                 )
             }
             Self::ConfigurationMismatch {
@@ -137,7 +137,7 @@ impl fmt::Display for SelectionError {
             } => {
                 write!(
                     f,
-                    "no baseline matches the configuration for use case '{service_contract_id}'\n\
+                    "no baseline matches the configuration for service contract '{service_contract_id}'\n\
                      Required: {}\n\
                      Available configurations:",
                     format_kv_pairs(required),

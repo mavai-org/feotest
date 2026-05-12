@@ -46,10 +46,10 @@ pub fn failing_trial(fail_rate: f64) -> impl FnMut(&str) -> TrialOutcome {
 }
 
 // ---------------------------------------------------------------------------
-// Use case helpers
+// Service contract helpers
 // ---------------------------------------------------------------------------
 
-/// A simple use case with no covariates.
+/// A simple service contract with no covariates.
 pub struct SimpleServiceContract {
     id: String,
 }

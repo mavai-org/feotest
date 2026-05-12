@@ -2,7 +2,7 @@
 //!
 //! A reliability specification is a struct that declares the probabilistic
 //! testing surface for one non-deterministic boundary of an application —
-//! typically one per service or integration point. It bundles the use cases,
+//! typically one per service or integration point. It bundles the service contracts,
 //! experiments, and probabilistic tests that define what "reliable" means
 //! for that boundary.
 //!
@@ -23,7 +23,7 @@
 //! impl PaymentGateway {
 //!     #[service_contract_factory]
 //!     fn payments(&self) -> impl ServiceContract {
-//!         // construct and return a configured use case
+//!         // construct and return a configured service contract
 //!         # unimplemented!()
 //!     }
 //! }
@@ -145,9 +145,9 @@ mod tests {
     use crate::service_contract::ServiceContract;
     use feotest_macros::{sentinel, service_contract_factory};
 
-    /// Minimal use case used by factory-compilation tests. The implementation
+    /// Minimal service contract used by factory-compilation tests. The implementation
     /// is intentionally trivial — these tests exercise macro expansion, not
-    /// use case behaviour. The id is owned so the trait's `id(&self) -> &str`
+    /// service contract behaviour. The id is owned so the trait's `id(&self) -> &str`
     /// is satisfied by a genuine self-borrow rather than a dangling literal.
     struct TrivialServiceContract {
         id: String,

@@ -1,4 +1,4 @@
-//! Spec resolution: finding the right baseline for a use case.
+//! Spec resolution: finding the right baseline for a service contract.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -13,7 +13,7 @@ use crate::service_contract::CovariateDeclaration;
 
 /// Resolves baseline specs from the filesystem.
 ///
-/// Searches for specs by use case ID, checking an environment-override
+/// Searches for specs by service contract ID, checking an environment-override
 /// directory first, then the configured default.
 #[derive(Debug, Clone)]
 pub struct SpecResolver {
@@ -46,10 +46,10 @@ impl SpecResolver {
         &self.spec_dir
     }
 
-    /// Resolves a baseline spec for the given use case ID.
+    /// Resolves a baseline spec for the given service contract ID.
     ///
     /// Scans the spec directory for YAML files whose name starts with
-    /// the sanitized use case ID followed by `-`. If multiple candidates
+    /// the sanitized service contract ID followed by `-`. If multiple candidates
     /// exist, the first match is returned. Use [`resolve_with_covariates`]
     /// for covariate-aware selection.
     ///
@@ -74,7 +74,7 @@ impl SpecResolver {
 
     /// Resolves the best baseline spec using covariate-aware selection.
     ///
-    /// Scans the spec directory for all candidates matching the use case ID,
+    /// Scans the spec directory for all candidates matching the service contract ID,
     /// then selects the best match based on the current covariate profile
     /// and declarations.
     ///
@@ -107,10 +107,10 @@ impl SpecResolver {
         })
     }
 
-    /// Discovers all baseline spec candidates for a use case.
+    /// Discovers all baseline spec candidates for a service contract.
     ///
     /// Scans the spec directory for YAML files whose name starts with
-    /// the sanitized use case ID followed by `-`.
+    /// the sanitized service contract ID followed by `-`.
     pub(crate) fn find_candidates(
         &self,
         service_contract_id: &str,
@@ -163,7 +163,7 @@ impl SpecResolver {
     /// Reads a baseline spec directly from a file path.
     ///
     /// Use this when the exact file path is known (e.g., from a macro
-    /// `spec` attribute) rather than resolving by use case ID.
+    /// `spec` attribute) rather than resolving by service contract ID.
     ///
     /// # Errors
     ///
@@ -183,7 +183,7 @@ impl SpecResolver {
 
     /// Writes a baseline spec to the spec directory.
     ///
-    /// The filename encodes the use case ID, footprint hash, and covariate
+    /// The filename encodes the service contract ID, footprint hash, and covariate
     /// value hashes. See [`crate::spec::namer`] for the filename format.
     ///
     /// # Errors
@@ -227,7 +227,7 @@ impl SpecResolver {
 pub enum SpecResolveError {
     /// The spec file was not found.
     NotFound {
-        /// The use case ID that was looked up.
+        /// The service contract ID that was looked up.
         service_contract_id: String,
         /// The path that was checked.
         path: PathBuf,
@@ -244,7 +244,7 @@ pub enum SpecResolveError {
     },
     /// Covariate-aware selection failed (e.g., configuration mismatch).
     Selection {
-        /// The use case ID.
+        /// The service contract ID.
         service_contract_id: String,
         /// The underlying selection error.
         source: SelectionError,
@@ -258,7 +258,7 @@ impl std::fmt::Display for SpecResolveError {
                 service_contract_id, path, ..
             } => write!(
                 f,
-                "no spec found for use case '{service_contract_id}' at {}",
+                "no spec found for service contract '{service_contract_id}' at {}",
                 path.display()
             ),
             Self::Integrity { path, source } => {
@@ -269,7 +269,7 @@ impl std::fmt::Display for SpecResolveError {
                 source,
             } => write!(
                 f,
-                "baseline selection failed for use case '{service_contract_id}': {source}"
+                "baseline selection failed for service contract '{service_contract_id}': {source}"
             ),
         }
     }

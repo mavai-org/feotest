@@ -1,7 +1,7 @@
 //! Optimize experiment: iterative factor tuning.
 //!
 //! An optimize experiment tunes a single factor by recycling it through
-//! a feedback loop: each iteration runs samples against a use case
+//! a feedback loop: each iteration runs samples against a service contract
 //! instance built from the current factor, scores the result, records
 //! the outcome, and hands control to a mutator that produces the next
 //! factor from the history. The loop stops when an iteration cap is
@@ -157,7 +157,7 @@ impl<F> IterationRecord<F> {
 /// #[derive(Clone, Serialize)]
 /// struct Temperature(f64);
 ///
-/// // Use case type: what the factory produces from a factor.
+/// // Service contract type: what the factory produces from a factor.
 /// struct MyService { temperature: f64 }
 /// impl MyService {
 ///     fn call(&self, _input: &str) -> TrialOutcome {
@@ -350,7 +350,7 @@ impl<F, T> Default for OptimizeExperimentBuilder<'_, F, T> {
 impl<'a, F, T> OptimizeExperimentBuilder<'a, F, T> {
     // --- required fields ---
 
-    /// Sets the use case identifier.
+    /// Sets the service contract identifier.
     ///
     /// Appears in spec YAML and in the output directory layout.
     #[must_use]
@@ -366,9 +366,9 @@ impl<'a, F, T> OptimizeExperimentBuilder<'a, F, T> {
         self
     }
 
-    /// Sets the use case factory.
+    /// Sets the service contract factory.
     ///
-    /// Given a factor, the factory produces one use case instance. The
+    /// Given a factor, the factory produces one service contract instance. The
     /// framework calls the factory once per iteration, runs
     /// `samples_per_iteration` trials against the resulting instance,
     /// then drops it before the next iteration.
@@ -418,7 +418,7 @@ impl<'a, F, T> OptimizeExperimentBuilder<'a, F, T> {
 
     /// Sets the trial closure.
     ///
-    /// The closure receives a reference to the iteration's use case
+    /// The closure receives a reference to the iteration's service contract
     /// instance and an input string, and returns a [`TrialOutcome`]. It
     /// may borrow data that outlives the builder (the `'a` lifetime);
     /// it is not required to be `'static`.
@@ -514,7 +514,7 @@ pub struct OptimizeResult<F> {
 }
 
 impl<F> OptimizeResult<F> {
-    /// The use case identifier.
+    /// The service contract identifier.
     #[must_use]
     pub fn service_contract_id(&self) -> &str {
         &self.service_contract_id
@@ -750,7 +750,7 @@ mod tests {
 
     #[test]
     fn trial_receives_instance_built_from_current_factor() {
-        // Trial checks the use case it receives reflects the iteration's
+        // Trial checks the service contract it receives reflects the iteration's
         // factor. Failure here means the factory / recycling pipeline is
         // broken.
         let inputs = vec!["input".to_string()];

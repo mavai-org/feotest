@@ -20,7 +20,7 @@ fn always_succeeds(_input: &str) -> TrialOutcome {
 }
 
 // ---------------------------------------------------------------------------
-// Use case with covariates
+// Service contract with covariates
 // ---------------------------------------------------------------------------
 
 struct CovariateServiceContract {
