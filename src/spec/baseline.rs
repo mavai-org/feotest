@@ -17,8 +17,9 @@ pub struct BaselineSpec {
     /// Schema version identifier.
     pub schema_version: String,
 
-    /// The use case identifier.
-    pub use_case_id: String,
+    /// The service contract identifier.
+    #[serde(rename = "useCaseId")]
+    pub service_contract_id: String,
 
     /// ISO 8601 timestamp of when the spec was generated.
     pub generated_at: String,
@@ -27,7 +28,7 @@ pub struct BaselineSpec {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub experiment_id: Option<String>,
 
-    /// Invocation footprint: 8-char hex hash of use case ID + covariate
+    /// Invocation footprint: 8-char hex hash of service contract ID + covariate
     /// declarations. Identifies *what* covariates are declared.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub footprint: Option<String>,
@@ -194,13 +195,13 @@ pub enum SpecLoadError {
     Parse(serde_yaml::Error),
     /// The content fingerprint is missing.
     MissingFingerprint {
-        /// The use case ID of the spec.
-        use_case_id: String,
+        /// The service contract ID of the spec.
+        service_contract_id: String,
     },
     /// The content fingerprint does not match the spec content.
     IntegrityFailure {
-        /// The use case ID of the spec.
-        use_case_id: String,
+        /// The service contract ID of the spec.
+        service_contract_id: String,
         /// The fingerprint stored in the spec.
         expected: String,
         /// The fingerprint recomputed from the content.
@@ -212,18 +213,18 @@ impl std::fmt::Display for SpecLoadError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Parse(e) => write!(f, "failed to parse baseline spec: {e}"),
-            Self::MissingFingerprint { use_case_id } => write!(
+            Self::MissingFingerprint { service_contract_id } => write!(
                 f,
-                "baseline spec for '{use_case_id}' has no contentFingerprint — \
+                "baseline spec for '{service_contract_id}' has no contentFingerprint — \
                  re-run the measure experiment to generate a verified baseline"
             ),
             Self::IntegrityFailure {
-                use_case_id,
+                service_contract_id,
                 expected,
                 actual,
             } => write!(
                 f,
-                "baseline spec for '{use_case_id}' has been modified since generation \
+                "baseline spec for '{service_contract_id}' has been modified since generation \
                  (expected fingerprint {expected}, computed {actual}) — \
                  re-run the measure experiment to generate a fresh baseline"
             ),
@@ -247,7 +248,7 @@ impl BaselineSpec {
     /// Creates a new baseline spec with required fields.
     #[must_use]
     pub fn new(
-        use_case_id: impl Into<String>,
+        service_contract_id: impl Into<String>,
         generated_at: impl Into<String>,
         execution: ExecutionBlock,
         requirements: RequirementsBlock,
@@ -255,7 +256,7 @@ impl BaselineSpec {
     ) -> Self {
         Self {
             schema_version: Self::SCHEMA_VERSION.to_string(),
-            use_case_id: use_case_id.into(),
+            service_contract_id: service_contract_id.into(),
             generated_at: generated_at.into(),
             experiment_id: None,
             footprint: None,
@@ -311,7 +312,7 @@ fn verify_integrity(yaml: &str, spec: &BaselineSpec) -> Result<(), SpecLoadError
         spec.content_fingerprint
             .as_ref()
             .ok_or_else(|| SpecLoadError::MissingFingerprint {
-                use_case_id: spec.use_case_id.clone(),
+                service_contract_id: spec.service_contract_id.clone(),
             })?;
 
     let hashable = content_before_fingerprint(yaml);
@@ -320,7 +321,7 @@ fn verify_integrity(yaml: &str, spec: &BaselineSpec) -> Result<(), SpecLoadError
 
     if computed != *stored {
         return Err(SpecLoadError::IntegrityFailure {
-            use_case_id: spec.use_case_id.clone(),
+            service_contract_id: spec.service_contract_id.clone(),
             expected: stored.clone(),
             actual: computed,
         });
@@ -377,7 +378,7 @@ mod tests {
         let restored = BaselineSpec::parse_yaml(&yaml).unwrap();
 
         assert_eq!(restored.schema_version, BaselineSpec::SCHEMA_VERSION);
-        assert_eq!(restored.use_case_id, "shopping-basket");
+        assert_eq!(restored.service_contract_id, "shopping-basket");
         assert_eq!(restored.execution.samples_executed, 1000);
         assert!((restored.requirements.min_pass_rate - 0.7512).abs() < 1e-10);
         assert_eq!(restored.statistics.successes, 777);
@@ -425,7 +426,7 @@ mod tests {
         let result = BaselineSpec::from_yaml(&yaml);
         assert!(result.is_ok());
         let spec = result.unwrap();
-        assert_eq!(spec.use_case_id, "shopping-basket");
+        assert_eq!(spec.service_contract_id, "shopping-basket");
         assert!(spec.content_fingerprint.is_some());
     }
 
@@ -608,6 +609,6 @@ mod tests {
 
         // Verify from_yaml accepts it
         let loaded = BaselineSpec::from_yaml(&yaml_with_fp).unwrap();
-        assert_eq!(loaded.use_case_id, "shopping-basket");
+        assert_eq!(loaded.service_contract_id, "shopping-basket");
     }
 }

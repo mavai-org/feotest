@@ -12,7 +12,7 @@ use feotest::ptest::ProbabilisticTestBuilder;
 use feotest::ptest::builder::ThresholdApproach;
 use feotest::spec::SpecResolver;
 use feotest::spec::namer::CovariateProfile;
-use feotest::usecase::{CovariateCategory, CovariateDeclaration, UseCase};
+use feotest::service_contract::{CovariateCategory, CovariateDeclaration, ServiceContract};
 use feotest::verdict::Verdict;
 
 fn always_succeeds(_input: &str) -> TrialOutcome {
@@ -20,15 +20,15 @@ fn always_succeeds(_input: &str) -> TrialOutcome {
 }
 
 // ---------------------------------------------------------------------------
-// Use case with covariates
+// Service contract with covariates
 // ---------------------------------------------------------------------------
 
-struct CovariateUseCase {
+struct CovariateServiceContract {
     id: &'static str,
     model: &'static str,
 }
 
-impl UseCase for CovariateUseCase {
+impl ServiceContract for CovariateServiceContract {
     fn id(&self) -> &str {
         self.id
     }
@@ -52,7 +52,7 @@ impl UseCase for CovariateUseCase {
 #[test]
 fn matching_covariates_resolves_cleanly() {
     let dir = tempfile::tempdir().unwrap();
-    let uc = CovariateUseCase {
+    let uc = CovariateServiceContract {
         id: "cov-match",
         model: "gpt-4o",
     };
@@ -60,8 +60,8 @@ fn matching_covariates_resolves_cleanly() {
 
     // Establish baseline with model=gpt-4o
     MeasureExperiment::builder()
-        .use_case_id(uc.id().to_owned())
-        .use_case(|| ())
+        .service_contract_id(uc.id().to_owned())
+        .service_contract(|| ())
         .samples(200)
         .inputs(&inputs)
         .trial(|(): &(), input| always_succeeds(input))
@@ -101,7 +101,7 @@ fn matching_covariates_resolves_cleanly() {
 #[test]
 fn mismatched_covariates_produce_warnings() {
     let dir = tempfile::tempdir().unwrap();
-    let baseline_uc = CovariateUseCase {
+    let baseline_uc = CovariateServiceContract {
         id: "cov-mismatch",
         model: "gpt-4o",
     };
@@ -109,8 +109,8 @@ fn mismatched_covariates_produce_warnings() {
 
     // Establish baseline with model=gpt-4o
     MeasureExperiment::builder()
-        .use_case_id(baseline_uc.id().to_owned())
-        .use_case(|| ())
+        .service_contract_id(baseline_uc.id().to_owned())
+        .service_contract(|| ())
         .samples(200)
         .inputs(&inputs)
         .trial(|(): &(), input| always_succeeds(input))
@@ -120,7 +120,7 @@ fn mismatched_covariates_produce_warnings() {
         .run();
 
     // Run test with model=gpt-4o-mini (different covariate value)
-    let test_uc = CovariateUseCase {
+    let test_uc = CovariateServiceContract {
         id: "cov-mismatch",
         model: "gpt-4o-mini",
     };
@@ -154,15 +154,15 @@ fn mismatched_covariates_produce_warnings() {
 #[test]
 fn baseline_provenance_present_with_covariates() {
     let dir = tempfile::tempdir().unwrap();
-    let uc = CovariateUseCase {
+    let uc = CovariateServiceContract {
         id: "cov-prov",
         model: "gpt-4o",
     };
     let inputs = vec!["input".to_string()];
 
     MeasureExperiment::builder()
-        .use_case_id(uc.id().to_owned())
-        .use_case(|| ())
+        .service_contract_id(uc.id().to_owned())
+        .service_contract(|| ())
         .samples(200)
         .inputs(&inputs)
         .trial(|(): &(), input| always_succeeds(input))
@@ -197,15 +197,15 @@ fn baseline_provenance_present_with_covariates() {
 #[test]
 fn threshold_first_with_covariates_loads_baseline() {
     let dir = tempfile::tempdir().unwrap();
-    let uc = CovariateUseCase {
+    let uc = CovariateServiceContract {
         id: "cov-tf",
         model: "gpt-4o",
     };
     let inputs = vec!["input".to_string()];
 
     MeasureExperiment::builder()
-        .use_case_id(uc.id().to_owned())
-        .use_case(|| ())
+        .service_contract_id(uc.id().to_owned())
+        .service_contract(|| ())
         .samples(200)
         .inputs(&inputs)
         .trial(|(): &(), input| always_succeeds(input))
@@ -238,15 +238,15 @@ fn threshold_first_with_covariates_loads_baseline() {
 #[test]
 fn console_renders_covariate_warnings() {
     let dir = tempfile::tempdir().unwrap();
-    let baseline_uc = CovariateUseCase {
+    let baseline_uc = CovariateServiceContract {
         id: "cov-render",
         model: "gpt-4o",
     };
     let inputs = vec!["input".to_string()];
 
     MeasureExperiment::builder()
-        .use_case_id(baseline_uc.id().to_owned())
-        .use_case(|| ())
+        .service_contract_id(baseline_uc.id().to_owned())
+        .service_contract(|| ())
         .samples(200)
         .inputs(&inputs)
         .trial(|(): &(), input| always_succeeds(input))
@@ -255,7 +255,7 @@ fn console_renders_covariate_warnings() {
         .build()
         .run();
 
-    let test_uc = CovariateUseCase {
+    let test_uc = CovariateServiceContract {
         id: "cov-render",
         model: "claude-3-opus",
     };

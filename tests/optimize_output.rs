@@ -11,7 +11,7 @@ use feotest::spec::optimization::OptimizationSpec;
 use serde::Serialize;
 
 // ---------------------------------------------------------------------------
-// Factor and use case types shared by most tests
+// Factor and service contract types shared by most tests
 // ---------------------------------------------------------------------------
 
 #[derive(Clone, Serialize)]
@@ -63,14 +63,14 @@ impl FactorMutator<Prompt> for PromptMutator {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn writes_yaml_to_use_case_scoped_path() {
+fn writes_yaml_to_service_contract_scoped_path() {
     let dir = tempfile::tempdir().unwrap();
     let inputs = vec!["input".to_string()];
 
     let result = OptimizeExperiment::builder()
-        .use_case_id("shopping-basket")
+        .service_contract_id("shopping-basket")
         .initial_factor(Temp(0.1))
-        .use_case(build_service_from_temp)
+        .service_contract(build_service_from_temp)
         .scorer(PassRateScorer)
         .mutator(FloatIncrementMutator(0.1))
         .samples_per_iteration(5)
@@ -93,7 +93,7 @@ fn writes_yaml_to_use_case_scoped_path() {
     let yaml = std::fs::read_to_string(&path).unwrap();
     let spec = OptimizationSpec::from_yaml(&yaml).unwrap();
     assert_eq!(spec.schema_version, "feotest-spec-1");
-    assert_eq!(spec.use_case_id, "shopping-basket");
+    assert_eq!(spec.service_contract_id, "shopping-basket");
     assert_eq!(spec.experiment_id, "temp-tune-v1");
     assert_eq!(spec.objective, "MAXIMIZE");
     assert_eq!(spec.iterations.len(), 3);
@@ -112,9 +112,9 @@ fn multi_line_factor_value_uses_block_scalar() {
     ];
 
     let result = OptimizeExperiment::builder()
-        .use_case_id("prompt-tune")
+        .service_contract_id("prompt-tune")
         .initial_factor(Prompt(prompts[0].clone()))
-        .use_case(build_service_from_prompt)
+        .service_contract(build_service_from_prompt)
         .scorer(PassRateScorer)
         .mutator(PromptMutator { variants: prompts })
         .samples_per_iteration(3)
@@ -149,9 +149,9 @@ fn minimize_objective_is_recorded() {
     let inputs = vec!["input".to_string()];
 
     let result = OptimizeExperiment::builder()
-        .use_case_id("cost-min")
+        .service_contract_id("cost-min")
         .initial_factor(Temp(100.0))
-        .use_case(build_service_from_temp)
+        .service_contract(build_service_from_temp)
         .scorer(PassRateScorer)
         .mutator(FloatIncrementMutator(-10.0))
         .samples_per_iteration(3)
@@ -178,9 +178,9 @@ fn plateau_termination_recorded_as_no_improvement() {
     // All iterations score 1.0, so after the first + no_improvement_window=2
     // the run terminates on plateau.
     let result = OptimizeExperiment::builder()
-        .use_case_id("plateau-case")
+        .service_contract_id("plateau-case")
         .initial_factor(Temp(1.0))
-        .use_case(build_service_from_temp)
+        .service_contract(build_service_from_temp)
         .scorer(PassRateScorer)
         .mutator(FloatIncrementMutator(0.1))
         .samples_per_iteration(3)
@@ -212,9 +212,9 @@ fn max_iterations_termination_recorded() {
     // no_improvement_window exceeds max_iterations, so the run always exits
     // via the iteration cap rather than on plateau.
     let result = OptimizeExperiment::builder()
-        .use_case_id("max-iter")
+        .service_contract_id("max-iter")
         .initial_factor(Temp(1.0))
-        .use_case(build_service_from_temp)
+        .service_contract(build_service_from_temp)
         .scorer(PassRateScorer)
         .mutator(FloatIncrementMutator(0.1))
         .samples_per_iteration(3)
@@ -244,9 +244,9 @@ fn iterations_record_samples_executed() {
     let inputs = vec!["input".to_string()];
 
     let result = OptimizeExperiment::builder()
-        .use_case_id("samples-test")
+        .service_contract_id("samples-test")
         .initial_factor(Temp(1.0))
-        .use_case(build_service_from_temp)
+        .service_contract(build_service_from_temp)
         .scorer(PassRateScorer)
         .mutator(FloatIncrementMutator(0.1))
         .samples_per_iteration(7)
@@ -270,9 +270,9 @@ fn result_to_yaml_without_writing_to_disk() {
     let inputs = vec!["input".to_string()];
 
     let result = OptimizeExperiment::builder()
-        .use_case_id("yaml-only")
+        .service_contract_id("yaml-only")
         .initial_factor(Temp(0.5))
-        .use_case(build_service_from_temp)
+        .service_contract(build_service_from_temp)
         .scorer(PassRateScorer)
         .mutator(FloatIncrementMutator(0.1))
         .samples_per_iteration(3)
@@ -315,12 +315,12 @@ fn struct_factor_emits_as_yaml_mapping() {
     let inputs = vec!["input".to_string()];
 
     let result = OptimizeExperiment::builder()
-        .use_case_id("struct-factor")
+        .service_contract_id("struct-factor")
         .initial_factor(ModelAndTemp {
             model: "gpt-4",
             temperature: 0.3,
         })
-        .use_case(|_f: &ModelAndTemp| Service)
+        .service_contract(|_f: &ModelAndTemp| Service)
         .scorer(PassRateScorer)
         .mutator(ModelTempMutator)
         .samples_per_iteration(3)

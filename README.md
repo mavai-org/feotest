@@ -126,7 +126,7 @@ The framework is organised around a small number of core modules:
 | `experiment` | Experiment workflows: measure, explore, optimize |
 | `ptest` | Probabilistic test execution and verdict production |
 | `reporting` | Structured output (JUnit XML) |
-| `usecase` | The named unit of work under test |
+| `service_contract` | The named unit of work under test |
 
 Dependencies point inward: statistics and model are at the core, reporting is at
 the periphery. Nothing depends on reporting; everything depends on model.

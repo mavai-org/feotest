@@ -1,0 +1,5 @@
+error: `#[service_contract_factory]` methods must return `impl ServiceContract` or `Box<dyn ServiceContract>`
+ --> tests/ui/sentinel/service_contract_factory_wrong_return.rs:9:32
+  |
+9 |     fn not_a_factory(&self) -> String {
+  |                                ^^^^^^

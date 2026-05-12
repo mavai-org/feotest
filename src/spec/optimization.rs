@@ -87,8 +87,9 @@ pub struct ConvergenceBlock {
 pub struct OptimizationSpec {
     /// Schema version identifier.
     pub schema_version: String,
-    /// The use case identifier.
-    pub use_case_id: String,
+    /// The service contract identifier.
+    #[serde(rename = "useCaseId")]
+    pub service_contract_id: String,
     /// The experiment identifier. Used as the YAML filename stem.
     pub experiment_id: String,
     /// "MAXIMIZE" or "MINIMIZE".
@@ -121,7 +122,7 @@ impl OptimizationSpec {
 
         Self {
             schema_version: OPTIMIZATION_SCHEMA_VERSION.to_owned(),
-            use_case_id: result.use_case_id().to_owned(),
+            service_contract_id: result.service_contract_id().to_owned(),
             experiment_id: result
                 .experiment_id()
                 .unwrap_or(DEFAULT_EXPERIMENT_ID)
@@ -172,7 +173,7 @@ pub fn default_output_root() -> PathBuf {
 
 /// Writes optimization YAML artefacts to disk.
 ///
-/// Files land at `{root}/{use_case_id}/{experiment_id}.yaml`, where
+/// Files land at `{root}/{service_contract_id}/{experiment_id}.yaml`, where
 /// `root` defaults to [`default_output_root`].
 pub struct OptimizeSpecWriter {
     root: PathBuf,
@@ -219,7 +220,7 @@ impl OptimizeSpecWriter {
     /// Returns an error if directory creation, YAML serialisation, or
     /// file writing fails.
     pub fn write_spec(&self, spec: &OptimizationSpec) -> Result<PathBuf, std::io::Error> {
-        let dir = self.root.join(&spec.use_case_id);
+        let dir = self.root.join(&spec.service_contract_id);
         std::fs::create_dir_all(&dir)?;
 
         let path = dir.join(format!("{}.yaml", spec.experiment_id));
@@ -236,7 +237,7 @@ mod tests {
     fn sample_spec() -> OptimizationSpec {
         OptimizationSpec {
             schema_version: OPTIMIZATION_SCHEMA_VERSION.to_owned(),
-            use_case_id: "shopping-basket".to_owned(),
+            service_contract_id: "shopping-basket".to_owned(),
             experiment_id: "prompt-tune-v1".to_owned(),
             objective: "MAXIMIZE".to_owned(),
             iterations: vec![

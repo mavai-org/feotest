@@ -1,4 +1,4 @@
-//! Use case outcome: the result of executing a trial and evaluating its contract.
+//! Service contract outcome: the result of executing a trial and evaluating its contract.
 
 use std::fmt;
 use std::time::{Duration, Instant};
@@ -8,7 +8,7 @@ use crate::contract::conformance::{ConformanceResult, VerificationMatcher};
 use crate::contract::duration::DurationResult;
 use crate::model::{ContractViolation, TrialOutcome};
 
-/// The result of executing a use case trial and evaluating its contract.
+/// The result of executing a service contract trial and evaluating its contract.
 ///
 /// Bundles the service response with contract evaluation results, timing,
 /// and duration constraint results. Postconditions and duration constraints
@@ -17,7 +17,7 @@ use crate::model::{ContractViolation, TrialOutcome};
 /// # Examples
 ///
 /// ```
-/// use feotest::contract::{ServiceContract, UseCaseOutcome};
+/// use feotest::contract::{ServiceContract, ServiceContractOutcome};
 /// use feotest::model::ContractViolation;
 ///
 /// let contract = ServiceContract::<String, u32>::builder()
@@ -30,22 +30,22 @@ use crate::model::{ContractViolation, TrialOutcome};
 ///     })
 ///     .build();
 ///
-/// let outcome = UseCaseOutcome::evaluate(&contract, &"req".into(), || 42);
+/// let outcome = ServiceContractOutcome::evaluate(&contract, &"req".into(), || 42);
 /// assert!(outcome.is_success());
 /// assert_eq!(*outcome.response(), 42);
 ///
-/// let outcome = UseCaseOutcome::evaluate(&contract, &"req".into(), || 0);
+/// let outcome = ServiceContractOutcome::evaluate(&contract, &"req".into(), || 0);
 /// assert!(!outcome.is_success());
 /// assert_eq!(outcome.violation().unwrap().check(), "positive");
 /// ```
-pub struct UseCaseOutcome<R> {
+pub struct ServiceContractOutcome<R> {
     response: R,
     trial_outcome: TrialOutcome,
     duration_result: Option<DurationResult>,
     conformance_result: Option<ConformanceResult>,
 }
 
-impl<R> UseCaseOutcome<R> {
+impl<R> ServiceContractOutcome<R> {
     /// Executes a service call and evaluates the contract against the result.
     ///
     /// Times the service call and evaluates all postconditions and the
@@ -233,7 +233,7 @@ mod tests {
             .build();
 
         let outcome =
-            UseCaseOutcome::evaluate(&contract, &"input".to_string(), || "hello".to_string());
+            ServiceContractOutcome::evaluate(&contract, &"input".to_string(), || "hello".to_string());
 
         assert!(outcome.is_success());
         assert_eq!(outcome.response(), "hello");
@@ -251,7 +251,7 @@ mod tests {
             })
             .build();
 
-        let outcome = UseCaseOutcome::evaluate(&contract, &"input".to_string(), String::new);
+        let outcome = ServiceContractOutcome::evaluate(&contract, &"input".to_string(), String::new);
 
         assert!(!outcome.is_success());
         assert_eq!(outcome.violation().unwrap().check(), "content");
@@ -266,7 +266,7 @@ mod tests {
             })
             .build();
 
-        let outcome = UseCaseOutcome::evaluate(&contract, &"input".to_string(), String::new);
+        let outcome = ServiceContractOutcome::evaluate(&contract, &"input".to_string(), String::new);
         outcome.assert_contract();
     }
 
@@ -282,7 +282,7 @@ mod tests {
             })
             .build();
 
-        let outcome = UseCaseOutcome::from_response(&contract, &1, 42, Duration::from_millis(100));
+        let outcome = ServiceContractOutcome::from_response(&contract, &1, 42, Duration::from_millis(100));
         assert!(outcome.is_success());
         assert_eq!(
             outcome.trial_outcome().elapsed(),
@@ -295,7 +295,7 @@ mod tests {
     #[test]
     fn no_duration_constraint_means_no_duration_result() {
         let contract = ServiceContract::<u32, u32>::builder().build();
-        let outcome = UseCaseOutcome::from_response(&contract, &1, 42, Duration::from_millis(100));
+        let outcome = ServiceContractOutcome::from_response(&contract, &1, 42, Duration::from_millis(100));
         assert!(outcome.duration_result().is_none());
         assert!(outcome.within_duration_limit());
     }
@@ -306,7 +306,7 @@ mod tests {
             .ensure_duration_below(Duration::from_millis(500))
             .build();
 
-        let outcome = UseCaseOutcome::from_response(&contract, &1, 42, Duration::from_millis(200));
+        let outcome = ServiceContractOutcome::from_response(&contract, &1, 42, Duration::from_millis(200));
 
         assert!(outcome.within_duration_limit());
         assert!(outcome.is_success());
@@ -322,7 +322,7 @@ mod tests {
             .ensure_duration_below(Duration::from_millis(500))
             .build();
 
-        let outcome = UseCaseOutcome::from_response(&contract, &1, 42, Duration::from_millis(800));
+        let outcome = ServiceContractOutcome::from_response(&contract, &1, 42, Duration::from_millis(800));
 
         assert!(!outcome.within_duration_limit());
         assert!(!outcome.is_success());
@@ -337,7 +337,7 @@ mod tests {
             .ensure_duration_below(Duration::from_millis(100))
             .build();
 
-        let outcome = UseCaseOutcome::from_response(&contract, &1, 42, Duration::from_millis(200));
+        let outcome = ServiceContractOutcome::from_response(&contract, &1, 42, Duration::from_millis(200));
 
         assert!(outcome.violation().is_none()); // postconditions passed
         assert!(!outcome.within_duration_limit()); // duration failed
@@ -353,7 +353,7 @@ mod tests {
             .ensure_duration_below(Duration::from_millis(500))
             .build();
 
-        let outcome = UseCaseOutcome::from_response(&contract, &1, 42, Duration::from_millis(100));
+        let outcome = ServiceContractOutcome::from_response(&contract, &1, 42, Duration::from_millis(100));
 
         assert!(outcome.violation().is_some()); // postconditions failed
         assert!(outcome.within_duration_limit()); // duration passed
@@ -369,7 +369,7 @@ mod tests {
             .ensure_duration_below(Duration::from_millis(100))
             .build();
 
-        let outcome = UseCaseOutcome::from_response(&contract, &1, 42, Duration::from_millis(200));
+        let outcome = ServiceContractOutcome::from_response(&contract, &1, 42, Duration::from_millis(200));
 
         assert!(outcome.violation().is_some());
         assert!(!outcome.within_duration_limit());
@@ -383,7 +383,7 @@ mod tests {
             .ensure_duration_below(Duration::from_millis(100))
             .build();
 
-        let outcome = UseCaseOutcome::from_response(&contract, &1, 42, Duration::from_millis(500));
+        let outcome = ServiceContractOutcome::from_response(&contract, &1, 42, Duration::from_millis(500));
         outcome.assert_contract();
     }
 
@@ -397,7 +397,7 @@ mod tests {
             .ensure_duration_below(Duration::from_millis(100))
             .build();
 
-        let outcome = UseCaseOutcome::from_response(&contract, &1, 42, Duration::from_millis(500));
+        let outcome = ServiceContractOutcome::from_response(&contract, &1, 42, Duration::from_millis(500));
         outcome.assert_contract(); // should report postcondition first
     }
 
@@ -407,7 +407,7 @@ mod tests {
             .ensure_duration_below(Duration::from_millis(500))
             .build();
 
-        let outcome = UseCaseOutcome::from_response(&contract, &1, 42, Duration::from_millis(300));
+        let outcome = ServiceContractOutcome::from_response(&contract, &1, 42, Duration::from_millis(300));
         assert!(outcome.duration_result().is_some());
         assert!(outcome.within_duration_limit());
     }
@@ -417,7 +417,7 @@ mod tests {
     #[test]
     fn no_conformance_means_matches_expected_is_true() {
         let contract = ServiceContract::<u32, u32>::builder().build();
-        let outcome = UseCaseOutcome::from_response(&contract, &1, 42, Duration::from_millis(10));
+        let outcome = ServiceContractOutcome::from_response(&contract, &1, 42, Duration::from_millis(10));
         assert!(outcome.matches_expected());
         assert!(outcome.conformance_result().is_none());
     }
@@ -427,7 +427,7 @@ mod tests {
         use crate::contract::conformance::StringMatcher;
 
         let contract = ServiceContract::<String, String>::builder().build();
-        let outcome = UseCaseOutcome::from_response(
+        let outcome = ServiceContractOutcome::from_response(
             &contract,
             &"input".into(),
             "hello".into(),
@@ -446,7 +446,7 @@ mod tests {
         use crate::contract::conformance::StringMatcher;
 
         let contract = ServiceContract::<String, String>::builder().build();
-        let outcome = UseCaseOutcome::from_response(
+        let outcome = ServiceContractOutcome::from_response(
             &contract,
             &"input".into(),
             "hello".into(),
@@ -471,7 +471,7 @@ mod tests {
         use crate::contract::conformance::StringMatcher;
 
         let contract = ServiceContract::<String, String>::builder().build();
-        let outcome = UseCaseOutcome::from_response(
+        let outcome = ServiceContractOutcome::from_response(
             &contract,
             &"input".into(),
             "HELLO WORLD".into(),
@@ -501,7 +501,7 @@ mod tests {
             })
             .build();
 
-        let outcome = UseCaseOutcome::from_response(
+        let outcome = ServiceContractOutcome::from_response(
             &contract,
             &"input".into(),
             "hello".into(),
@@ -533,7 +533,7 @@ mod tests {
             .ensure_duration_below(Duration::from_millis(500))
             .build();
 
-        let outcome = UseCaseOutcome::from_response(
+        let outcome = ServiceContractOutcome::from_response(
             &contract,
             &"input".into(),
             "hello".into(),
@@ -554,7 +554,7 @@ mod tests {
         use crate::contract::conformance::StringMatcher;
 
         let contract = ServiceContract::<String, String>::builder().build();
-        let outcome = UseCaseOutcome::from_response(
+        let outcome = ServiceContractOutcome::from_response(
             &contract,
             &"input".into(),
             "hello".into(),

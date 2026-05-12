@@ -20,7 +20,7 @@ pub mod json_matcher;
 pub use builder::ServiceContractBuilder;
 pub use conformance::{ConformanceResult, MatchResult, StringMatcher, VerificationMatcher};
 pub use duration::{DurationConstraint, DurationResult};
-pub use evaluation::UseCaseOutcome;
+pub use evaluation::ServiceContractOutcome;
 
 use crate::model::Outcome;
 

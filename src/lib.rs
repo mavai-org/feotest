@@ -48,12 +48,12 @@ pub mod reporting;
 pub mod sentinel;
 pub mod spec;
 pub mod statistics;
-pub mod usecase;
+pub mod service_contract;
 pub mod verdict;
 
 pub use controls::RunBudget;
 pub use feotest_macros::{
-    include_baselines, probabilistic_test, sentinel, sentinel_impl, use_case_factory,
+    include_baselines, probabilistic_test, sentinel, sentinel_impl, service_contract_factory,
 };
 pub use model::BudgetExhaustedBehavior;
 

@@ -20,7 +20,7 @@ impl fmt::Display for ConfigFactor {
     }
 }
 
-/// A minimal use case that the factory produces from each factor.
+/// A minimal service contract that the factory produces from each factor.
 struct MockService;
 
 fn mock_service_factory(_factor: &ConfigFactor) -> MockService {
@@ -38,9 +38,9 @@ fn explore_writes_per_config_yaml_files() {
     ];
 
     let result = ExploreExperiment::builder()
-        .use_case_id("test-uc")
+        .service_contract_id("test-uc")
         .factors(factors)
-        .use_case(mock_service_factory)
+        .service_contract(mock_service_factory)
         .samples_per_config(5)
         .inputs(&inputs)
         .trial(|_svc: &MockService, _input| TrialOutcome::success(Duration::from_millis(1)))
@@ -74,9 +74,9 @@ fn explore_yaml_contains_correct_content() {
     let factors = vec![ConfigFactor { label: "all-pass" }];
 
     let result = ExploreExperiment::builder()
-        .use_case_id("content-test")
+        .service_contract_id("content-test")
         .factors(factors)
-        .use_case(mock_service_factory)
+        .service_contract(mock_service_factory)
         .samples_per_config(10)
         .inputs(&inputs)
         .trial(|_svc: &MockService, _input| TrialOutcome::success(Duration::from_millis(5)))
@@ -89,7 +89,7 @@ fn explore_yaml_contains_correct_content() {
     let spec: ExplorationSpec = ExplorationSpec::from_yaml(&yaml_content).unwrap();
 
     assert_eq!(spec.schema_version, "feotest-spec-1");
-    assert_eq!(spec.use_case_id, "content-test");
+    assert_eq!(spec.service_contract_id, "content-test");
     assert_eq!(spec.statistics.successes, 10);
     assert_eq!(spec.statistics.failures, 0);
     assert!((spec.statistics.observed - 1.0).abs() < 1e-10);
@@ -101,9 +101,9 @@ fn explore_without_output_dir_produces_no_files() {
     let factors = vec![ConfigFactor { label: "no-output" }];
 
     let result = ExploreExperiment::builder()
-        .use_case_id("no-output-test")
+        .service_contract_id("no-output-test")
         .factors(factors)
-        .use_case(mock_service_factory)
+        .service_contract(mock_service_factory)
         .samples_per_config(5)
         .inputs(&inputs)
         .trial(|_svc: &MockService, _input| TrialOutcome::success(Duration::from_millis(1)))
@@ -122,9 +122,9 @@ fn explore_spec_writer_standalone() {
     }];
 
     let result = ExploreExperiment::builder()
-        .use_case_id("writer-test")
+        .service_contract_id("writer-test")
         .factors(factors)
-        .use_case(mock_service_factory)
+        .service_contract(mock_service_factory)
         .samples_per_config(5)
         .inputs(&inputs)
         .trial(|_svc: &MockService, _input| TrialOutcome::success(Duration::from_millis(1)))
@@ -148,9 +148,9 @@ fn explore_yaml_is_descriptive_not_inferential() {
     }];
 
     let result = ExploreExperiment::builder()
-        .use_case_id("desc-test")
+        .service_contract_id("desc-test")
         .factors(factors)
-        .use_case(mock_service_factory)
+        .service_contract(mock_service_factory)
         .samples_per_config(5)
         .inputs(&inputs)
         .trial(|_svc: &MockService, _input| TrialOutcome::success(Duration::from_millis(1)))

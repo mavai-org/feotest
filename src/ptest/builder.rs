@@ -1,9 +1,9 @@
 //! Builder for configuring and launching a probabilistic test.
 //!
 //! The API shape matches [`crate::experiment::MeasureExperiment`]: the
-//! use case id is explicit via [`use_case_id`](ProbabilisticTestBuilder::use_case_id),
+//! service contract id is explicit via [`service_contract_id`](ProbabilisticTestBuilder::service_contract_id),
 //! the instance is produced by a factory via
-//! [`use_case`](ProbabilisticTestBuilder::use_case), and the trial
+//! [`service_contract`](ProbabilisticTestBuilder::service_contract), and the trial
 //! closure receives `(&T, &str) -> TrialOutcome`. A probabilistic test
 //! does not vary anything across samples, so the factory takes no
 //! arguments — identical to measure's single-condition shape.
@@ -17,9 +17,9 @@ use crate::model::{BudgetExhaustedBehavior, TestIntent, ThresholdOrigin, TrialOu
 use crate::ptest::probabilistic_test::ProbabilisticTest;
 use crate::ptest::validation::MacroConfig;
 use crate::spec::{BaselineSpec, SpecResolver};
-use crate::usecase::{CovariateContext, UseCase};
+use crate::service_contract::{CovariateContext, ServiceContract};
 
-type UseCaseFactory<'a, T> = Box<dyn Fn() -> T + 'a>;
+type ServiceContractFactory<'a, T> = Box<dyn Fn() -> T + 'a>;
 type TrialClosure<'a, T> = Box<dyn FnMut(&T, &str) -> TrialOutcome + 'a>;
 
 /// Configures the threshold derivation approach.
@@ -68,7 +68,7 @@ pub enum ThresholdApproach {
 
 /// Fluent builder for a probabilistic test.
 ///
-/// Required fields — `use_case_id`, `use_case` (factory), `inputs`,
+/// Required fields — `service_contract_id`, `service_contract` (factory), `inputs`,
 /// `trial`, and an approach (either explicit via
 /// [`approach`](Self::approach) or inferable from the parameter
 /// triangle) — must be supplied before [`build`](Self::build) is
@@ -88,8 +88,8 @@ pub enum ThresholdApproach {
 ///
 /// let inputs = vec!["request".to_string()];
 /// let result = ProbabilisticTestBuilder::builder()
-///     .use_case_id("my-service")
-///     .use_case(|| ())
+///     .service_contract_id("my-service")
+///     .service_contract(|| ())
 ///     .inputs(&inputs)
 ///     .trial(|(): &(), _input| TrialOutcome::success(Duration::from_millis(1)))
 ///     .approach(ThresholdApproach::ThresholdFirst {
@@ -112,8 +112,8 @@ pub enum ThresholdApproach {
 ///
 /// let inputs = vec!["request".to_string()];
 /// let result = ProbabilisticTestBuilder::builder()
-///     .use_case_id("my-service")
-///     .use_case(|| ())
+///     .service_contract_id("my-service")
+///     .service_contract(|| ())
 ///     .inputs(&inputs)
 ///     .trial(|(): &(), _input| TrialOutcome::success(Duration::from_millis(1)))
 ///     .samples(50)
@@ -124,8 +124,8 @@ pub enum ThresholdApproach {
 /// assert_eq!(result.verdict_record().verdict(), Verdict::Pass);
 /// ```
 pub struct ProbabilisticTestBuilder<'a, T> {
-    pub(crate) use_case_id: Option<String>,
-    pub(crate) factory: Option<UseCaseFactory<'a, T>>,
+    pub(crate) service_contract_id: Option<String>,
+    pub(crate) factory: Option<ServiceContractFactory<'a, T>>,
     pub(crate) inputs: Option<&'a [String]>,
     pub(crate) trial: Option<TrialClosure<'a, T>>,
 
@@ -163,7 +163,7 @@ pub struct ProbabilisticTestBuilder<'a, T> {
 impl<T> Default for ProbabilisticTestBuilder<'_, T> {
     fn default() -> Self {
         Self {
-            use_case_id: None,
+            service_contract_id: None,
             factory: None,
             inputs: None,
             trial: None,
@@ -210,13 +210,13 @@ impl<'a> ProbabilisticTestBuilder<'a, ()> {
     ///
     /// Panics if `inputs` is empty (mirrors the old behaviour).
     pub fn new(
-        use_case_id: impl Into<String>,
+        service_contract_id: impl Into<String>,
         inputs: &'a [String],
         mut trial: impl FnMut(&str) -> TrialOutcome + 'a,
     ) -> Self {
         Self::builder()
-            .use_case_id(use_case_id)
-            .use_case(|| ())
+            .service_contract_id(service_contract_id)
+            .service_contract(|| ())
             .inputs(inputs)
             .trial(move |(): &(), input| trial(input))
     }
@@ -240,22 +240,22 @@ impl<'a, T> ProbabilisticTestBuilder<'a, T> {
 
     // --- required fields (measure-aligned) ---
 
-    /// Sets the use case identifier.
+    /// Sets the service contract identifier.
     ///
     /// Appears in the verdict record and drives baseline resolution
-    /// (`{use_case_id}.yaml`).
+    /// (`{service_contract_id}.yaml`).
     #[must_use]
-    pub fn use_case_id(mut self, id: impl Into<String>) -> Self {
-        self.use_case_id = Some(id.into());
+    pub fn service_contract_id(mut self, id: impl Into<String>) -> Self {
+        self.service_contract_id = Some(id.into());
         self
     }
 
-    /// Sets the use case factory.
+    /// Sets the service contract factory.
     ///
     /// The factory is called once when [`run`](ProbabilisticTest::run)
     /// starts to produce the instance the trials are executed against.
     #[must_use]
-    pub fn use_case(mut self, factory: impl Fn() -> T + 'a) -> Self {
+    pub fn service_contract(mut self, factory: impl Fn() -> T + 'a) -> Self {
         self.factory = Some(Box::new(factory));
         self
     }
@@ -274,7 +274,7 @@ impl<'a, T> ProbabilisticTestBuilder<'a, T> {
 
     /// Sets the trial closure.
     ///
-    /// The closure receives a reference to the use case instance and
+    /// The closure receives a reference to the service contract instance and
     /// an input string, and returns a [`TrialOutcome`]. It may borrow
     /// data that outlives the builder (the `'a` lifetime); it is not
     /// required to be `'static`.
@@ -342,7 +342,7 @@ impl<'a, T> ProbabilisticTestBuilder<'a, T> {
 
     /// Overrides the default baseline directory (`tests/baselines`).
     ///
-    /// The framework looks for `{use_case_id}.yaml` in this directory.
+    /// The framework looks for `{service_contract_id}.yaml` in this directory.
     #[must_use]
     pub fn baseline_dir(mut self, path: impl Into<PathBuf>) -> Self {
         self.baseline_dir = Some(path.into());
@@ -437,14 +437,14 @@ impl<'a, T> ProbabilisticTestBuilder<'a, T> {
         self
     }
 
-    /// Sets covariate context from a use case for baseline selection.
+    /// Sets covariate context from a service contract for baseline selection.
     ///
     /// When set, the resolver uses covariate-aware selection to find
     /// the best-matching baseline rather than returning the first
-    /// match. If the use case declares no covariates, this is a no-op.
+    /// match. If the service contract declares no covariates, this is a no-op.
     #[must_use]
-    pub fn covariate_source(mut self, use_case: &dyn UseCase) -> Self {
-        self.covariate_context = CovariateContext::from_use_case(use_case);
+    pub fn covariate_source(mut self, service_contract: &dyn ServiceContract) -> Self {
+        self.covariate_context = CovariateContext::from_service_contract(service_contract);
         self
     }
 
@@ -512,7 +512,7 @@ impl<'a, T> ProbabilisticTestBuilder<'a, T> {
     ///
     /// # Panics
     ///
-    /// Panics if any required field (`use_case_id`, `use_case` factory,
+    /// Panics if any required field (`service_contract_id`, `service_contract` factory,
     /// `inputs`, `trial`) is missing, or if the parameter triangle is
     /// over-specified / under-specified / incomplete for any
     /// [`ThresholdApproach`] and no explicit `.approach(...)` was set.
@@ -521,18 +521,18 @@ impl<'a, T> ProbabilisticTestBuilder<'a, T> {
         // Required-field checks run first so callers get the clearest
         // possible panic message (naming the missing setter) before any
         // approach inference is attempted.
-        let use_case_id = self
-            .use_case_id
-            .expect("use_case_id must be set via .use_case_id(...)");
+        let service_contract_id = self
+            .service_contract_id
+            .expect("service_contract_id must be set via .service_contract_id(...)");
         let factory = self
             .factory
-            .expect("use_case factory must be set via .use_case(...)");
+            .expect("service_contract factory must be set via .service_contract(...)");
         let inputs = self.inputs.expect("inputs must be set via .inputs(...)");
         let trial = self.trial.expect("trial must be set via .trial(...)");
 
         let approach = self.approach.take().unwrap_or_else(|| {
             detect_approach_from_triangle(
-                &use_case_id,
+                &service_contract_id,
                 self.samples,
                 self.threshold,
                 self.confidence,
@@ -543,7 +543,7 @@ impl<'a, T> ProbabilisticTestBuilder<'a, T> {
         validate_approach_bounds(&approach);
 
         ProbabilisticTest {
-            use_case_id,
+            service_contract_id,
             factory,
             inputs,
             trial,
@@ -577,7 +577,7 @@ impl<'a, T> ProbabilisticTestBuilder<'a, T> {
 /// Panics on over-specification, under-specification, or incomplete
 /// confidence-first parameters.
 fn detect_approach_from_triangle(
-    use_case_id: &str,
+    service_contract_id: &str,
     samples: Option<u32>,
     threshold: Option<f64>,
     confidence: Option<f64>,
@@ -592,7 +592,7 @@ fn detect_approach_from_triangle(
 
     assert!(
         !(has_samples && has_threshold && has_confidence),
-        "\n\nOVER-SPECIFIED in ProbabilisticTest '{use_case_id}':\n\n\
+        "\n\nOVER-SPECIFIED in ProbabilisticTest '{service_contract_id}':\n\n\
          samples, threshold, and confidence are all set.\n\
          Sample size, confidence, and threshold are mathematically linked.\n\
          You choose two; the framework derives the third.\n\n\
@@ -652,7 +652,7 @@ fn detect_approach_from_triangle(
              confidence, min_detectable_effect, and power.\n\n\
              Present: {}\n\
              Missing: {}\n",
-            use_case_id,
+            service_contract_id,
             present.join(", "),
             missing.join(", "),
         );
@@ -680,7 +680,7 @@ fn detect_approach_from_triangle(
          Parameters set: {}\n\n\
          Set an explicit .approach(...) or supply at least two of:\n  \
          samples, threshold, confidence (or confidence + min_detectable_effect + power).\n",
-        use_case_id,
+        service_contract_id,
         if params_set.is_empty() {
             "(none)".to_string()
         } else {
@@ -831,8 +831,8 @@ mod tests {
     fn threshold_first_explicit_passes() {
         let inputs = vec!["input".to_string()];
         let result = ProbabilisticTestBuilder::builder()
-            .use_case_id("ssf-explicit")
-            .use_case(|| ())
+            .service_contract_id("ssf-explicit")
+            .service_contract(|| ())
             .inputs(&inputs)
             .trial(always_succeeds)
             .approach(ThresholdApproach::ThresholdFirst {
@@ -849,8 +849,8 @@ mod tests {
     fn threshold_first_inferred_from_triangle() {
         let inputs = vec!["input".to_string()];
         let result = ProbabilisticTestBuilder::builder()
-            .use_case_id("tri-inferred")
-            .use_case(|| ())
+            .service_contract_id("tri-inferred")
+            .service_contract(|| ())
             .inputs(&inputs)
             .trial(always_succeeds)
             .samples(30)
@@ -866,8 +866,8 @@ mod tests {
     fn over_specified_triangle_panics() {
         let inputs = vec!["input".to_string()];
         let _ = ProbabilisticTestBuilder::builder()
-            .use_case_id("over")
-            .use_case(|| ())
+            .service_contract_id("over")
+            .service_contract(|| ())
             .inputs(&inputs)
             .trial(always_succeeds)
             .samples(30)
@@ -881,15 +881,15 @@ mod tests {
     fn under_specified_triangle_panics() {
         let inputs = vec!["input".to_string()];
         let _ = ProbabilisticTestBuilder::builder()
-            .use_case_id("under")
-            .use_case(|| ())
+            .service_contract_id("under")
+            .service_contract(|| ())
             .inputs(&inputs)
             .trial(always_succeeds)
             .build();
     }
 
     #[test]
-    #[should_panic(expected = "use_case_id must be set")]
+    #[should_panic(expected = "service_contract_id must be set")]
     fn build_without_any_required_fields_panics() {
         let _ = ProbabilisticTestBuilder::<()>::builder().build();
     }

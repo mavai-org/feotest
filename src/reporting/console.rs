@@ -158,7 +158,7 @@ fn render_test_name(record: &VerdictRecord, writer: &mut dyn fmt::Write) -> fmt:
     let name = record
         .identity()
         .test_name()
-        .unwrap_or_else(|| record.identity().use_case_id());
+        .unwrap_or_else(|| record.identity().service_contract_id());
     label_value(writer, "Test:", name)
 }
 

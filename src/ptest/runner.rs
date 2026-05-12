@@ -15,7 +15,7 @@ use crate::ptest::diagnostics;
 use crate::spec::{BaselineSpec, SpecResolver};
 use crate::statistics::types::{DerivedThreshold, FeasibilityResult};
 use crate::statistics::{evaluator, feasibility, proportion};
-use crate::usecase::CovariateContext;
+use crate::service_contract::CovariateContext;
 use crate::verdict::{
     BaselineProvenance, FunctionalDimension, SpecProvenance, StatisticalAnalysis, Verdict,
     VerdictRecord,
@@ -134,7 +134,7 @@ impl ProbabilisticTestResult {
 
 /// Executes a probabilistic test and produces a verdict.
 pub fn execute<F>(
-    use_case_id: &str,
+    service_contract_id: &str,
     inputs: &[String],
     trial: F,
     criteria: &AssessmentCriteria,
@@ -146,7 +146,7 @@ where
 {
     let mut warnings: Vec<Warning> = Vec::new();
 
-    let baseline_spec = resolve_baseline(baseline, use_case_id, &mut warnings);
+    let baseline_spec = resolve_baseline(baseline, service_contract_id, &mut warnings);
 
     let (samples, derived_threshold) = approach::resolve_threshold(
         &criteria.approach,
@@ -158,7 +158,7 @@ where
     let feas =
         feasibility::feasibility_check(samples, derived_threshold.value(), resolved_confidence);
 
-    enforce_feasibility(use_case_id, criteria.intent, &feas, &mut warnings);
+    enforce_feasibility(service_contract_id, criteria.intent, &feas, &mut warnings);
 
     let config = synthesise_execution_config(
         config_overrides,
@@ -217,7 +217,7 @@ where
 
     let baseline_prov = baseline_spec.as_ref().map(build_baseline_provenance);
 
-    let identity = TestIdentity::new(use_case_id);
+    let identity = TestIdentity::new(service_contract_id);
     let mut builder = VerdictRecord::builder(
         identity,
         verdict,
@@ -251,14 +251,14 @@ where
 /// are pushed into the caller's vec.
 fn resolve_baseline(
     baseline: BaselineContext,
-    use_case_id: &str,
+    service_contract_id: &str,
     warnings: &mut Vec<Warning>,
 ) -> Option<BaselineSpec> {
     baseline.pre_resolved_spec.or_else(|| {
         baseline.spec_resolver.as_ref().and_then(|resolver| {
             crate::ptest::baseline::resolve(
                 resolver,
-                use_case_id,
+                service_contract_id,
                 baseline.covariate_context.as_ref(),
                 warnings,
             )
@@ -269,7 +269,7 @@ fn resolve_baseline(
 /// Panics (under `Verification` intent) or warns (under `Smoke` intent)
 /// when the configuration is statistically infeasible.
 fn enforce_feasibility(
-    use_case_id: &str,
+    service_contract_id: &str,
     intent: TestIntent,
     feas: &FeasibilityResult,
     warnings: &mut Vec<Warning>,
@@ -281,13 +281,13 @@ fn enforce_feasibility(
         TestIntent::Verification => {
             panic!(
                 "\n\n{}\n",
-                diagnostics::infeasibility_message(use_case_id, feas, false),
+                diagnostics::infeasibility_message(service_contract_id, feas, false),
             );
         }
         TestIntent::Smoke => {
             warnings.push(Warning::new(
                 "UNDERSIZED",
-                diagnostics::infeasibility_message(use_case_id, feas, false),
+                diagnostics::infeasibility_message(service_contract_id, feas, false),
             ));
         }
     }
@@ -453,7 +453,7 @@ fn record_smoke_normative_warning(criteria: &AssessmentCriteria, warnings: &mut 
 /// minimum rate.
 fn build_baseline_provenance(spec: &BaselineSpec) -> BaselineProvenance {
     BaselineProvenance::new(
-        format!("{}.yaml", spec.use_case_id),
+        format!("{}.yaml", spec.service_contract_id),
         spec.generated_at.clone(),
         spec.execution.samples_executed,
         spec.statistics.success_rate.observed,
@@ -603,7 +603,7 @@ fn build_provenance(
 ) -> SpecProvenance {
     let mut provenance = SpecProvenance::new(threshold_origin);
     if let Some(spec) = baseline_spec {
-        provenance = provenance.with_spec_filename(format!("{}.yaml", spec.use_case_id));
+        provenance = provenance.with_spec_filename(format!("{}.yaml", spec.service_contract_id));
         if let Some(info) = expiration_info
             && !matches!(info.status(), crate::model::ExpirationStatus::NoExpiration)
         {
@@ -734,15 +734,15 @@ mod tests {
 
         // Create a baseline via measure experiment
         struct SpecTestUc;
-        impl crate::usecase::UseCase for SpecTestUc {
+        impl crate::service_contract::ServiceContract for SpecTestUc {
             fn id(&self) -> &str {
                 "spec-test"
             }
         }
         let inputs = vec!["input".to_string()];
         let measure_result = crate::experiment::MeasureExperiment::builder()
-            .use_case_id("spec-test")
-            .use_case(|| ())
+            .service_contract_id("spec-test")
+            .service_contract(|| ())
             .samples(200)
             .inputs(&inputs)
             .trial(|(): &(), input| always_succeeds(input))
@@ -772,15 +772,15 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
 
         struct ConfTestUc;
-        impl crate::usecase::UseCase for ConfTestUc {
+        impl crate::service_contract::ServiceContract for ConfTestUc {
             fn id(&self) -> &str {
                 "conf-test"
             }
         }
         let inputs = vec!["input".to_string()];
         crate::experiment::MeasureExperiment::builder()
-            .use_case_id("conf-test")
-            .use_case(|| ())
+            .service_contract_id("conf-test")
+            .service_contract(|| ())
             .samples(200)
             .inputs(&inputs)
             .trial(|(): &(), input| always_succeeds(input))
@@ -814,13 +814,13 @@ mod tests {
     #[should_panic(expected = "integrity check failed")]
     fn threshold_first_with_covariates_panics_on_tampered_baseline() {
         use crate::spec::namer::CovariateProfile;
-        use crate::usecase::{CovariateCategory, CovariateDeclaration, UseCase};
+        use crate::service_contract::{CovariateCategory, CovariateDeclaration, ServiceContract};
 
         // Write a valid baseline with covariates
         let dir = tempfile::tempdir().unwrap();
 
         struct CovUc;
-        impl UseCase for CovUc {
+        impl ServiceContract for CovUc {
             fn id(&self) -> &str {
                 "cov-integrity"
             }
@@ -840,8 +840,8 @@ mod tests {
         let profile = CovariateProfile::builder().put("model", "gpt-4o").build();
 
         crate::experiment::MeasureExperiment::builder()
-            .use_case_id("cov-integrity")
-            .use_case(|| ())
+            .service_contract_id("cov-integrity")
+            .service_contract(|| ())
             .samples(100)
             .inputs(&inputs)
             .trial(|(): &(), input| always_succeeds(input))
@@ -883,7 +883,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
 
         struct SimpleUc;
-        impl crate::usecase::UseCase for SimpleUc {
+        impl crate::service_contract::ServiceContract for SimpleUc {
             fn id(&self) -> &str {
                 "integrity-simple"
             }
@@ -891,8 +891,8 @@ mod tests {
 
         let inputs = vec!["input".to_string()];
         crate::experiment::MeasureExperiment::builder()
-            .use_case_id("integrity-simple")
-            .use_case(|| ())
+            .service_contract_id("integrity-simple")
+            .service_contract(|| ())
             .samples(100)
             .inputs(&inputs)
             .trial(|(): &(), input| always_succeeds(input))

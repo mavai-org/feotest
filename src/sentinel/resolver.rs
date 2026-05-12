@@ -65,7 +65,7 @@ pub struct BaselineQuery<'a> {
     /// Covariate profile the test is currently exercising.
     pub covariate_profile: &'a CovariateProfile,
     /// Use-case identifier — baseline filenames are keyed by this.
-    pub use_case_id: &'a str,
+    pub service_contract_id: &'a str,
 }
 
 /// Embedded-baseline registry lookup surface.
@@ -124,7 +124,7 @@ fn lookup_on_disk(
     query: &BaselineQuery<'_>,
 ) -> Result<Option<BaselineSpec>, BaselineResolutionError> {
     let resolver = SpecResolver::with_dir(dir);
-    match resolver.resolve(query.use_case_id) {
+    match resolver.resolve(query.service_contract_id) {
         Ok(spec) => Ok(Some(spec)),
         Err(SpecResolveError::NotFound { .. }) => Ok(None),
         Err(SpecResolveError::Integrity { source, .. }) => {
@@ -231,9 +231,9 @@ mod tests {
     };
     use std::collections::HashMap;
 
-    fn sample_baseline(use_case_id: &str) -> BaselineSpec {
+    fn sample_baseline(service_contract_id: &str) -> BaselineSpec {
         BaselineSpec::new(
-            use_case_id,
+            service_contract_id,
             "2026-04-22T00:00:00Z",
             ExecutionBlock {
                 samples_planned: 100,
@@ -298,7 +298,7 @@ mod tests {
             spec_name: "my_spec",
             method_name: "my_test",
             covariate_profile: &profile,
-            use_case_id: "my_spec.my_test",
+            service_contract_id: "my_spec.my_test",
         };
         let err = resolve_baseline(&query, None, &FakeEmbedded::empty())
             .expect_err("empty chain must fail");
@@ -321,26 +321,26 @@ mod tests {
             spec_name: "my_spec",
             method_name: "my_test",
             covariate_profile: &profile,
-            use_case_id: "my_spec.my_test",
+            service_contract_id: "my_spec.my_test",
         };
         let embedded = FakeEmbedded::with("my_spec", "my_test", sample_baseline("my_spec.my_test"));
         let resolved = resolve_baseline(&query, None, &embedded).expect("embedded hit");
-        assert_eq!(resolved.use_case_id, "my_spec.my_test");
+        assert_eq!(resolved.service_contract_id, "my_spec.my_test");
     }
 
     #[test]
     fn external_source_takes_precedence_over_embedded_default() {
         let tmp = tempfile::tempdir().expect("tempdir");
         let profile = CovariateProfile::empty();
-        let use_case_id = "primary";
-        let external = sample_baseline(use_case_id);
+        let service_contract_id = "primary";
+        let external = sample_baseline(service_contract_id);
         write_baseline(tmp.path(), &external);
 
         let query = BaselineQuery {
             spec_name: "my_spec",
             method_name: "my_test",
             covariate_profile: &profile,
-            use_case_id,
+            service_contract_id,
         };
         // Populate embedded with a baseline that carries a *different* use
         // case id so we can assert which one was returned.
@@ -349,7 +349,7 @@ mod tests {
 
         let resolved = resolve_baseline(&query, Some(tmp.path()), &embedded).expect("external hit");
         assert_eq!(
-            resolved.use_case_id, "primary",
+            resolved.service_contract_id, "primary",
             "external source must win over embedded default"
         );
     }
@@ -358,7 +358,7 @@ mod tests {
     fn external_malformed_file_surfaces_malformed_error() {
         let tmp = tempfile::tempdir().expect("tempdir");
         let profile = CovariateProfile::empty();
-        let use_case_id = "malformed_case";
+        let service_contract_id = "malformed_case";
         // Write a file matching the sanitized-name-plus-dash prefix convention
         // SpecResolver uses, but whose YAML does not pass fingerprint verification.
         std::fs::write(
@@ -371,7 +371,7 @@ mod tests {
             spec_name: "my_spec",
             method_name: "my_test",
             covariate_profile: &profile,
-            use_case_id,
+            service_contract_id,
         };
         let err = resolve_baseline(&query, Some(tmp.path()), &FakeEmbedded::empty())
             .expect_err("malformed YAML must not silently fall through");
@@ -386,18 +386,18 @@ mod tests {
         let tmp = tempfile::tempdir().expect("tempdir");
         // Directory exists but contains nothing.
         let profile = CovariateProfile::empty();
-        let use_case_id = "missing_from_disk";
+        let service_contract_id = "missing_from_disk";
         let query = BaselineQuery {
             spec_name: "my_spec",
             method_name: "my_test",
             covariate_profile: &profile,
-            use_case_id,
+            service_contract_id,
         };
         let embedded =
             FakeEmbedded::with("my_spec", "my_test", sample_baseline("embedded-fallback"));
         let resolved =
             resolve_baseline(&query, Some(tmp.path()), &embedded).expect("embedded fallback");
-        assert_eq!(resolved.use_case_id, "embedded-fallback");
+        assert_eq!(resolved.service_contract_id, "embedded-fallback");
     }
 
     #[test]

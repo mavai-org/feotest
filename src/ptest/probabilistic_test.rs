@@ -20,14 +20,14 @@ use crate::ptest::runner::{
 };
 use crate::ptest::validation;
 use crate::spec::{BaselineSpec, SpecResolver};
-use crate::usecase::CovariateContext;
+use crate::service_contract::CovariateContext;
 
 /// A built probabilistic test.
 ///
 /// Construct via [`crate::ptest::ProbabilisticTestBuilder::builder`]
 /// followed by `.build()`. Execute via [`run`](Self::run).
 pub struct ProbabilisticTest<'a, T> {
-    pub(crate) use_case_id: String,
+    pub(crate) service_contract_id: String,
     pub(crate) factory: Box<dyn Fn() -> T + 'a>,
     pub(crate) inputs: &'a [String],
     pub(crate) trial: Box<dyn FnMut(&T, &str) -> TrialOutcome + 'a>,
@@ -60,7 +60,7 @@ pub struct ProbabilisticTest<'a, T> {
 impl<T> ProbabilisticTest<'_, T> {
     /// Runs the probabilistic test and returns the result.
     ///
-    /// The factory is invoked once to produce the use case instance,
+    /// The factory is invoked once to produce the service contract instance,
     /// the trials run against it, the verdict is assembled, and the
     /// console verdict line is printed. The result is returned
     /// regardless of outcome — callers decide what to do with a `Fail`.
@@ -69,7 +69,7 @@ impl<T> ProbabilisticTest<'_, T> {
         let has_baseline = self.baseline_spec.is_some() || spec_resolver.is_some();
 
         let config = macro_config_from_approach(
-            &self.use_case_id,
+            &self.service_contract_id,
             &self.approach,
             self.threshold_origin,
             has_baseline,
@@ -108,12 +108,12 @@ impl<T> ProbabilisticTest<'_, T> {
             )
         });
 
-        let use_case = (self.factory)();
+        let service_contract = (self.factory)();
         let mut trial = self.trial;
-        let trial_adapter = move |input: &str| trial(&use_case, input);
+        let trial_adapter = move |input: &str| trial(&service_contract, input);
 
         let result = runner::execute(
-            &self.use_case_id,
+            &self.service_contract_id,
             self.inputs,
             trial_adapter,
             &criteria,

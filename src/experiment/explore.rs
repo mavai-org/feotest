@@ -1,18 +1,18 @@
 //! Explore experiment: rapid configuration comparison.
 //!
-//! An explore experiment compares configurations of a single use case.
+//! An explore experiment compares configurations of a single service contract.
 //! Each configuration is described by a **factor** (typically a struct
 //! carrying the values that distinguish this configuration from the
 //! others). The framework walks a list of factors, calling a
-//! user-supplied factory to produce one use case instance per factor,
+//! user-supplied factory to produce one service contract instance per factor,
 //! and runs a fixed number of trials against each instance.
 //!
-//! This design enforces the immutable use case principle: the
+//! This design enforces the immutable service contract principle: the
 //! experimental condition (the factor) is fixed during sampling, which
 //! is a direct expression of the i.i.d. assumption required for valid
-//! statistical inference. It also makes the "one use case, many
+//! statistical inference. It also makes the "one service contract, many
 //! configurations" constraint structural — there is one factory, so
-//! every instance is by construction a variant of the same use case.
+//! every instance is by construction a variant of the same service contract.
 
 use std::collections::BTreeMap;
 use std::fmt;
@@ -29,7 +29,7 @@ use crate::spec::explore::{
 };
 use crate::spec::projection::{SampleProjection, build_projection, format_projections};
 
-type UseCaseFactory<'a, F, T> = Box<dyn Fn(&F) -> T + 'a>;
+type ServiceContractFactory<'a, F, T> = Box<dyn Fn(&F) -> T + 'a>;
 type TrialClosure<'a, T> = Box<dyn Fn(&T, &str) -> TrialOutcome + 'a>;
 
 /// A single configuration's exploration results.
@@ -61,7 +61,7 @@ impl ConfigResult {
 }
 
 /// An explore experiment that compares multiple configurations of a
-/// single use case.
+/// single service contract.
 ///
 /// Construct via [`ExploreExperiment::builder`]; there is no public
 /// constructor.
@@ -87,7 +87,7 @@ impl ConfigResult {
 ///     }
 /// }
 ///
-/// // The use case: what the factory produces.
+/// // The service contract: what the factory produces.
 /// struct ShoppingBasket { model: &'static str, temperature: f64 }
 /// impl ShoppingBasket {
 ///     fn new(model: &'static str, temperature: f64) -> Self {
@@ -106,9 +106,9 @@ impl ConfigResult {
 /// let inputs = vec!["request".to_string()];
 ///
 /// let result = ExploreExperiment::builder()
-///     .use_case_id("shopping-basket")
+///     .service_contract_id("shopping-basket")
 ///     .factors(factors)
-///     .use_case(|f: &BasketFactors| ShoppingBasket::new(f.model, f.temperature))
+///     .service_contract(|f: &BasketFactors| ShoppingBasket::new(f.model, f.temperature))
 ///     .samples_per_config(10)
 ///     .inputs(&inputs)
 ///     .trial(|uc: &ShoppingBasket, input| uc.search(input))
@@ -119,9 +119,9 @@ impl ConfigResult {
 /// assert_eq!(result.configs()[0].name(), "gpt-4_t0");
 /// ```
 pub struct ExploreExperiment<'a, F, T> {
-    use_case_id: String,
+    service_contract_id: String,
     factors: Vec<F>,
-    factory: UseCaseFactory<'a, F, T>,
+    factory: ServiceContractFactory<'a, F, T>,
     samples_per_config: u32,
     inputs: &'a [String],
     trial: TrialClosure<'a, T>,
@@ -135,7 +135,7 @@ where
 {
     /// Starts a new builder for an explore experiment.
     ///
-    /// Required fields (`use_case_id`, `factors`, `use_case`,
+    /// Required fields (`service_contract_id`, `factors`, `service_contract`,
     /// `samples_per_config`, `inputs`, `trial`) must be set via their
     /// corresponding setters before
     /// [`build`](ExploreExperimentBuilder::build) is called.
@@ -149,7 +149,7 @@ where
         let mut results = Vec::new();
 
         for factor in &self.factors {
-            let use_case = (self.factory)(factor);
+            let service_contract = (self.factory)(factor);
             let name = factor.to_string();
 
             let exec_config = ExecutionConfig::new(self.samples_per_config);
@@ -159,7 +159,7 @@ where
             let mut sample_idx: u32 = 0;
 
             let mut trial_fn = |input: &str| {
-                let outcome = (self.trial)(&use_case, input);
+                let outcome = (self.trial)(&service_contract, input);
                 projections.push(build_projection(sample_idx, input, &outcome));
                 sample_idx += 1;
                 outcome
@@ -181,7 +181,7 @@ where
         }
 
         let mut result = ExploreResult {
-            use_case_id: self.use_case_id,
+            service_contract_id: self.service_contract_id,
             experiment_id: self.experiment_id,
             configs: results,
             spec_paths: None,
@@ -202,7 +202,7 @@ where
 
 /// Fluent builder for [`ExploreExperiment`].
 ///
-/// Required fields — `use_case_id`, `factors`, `use_case` (factory),
+/// Required fields — `service_contract_id`, `factors`, `service_contract` (factory),
 /// `samples_per_config`, `inputs`, and `trial` — must be set before
 /// [`build`](Self::build) is called. Missing any of them produces a
 /// panic naming the field and the setter to call.
@@ -211,9 +211,9 @@ where
 /// positive sample count, non-empty inputs) panic at the setter rather
 /// than deferring to `build`.
 pub struct ExploreExperimentBuilder<'a, F, T> {
-    use_case_id: Option<String>,
+    service_contract_id: Option<String>,
     factors: Vec<F>,
-    factory: Option<UseCaseFactory<'a, F, T>>,
+    factory: Option<ServiceContractFactory<'a, F, T>>,
     samples_per_config: Option<u32>,
     inputs: Option<&'a [String]>,
     trial: Option<TrialClosure<'a, T>>,
@@ -224,7 +224,7 @@ pub struct ExploreExperimentBuilder<'a, F, T> {
 impl<F, T> Default for ExploreExperimentBuilder<'_, F, T> {
     fn default() -> Self {
         Self {
-            use_case_id: None,
+            service_contract_id: None,
             factors: Vec::new(),
             factory: None,
             samples_per_config: None,
@@ -242,22 +242,22 @@ where
 {
     // --- required fields ---
 
-    /// Sets the use case identifier.
+    /// Sets the service contract identifier.
     ///
     /// This appears in the spec YAML and in the output directory layout.
     /// All configurations in the experiment share this id — the point of
-    /// an explore experiment is to compare variants of one use case.
+    /// an explore experiment is to compare variants of one service contract.
     #[must_use]
-    pub fn use_case_id(mut self, id: impl Into<String>) -> Self {
-        self.use_case_id = Some(id.into());
+    pub fn service_contract_id(mut self, id: impl Into<String>) -> Self {
+        self.service_contract_id = Some(id.into());
         self
     }
 
     /// Sets the list of factors to explore.
     ///
-    /// Each factor is one configuration of the use case. The factory
-    /// set via [`use_case`](Self::use_case) is called once per factor
-    /// to produce the corresponding use case instance.
+    /// Each factor is one configuration of the service contract. The factory
+    /// set via [`service_contract`](Self::service_contract) is called once per factor
+    /// to produce the corresponding service contract instance.
     ///
     /// The factor's `Display` implementation provides the configuration
     /// name used in reports and output filenames.
@@ -272,14 +272,14 @@ where
         self
     }
 
-    /// Sets the use case factory.
+    /// Sets the service contract factory.
     ///
-    /// Given a factor, the factory produces one use case instance. The
+    /// Given a factor, the factory produces one service contract instance. The
     /// framework calls the factory once per factor, runs
     /// `samples_per_config` trials against the resulting instance, then
     /// drops it.
     #[must_use]
-    pub fn use_case(mut self, factory: impl Fn(&F) -> T + 'a) -> Self {
+    pub fn service_contract(mut self, factory: impl Fn(&F) -> T + 'a) -> Self {
         self.factory = Some(Box::new(factory));
         self
     }
@@ -311,7 +311,7 @@ where
     /// Sets the trial closure.
     ///
     /// The closure receives a reference to the current configuration's
-    /// use case instance and an input string, and returns a
+    /// service contract instance and an input string, and returns a
     /// [`TrialOutcome`]. It may borrow data that outlives the builder
     /// (the `'a` lifetime); it is not required to be `'static`.
     #[must_use]
@@ -332,7 +332,7 @@ where
     /// Configures YAML spec output for each explored configuration.
     ///
     /// When set, running the experiment writes per-configuration specs
-    /// to `{output_dir}/{use_case_id}/{config_name}.yaml`, where
+    /// to `{output_dir}/{service_contract_id}/{config_name}.yaml`, where
     /// `config_name` is the factor's `Display` output. Default: no
     /// output files are written.
     #[must_use]
@@ -345,15 +345,15 @@ where
     ///
     /// # Panics
     ///
-    /// Panics if any required field is missing: `use_case_id`,
-    /// `factors`, `use_case` (factory), `samples_per_config`, `inputs`,
+    /// Panics if any required field is missing: `service_contract_id`,
+    /// `factors`, `service_contract` (factory), `samples_per_config`, `inputs`,
     /// or `trial`.
     #[must_use]
     pub fn build(self) -> ExploreExperiment<'a, F, T> {
         ExploreExperiment {
-            use_case_id: self
-                .use_case_id
-                .expect("use_case_id must be set via .use_case_id(...)"),
+            service_contract_id: self
+                .service_contract_id
+                .expect("service_contract_id must be set via .service_contract_id(...)"),
             factors: {
                 assert!(
                     !self.factors.is_empty(),
@@ -363,7 +363,7 @@ where
             },
             factory: self
                 .factory
-                .expect("use_case factory must be set via .use_case(...)"),
+                .expect("service_contract factory must be set via .service_contract(...)"),
             samples_per_config: self
                 .samples_per_config
                 .expect("samples_per_config must be set via .samples_per_config(...)"),
@@ -378,17 +378,17 @@ where
 /// Result of an explore experiment.
 #[derive(Debug)]
 pub struct ExploreResult {
-    use_case_id: String,
+    service_contract_id: String,
     experiment_id: Option<String>,
     configs: Vec<ConfigResult>,
     spec_paths: Option<Vec<PathBuf>>,
 }
 
 impl ExploreResult {
-    /// The use case identifier.
+    /// The service contract identifier.
     #[must_use]
-    pub fn use_case_id(&self) -> &str {
-        &self.use_case_id
+    pub fn service_contract_id(&self) -> &str {
+        &self.service_contract_id
     }
 
     /// The experiment identifier.
@@ -428,7 +428,7 @@ impl ExploreResult {
 
             let spec = ExplorationSpec {
                 schema_version: "feotest-spec-1".to_owned(),
-                use_case_id: self.use_case_id.clone(),
+                service_contract_id: self.service_contract_id.clone(),
                 generated_at: timestamp.clone(),
                 experiment_id: self.experiment_id.clone(),
                 execution_context: BTreeMap::new(),
@@ -495,9 +495,9 @@ mod tests {
         ];
 
         let result = ExploreExperiment::builder()
-            .use_case_id("test-uc")
+            .service_contract_id("test-uc")
             .factors(factors)
-            .use_case(MockService::from_factor)
+            .service_contract(MockService::from_factor)
             .samples_per_config(5)
             .inputs(&inputs)
             .trial(|_svc: &MockService, _input| TrialOutcome::success(Duration::ZERO))
@@ -515,9 +515,9 @@ mod tests {
         let factors = vec![RateFactor { success_rate: 1.0 }];
 
         let result = ExploreExperiment::builder()
-            .use_case_id("test-uc")
+            .service_contract_id("test-uc")
             .factors(factors)
-            .use_case(MockService::from_factor)
+            .service_contract(MockService::from_factor)
             .samples_per_config(10)
             .inputs(&inputs)
             .trial(|_svc: &MockService, _input| TrialOutcome::success(Duration::ZERO))
@@ -539,9 +539,9 @@ mod tests {
         ];
 
         let result = ExploreExperiment::builder()
-            .use_case_id("test-uc")
+            .service_contract_id("test-uc")
             .factors(factors)
-            .use_case(MockService::from_factor)
+            .service_contract(MockService::from_factor)
             .samples_per_config(5)
             .inputs(&inputs)
             .trial(|svc: &MockService, _input| {
@@ -586,7 +586,7 @@ mod tests {
     // --- Builder precondition tests (missing-required at build) ---
 
     #[test]
-    #[should_panic(expected = "use_case_id must be set")]
+    #[should_panic(expected = "service_contract_id must be set")]
     fn build_without_any_required_fields_panics() {
         let _ = ExploreExperiment::<RateFactor, MockService>::builder().build();
     }

@@ -59,7 +59,7 @@ src/
 ├── controls/           # Operational safeguards: warm-up, budgets, catastrophic halt
 ├── experiment/         # Experiment workflows for baseline establishment
 ├── reporting/          # Structured output of verdicts and diagnostics
-└── usecase/            # The named unit of work under test
+└── service_contract/            # The named unit of work under test
 ```
 
 ### Design Principles

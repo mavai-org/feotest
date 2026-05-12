@@ -234,17 +234,18 @@ impl TerminationInfo {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TestIdentity {
-    use_case_id: String,
+    #[serde(rename = "useCaseId")]
+    service_contract_id: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     test_name: Option<String>,
 }
 
 impl TestIdentity {
-    /// Creates a test identity from a use case ID.
+    /// Creates a test identity from a service contract ID.
     #[must_use]
-    pub fn new(use_case_id: impl Into<String>) -> Self {
+    pub fn new(service_contract_id: impl Into<String>) -> Self {
         Self {
-            use_case_id: use_case_id.into(),
+            service_contract_id: service_contract_id.into(),
             test_name: None,
         }
     }
@@ -256,10 +257,10 @@ impl TestIdentity {
         self
     }
 
-    /// The use case identifier.
+    /// The service contract identifier.
     #[must_use]
-    pub fn use_case_id(&self) -> &str {
-        &self.use_case_id
+    pub fn service_contract_id(&self) -> &str {
+        &self.service_contract_id
     }
 
     /// The test name, if any.
@@ -693,7 +694,7 @@ mod tests {
     #[test]
     fn test_identity_with_and_without_test_name() {
         let id = TestIdentity::new("shopping-basket");
-        assert_eq!(id.use_case_id(), "shopping-basket");
+        assert_eq!(id.service_contract_id(), "shopping-basket");
         assert!(id.test_name().is_none());
 
         let id = id.with_test_name("test_translation");

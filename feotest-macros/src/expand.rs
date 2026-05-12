@@ -80,8 +80,8 @@ pub fn expand(attr: TokenStream, item: TokenStream) -> syn::Result<TokenStream> 
             #validation
 
             let __feotest_result = feotest::ptest::ProbabilisticTestBuilder::builder()
-                .use_case_id(#fn_name_str)
-                .use_case(|| ())
+                .service_contract_id(#fn_name_str)
+                .service_contract(|| ())
                 .inputs(&__feotest_inputs)
                 .trial(|(): &(), input: &str| __feotest_trial_wrapper(input))
                 #approach_expr

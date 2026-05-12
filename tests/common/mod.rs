@@ -7,7 +7,7 @@ use feotest::model::TrialOutcome;
 use feotest::ptest::ProbabilisticTestBuilder;
 use feotest::ptest::builder::ThresholdApproach;
 use feotest::spec::SpecResolver;
-use feotest::usecase::UseCase;
+use feotest::service_contract::ServiceContract;
 
 // ---------------------------------------------------------------------------
 // Trial closures
@@ -46,21 +46,21 @@ pub fn failing_trial(fail_rate: f64) -> impl FnMut(&str) -> TrialOutcome {
 }
 
 // ---------------------------------------------------------------------------
-// Use case helpers
+// Service contract helpers
 // ---------------------------------------------------------------------------
 
-/// A simple use case with no covariates.
-pub struct SimpleUseCase {
+/// A simple service contract with no covariates.
+pub struct SimpleServiceContract {
     id: String,
 }
 
-impl SimpleUseCase {
+impl SimpleServiceContract {
     pub fn new(id: impl Into<String>) -> Self {
         Self { id: id.into() }
     }
 }
 
-impl UseCase for SimpleUseCase {
+impl ServiceContract for SimpleServiceContract {
     fn id(&self) -> &str {
         &self.id
     }
@@ -72,7 +72,7 @@ impl UseCase for SimpleUseCase {
 
 /// Runs a measure experiment and returns the temp directory (keeps it alive).
 pub fn establish_baseline(
-    use_case_id: &str,
+    service_contract_id: &str,
     samples: u32,
     trial: impl Fn(&str) -> TrialOutcome + 'static,
 ) -> tempfile::TempDir {
@@ -80,8 +80,8 @@ pub fn establish_baseline(
     let inputs = vec!["input".to_string()];
 
     feotest::experiment::MeasureExperiment::builder()
-        .use_case_id(use_case_id)
-        .use_case(|| ())
+        .service_contract_id(service_contract_id)
+        .service_contract(|| ())
         .samples(samples)
         .inputs(&inputs)
         .trial(move |(): &(), input| trial(input))
@@ -98,14 +98,14 @@ pub fn establish_baseline(
 /// conflict with the baseline spec (the validation rule rejects `Unspecified`
 /// origin when a baseline exists).
 pub fn run_against_baseline(
-    use_case_id: &str,
+    service_contract_id: &str,
     baseline_dir: &Path,
     samples: u32,
     min_pass_rate: f64,
     trial: impl FnMut(&str) -> TrialOutcome,
 ) -> feotest::ptest::ProbabilisticTestResult {
     let inputs = vec!["input".to_string()];
-    ProbabilisticTestBuilder::new(use_case_id, &inputs, trial)
+    ProbabilisticTestBuilder::new(service_contract_id, &inputs, trial)
         .approach(ThresholdApproach::ThresholdFirst {
             samples,
             min_pass_rate,

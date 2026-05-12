@@ -1,6 +1,6 @@
 //! Baseline filename generation with covariate encoding.
 //!
-//! Baseline filenames encode the use case identity and the environmental
+//! Baseline filenames encode the service contract identity and the environmental
 //! conditions (covariates) under which the baseline was established. This
 //! enables the spec resolver to select the most appropriate baseline for
 //! the current test context.
@@ -8,21 +8,21 @@
 //! # Filename format
 //!
 //! ```text
-//! {UseCaseId}-{footprintHash}-{covHash1}-{covHash2}.yaml
+//! {ServiceContractId}-{footprintHash}-{covHash1}-{covHash2}.yaml
 //! ```
 //!
-//! - **UseCaseId**: sanitized use case name (unsafe characters replaced with `_`)
-//! - **footprintHash**: 8-char SHA-256 of use case ID + covariate *declarations*
+//! - **ServiceContractId**: sanitized service contract name (unsafe characters replaced with `_`)
+//! - **footprintHash**: 8-char SHA-256 of service contract ID + covariate *declarations*
 //!   (names only, not values). Identifies *what* covariates exist.
 //! - **covHash1..N**: 4-char SHA-256 per covariate of `key=value`. Identifies
 //!   the specific *conditions*.
 //!
 //! When there are no covariates, the filename simplifies to
-//! `{UseCaseId}-{footprintHash}.yaml`.
+//! `{ServiceContractId}-{footprintHash}.yaml`.
 //!
 //! # Cross-framework compatibility
 //!
-//! This scheme matches punit's `BaselineFileNamer`. The same use case with
+//! This scheme matches punit's `BaselineFileNamer`. The same service contract with
 //! the same covariates produces the same filename structure in both
 //! frameworks (though hash values may differ due to implementation details).
 
@@ -142,18 +142,18 @@ impl CovariateProfileBuilder {
     }
 }
 
-/// Computes the invocation footprint for a use case.
+/// Computes the invocation footprint for a service contract.
 ///
 /// The footprint uniquely identifies the combination of:
-/// 1. Use case identity
+/// 1. Service contract identity
 /// 2. Covariate declaration (names only, not values)
 ///
 /// Two baselines with the same footprint are candidates for matching.
 /// Covariate *values* then determine which candidate is selected.
 #[must_use]
-pub fn compute_footprint(use_case_id: &str, covariate_keys: &[&str]) -> String {
+pub fn compute_footprint(service_contract_id: &str, covariate_keys: &[&str]) -> String {
     let mut input = String::new();
-    let _ = writeln!(input, "usecase:{use_case_id}");
+    let _ = writeln!(input, "usecase:{service_contract_id}");
     for key in covariate_keys {
         let _ = writeln!(input, "covariate:{key}");
     }
@@ -165,17 +165,17 @@ pub fn compute_footprint(use_case_id: &str, covariate_keys: &[&str]) -> String {
 /// # Format
 ///
 /// ```text
-/// {UseCaseId}-{footprintHash}-{covHash1}-{covHash2}.yaml
+/// {ServiceContractId}-{footprintHash}-{covHash1}-{covHash2}.yaml
 /// ```
 ///
-/// With no covariates: `{UseCaseId}-{footprintHash}.yaml`
+/// With no covariates: `{ServiceContractId}-{footprintHash}.yaml`
 #[must_use]
 pub fn baseline_filename(
-    use_case_id: &str,
+    service_contract_id: &str,
     footprint_hash: &str,
     covariate_profile: &CovariateProfile,
 ) -> String {
-    let mut name = sanitize(use_case_id);
+    let mut name = sanitize(service_contract_id);
     name.push('-');
     name.push_str(&truncate(footprint_hash, 4));
 
@@ -271,33 +271,33 @@ mod tests {
 
     #[test]
     fn footprint_is_eight_chars() {
-        let fp = compute_footprint("ShoppingBasketUseCase", &["region", "time_of_day"]);
+        let fp = compute_footprint("ShoppingBasketServiceContract", &["region", "time_of_day"]);
         assert_eq!(fp.len(), 8);
     }
 
     #[test]
     fn footprint_stable_across_calls() {
-        let fp1 = compute_footprint("ShoppingBasketUseCase", &["region"]);
-        let fp2 = compute_footprint("ShoppingBasketUseCase", &["region"]);
+        let fp1 = compute_footprint("ShoppingBasketServiceContract", &["region"]);
+        let fp2 = compute_footprint("ShoppingBasketServiceContract", &["region"]);
         assert_eq!(fp1, fp2);
     }
 
     #[test]
     fn footprint_differs_with_different_covariates() {
-        let fp1 = compute_footprint("ShoppingBasketUseCase", &["region"]);
-        let fp2 = compute_footprint("ShoppingBasketUseCase", &["region", "time_of_day"]);
+        let fp1 = compute_footprint("ShoppingBasketServiceContract", &["region"]);
+        let fp2 = compute_footprint("ShoppingBasketServiceContract", &["region", "time_of_day"]);
         assert_ne!(fp1, fp2);
     }
 
     #[test]
     fn filename_without_covariates() {
         let profile = CovariateProfile::empty();
-        let fp = compute_footprint("ShoppingBasketUseCase", &[]);
-        let name = baseline_filename("ShoppingBasketUseCase", &fp, &profile);
+        let fp = compute_footprint("ShoppingBasketServiceContract", &[]);
+        let name = baseline_filename("ShoppingBasketServiceContract", &fp, &profile);
 
-        assert!(name.starts_with("ShoppingBasketUseCase-"));
+        assert!(name.starts_with("ShoppingBasketServiceContract-"));
         assert!(name.ends_with(".yaml"));
-        // UseCaseId + "-" + 4-char footprint + ".yaml"
+        // ServiceContractId + "-" + 4-char footprint + ".yaml"
         let parts: Vec<&str> = name.trim_end_matches(".yaml").split('-').collect();
         assert_eq!(parts.len(), 2);
         assert_eq!(parts[1].len(), 4);
@@ -309,12 +309,12 @@ mod tests {
             .put("region", "EU")
             .put("time_of_day", "MORNING")
             .build();
-        let fp = compute_footprint("ShoppingBasketUseCase", &["region", "time_of_day"]);
-        let name = baseline_filename("ShoppingBasketUseCase", &fp, &profile);
+        let fp = compute_footprint("ShoppingBasketServiceContract", &["region", "time_of_day"]);
+        let name = baseline_filename("ShoppingBasketServiceContract", &fp, &profile);
 
-        assert!(name.starts_with("ShoppingBasketUseCase-"));
+        assert!(name.starts_with("ShoppingBasketServiceContract-"));
         assert!(name.ends_with(".yaml"));
-        // UseCaseId + "-" + 4-char footprint + "-" + 4-char + "-" + 4-char + ".yaml"
+        // ServiceContractId + "-" + 4-char footprint + "-" + 4-char + "-" + 4-char + ".yaml"
         let parts: Vec<&str> = name.trim_end_matches(".yaml").split('-').collect();
         assert_eq!(parts.len(), 4);
         assert_eq!(parts[1].len(), 4); // footprint (truncated for filename)
@@ -324,12 +324,12 @@ mod tests {
 
     #[test]
     fn full_footprint_is_eight_chars_filename_uses_four() {
-        let fp = compute_footprint("ShoppingBasketUseCase", &[]);
+        let fp = compute_footprint("ShoppingBasketServiceContract", &[]);
         assert_eq!(fp.len(), 8);
 
-        let name = baseline_filename("ShoppingBasketUseCase", &fp, &CovariateProfile::empty());
+        let name = baseline_filename("ShoppingBasketServiceContract", &fp, &CovariateProfile::empty());
         let hash_in_name = name
-            .trim_start_matches("ShoppingBasketUseCase-")
+            .trim_start_matches("ShoppingBasketServiceContract-")
             .trim_end_matches(".yaml");
         assert_eq!(hash_in_name.len(), 4);
         assert!(fp.starts_with(hash_in_name));

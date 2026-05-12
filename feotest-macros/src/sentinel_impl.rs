@@ -256,9 +256,9 @@ fn emit_test(spec_ident: &syn::Ident, method: &ImplItemFn, cfg: &TestCfg) -> Res
                     )
                 }
             };
-            let use_case_id = ::std::format!("{}.{}", spec.name(), #method_name_str);
+            let service_contract_id = ::std::format!("{}.{}", spec.name(), #method_name_str);
             let mut builder = ::feotest::ptest::ProbabilisticTestBuilder::new(
-                use_case_id,
+                service_contract_id,
                 &inputs,
                 trial,
             )
@@ -385,12 +385,12 @@ impl ParsedTestCfg {
         quote! {
             {
                 let profile = ::feotest::spec::namer::CovariateProfile::empty();
-                let use_case_id = format!("{}.{}", spec.name(), #method_name);
+                let service_contract_id = format!("{}.{}", spec.name(), #method_name);
                 let query = ::feotest::sentinel::BaselineQuery {
                     spec_name: spec.name(),
                     method_name: #method_name,
                     covariate_profile: &profile,
-                    use_case_id: &use_case_id,
+                    service_contract_id: &service_contract_id,
                 };
                 let embedded = ::feotest::sentinel::DefaultEmbeddedRegistry;
                 let source = ::feotest::sentinel::baseline_source_from_env();
@@ -433,7 +433,7 @@ fn emit_experiment(
 
     let invoker_ident = format_ident!("__sentinel_invoke_{}_{}", spec_ident, method_name);
     let submit_mod = format_ident!("__sentinel_submit_{}_{}", spec_ident, method_name);
-    let target_use_case = cfg
+    let target_service_contract = cfg
         .baseline_for
         .as_ref()
         .map_or_else(|| method_name_str.clone(), LitStr::value);
@@ -448,10 +448,10 @@ fn emit_experiment(
                 .expect("sentinel invoker: spec type mismatch");
             let inputs: ::std::vec::Vec<::std::string::String> =
                 ::std::vec!["default".to_string()];
-            let use_case_id = ::std::format!("{}.{}", spec.name(), #target_use_case);
+            let service_contract_id = ::std::format!("{}.{}", spec.name(), #target_service_contract);
             ::feotest::experiment::MeasureExperiment::builder()
-                .use_case_id(use_case_id)
-                .use_case(|| ())
+                .service_contract_id(service_contract_id)
+                .service_contract(|| ())
                 .samples(#samples)
                 .inputs(&inputs)
                 .trial(|(): &(), _input: &str| -> ::feotest::model::TrialOutcome {

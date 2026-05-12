@@ -2,28 +2,28 @@
 //!
 //! A reliability specification is a struct that declares the probabilistic
 //! testing surface for one non-deterministic boundary of an application —
-//! typically one per service or integration point. It bundles the use cases,
+//! typically one per service or integration point. It bundles the service contracts,
 //! experiments, and probabilistic tests that define what "reliable" means
 //! for that boundary.
 //!
 //! Specifications are authored by annotating a struct with the `#[sentinel]`
 //! attribute and marking its use-case factory methods with
-//! `#[use_case_factory]`. Both attributes are re-exported from the crate
+//! `#[service_contract_factory]`. Both attributes are re-exported from the crate
 //! root.
 //!
 //! ```ignore
 //! use feotest::sentinel;
-//! use feotest::use_case_factory;
-//! use feotest::usecase::UseCase;
+//! use feotest::service_contract_factory;
+//! use feotest::service_contract::ServiceContract;
 //!
 //! #[sentinel]
 //! #[derive(Default)]
 //! struct PaymentGateway;
 //!
 //! impl PaymentGateway {
-//!     #[use_case_factory]
-//!     fn payments(&self) -> impl UseCase {
-//!         // construct and return a configured use case
+//!     #[service_contract_factory]
+//!     fn payments(&self) -> impl ServiceContract {
+//!         // construct and return a configured service contract
 //!         # unimplemented!()
 //!     }
 //! }
@@ -142,24 +142,24 @@ pub fn registered_specs() -> impl Iterator<Item = &'static SpecDescriptor> {
 mod tests {
     use super::*;
     use crate::spec::namer::CovariateProfile;
-    use crate::usecase::UseCase;
-    use feotest_macros::{sentinel, use_case_factory};
+    use crate::service_contract::ServiceContract;
+    use feotest_macros::{sentinel, service_contract_factory};
 
-    /// Minimal use case used by factory-compilation tests. The implementation
+    /// Minimal service contract used by factory-compilation tests. The implementation
     /// is intentionally trivial — these tests exercise macro expansion, not
-    /// use case behaviour. The id is owned so the trait's `id(&self) -> &str`
+    /// service contract behaviour. The id is owned so the trait's `id(&self) -> &str`
     /// is satisfied by a genuine self-borrow rather than a dangling literal.
-    struct TrivialUseCase {
+    struct TrivialServiceContract {
         id: String,
     }
 
-    impl TrivialUseCase {
+    impl TrivialServiceContract {
         fn with_id(id: &str) -> Self {
             Self { id: id.to_owned() }
         }
     }
 
-    impl UseCase for TrivialUseCase {
+    impl ServiceContract for TrivialServiceContract {
         fn id(&self) -> &str {
             &self.id
         }
@@ -242,19 +242,19 @@ mod tests {
     }
 
     impl WithFactory {
-        #[use_case_factory]
-        fn trivial(&self) -> impl UseCase {
-            TrivialUseCase::with_id(&format!("{}trivial", self.id_seed))
+        #[service_contract_factory]
+        fn trivial(&self) -> impl ServiceContract {
+            TrivialServiceContract::with_id(&format!("{}trivial", self.id_seed))
         }
 
-        #[use_case_factory]
-        fn boxed_trivial(&self) -> Box<dyn UseCase> {
-            Box::new(TrivialUseCase::with_id(&format!("{}boxed", self.id_seed)))
+        #[service_contract_factory]
+        fn boxed_trivial(&self) -> Box<dyn ServiceContract> {
+            Box::new(TrivialServiceContract::with_id(&format!("{}boxed", self.id_seed)))
         }
     }
 
     #[test]
-    fn factory_method_compiles_with_use_case_return() {
+    fn factory_method_compiles_with_service_contract_return() {
         let spec = WithFactory {
             id_seed: String::new(),
         };
