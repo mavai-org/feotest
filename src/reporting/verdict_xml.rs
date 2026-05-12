@@ -120,7 +120,7 @@ fn write_identity(w: &mut String, record: &VerdictRecord) {
     write!(
         w,
         "  <identity use-case-id=\"{}\"",
-        escape_attr(id.use_case_id())
+        escape_attr(id.service_contract_id())
     )
     .unwrap();
     if let Some(name) = id.test_name() {

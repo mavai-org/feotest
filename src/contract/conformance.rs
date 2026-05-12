@@ -233,7 +233,7 @@ impl<M: VerificationMatcher<str>> VerificationMatcher<String> for M {
 
 /// Records the result of an instance conformance check for a single trial.
 ///
-/// Stored on [`super::UseCaseOutcome`] as an optional third diagnostic
+/// Stored on [`super::ServiceContractOutcome`] as an optional third diagnostic
 /// dimension alongside postcondition and duration results.
 #[derive(Debug, Clone)]
 pub struct ConformanceResult {

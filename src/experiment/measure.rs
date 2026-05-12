@@ -15,7 +15,7 @@ use crate::spec::common::{
 };
 use crate::spec::namer::CovariateProfile;
 
-type UseCaseFactory<'a, T> = Box<dyn Fn() -> T + 'a>;
+type ServiceContractFactory<'a, T> = Box<dyn Fn() -> T + 'a>;
 type TrialClosure<'a, T> = Box<dyn Fn(&T, &str) -> TrialOutcome + 'a>;
 
 /// Default directory for baseline spec output.
@@ -32,9 +32,9 @@ const DEFAULT_BASELINE_DIR: &str = "tests/baselines";
 ///
 /// The API shape matches [`super::ExploreExperiment`] and
 /// [`super::OptimizeExperiment`]: the use case id is explicit via
-/// [`use_case_id`](MeasureExperimentBuilder::use_case_id), the instance
+/// [`service_contract_id`](MeasureExperimentBuilder::service_contract_id), the instance
 /// is produced by a factory closure set via
-/// [`use_case`](MeasureExperimentBuilder::use_case), and the trial
+/// [`service_contract`](MeasureExperimentBuilder::service_contract), and the trial
 /// closure receives a reference to the produced instance. Measure's
 /// factory takes no arguments because the experiment measures a single
 /// condition; explore and optimize pass a factor into theirs.
@@ -55,8 +55,8 @@ const DEFAULT_BASELINE_DIR: &str = "tests/baselines";
 ///
 /// let inputs = vec!["input-1".to_string()];
 /// let result = MeasureExperiment::builder()
-///     .use_case_id("my-service")
-///     .use_case(|| MyService)
+///     .service_contract_id("my-service")
+///     .service_contract(|| MyService)
 ///     .samples(1000)
 ///     .inputs(&inputs)
 ///     .trial(|uc: &MyService, input| uc.call(input))
@@ -64,8 +64,8 @@ const DEFAULT_BASELINE_DIR: &str = "tests/baselines";
 ///     .run();
 /// ```
 pub struct MeasureExperiment<'a, T> {
-    use_case_id: String,
-    factory: UseCaseFactory<'a, T>,
+    service_contract_id: String,
+    factory: ServiceContractFactory<'a, T>,
     config: ExecutionConfig,
     inputs: &'a [String],
     trial: TrialClosure<'a, T>,
@@ -79,7 +79,7 @@ pub struct MeasureExperiment<'a, T> {
 impl<'a, T> MeasureExperiment<'a, T> {
     /// Starts a new builder for a measure experiment.
     ///
-    /// Required fields (`use_case_id`, `use_case` factory, `samples`,
+    /// Required fields (`service_contract_id`, `service_contract` factory, `samples`,
     /// `inputs`, `trial`) must be set via their corresponding setters
     /// before [`build`](MeasureExperimentBuilder::build) is called.
     /// Optional fields carry documented defaults.
@@ -94,11 +94,11 @@ impl<'a, T> MeasureExperiment<'a, T> {
     /// side effect of writing the baseline spec to disk — so this
     /// method is deliberately **not** `#[must_use]`.
     pub fn run(self) -> MeasureResult {
-        let use_case = (self.factory)();
+        let service_contract = (self.factory)();
 
         let token_recorder = TokenRecorder::new();
         let trial = self.trial;
-        let mut trial_fn = |input: &str| (trial)(&use_case, input);
+        let mut trial_fn = |input: &str| (trial)(&service_contract, input);
 
         let result = ExecutionEngine::run(
             &self.config,
@@ -109,7 +109,7 @@ impl<'a, T> MeasureExperiment<'a, T> {
         );
 
         let spec = build_spec(
-            &self.use_case_id,
+            &self.service_contract_id,
             &self.config,
             &result,
             self.experiment_id.as_deref(),
@@ -132,7 +132,7 @@ impl<'a, T> MeasureExperiment<'a, T> {
 }
 
 fn build_spec(
-    use_case_id: &str,
+    service_contract_id: &str,
     config: &ExecutionConfig,
     result: &ExecutionResult,
     experiment_id: Option<&str>,
@@ -144,7 +144,7 @@ fn build_spec(
     let lower_bound = wilson_lower_bound(successes, total);
 
     let mut spec = BaselineSpec::new(
-        use_case_id,
+        service_contract_id,
         now_iso8601(),
         build_execution_block(summary, config.samples()),
         RequirementsBlock {
@@ -180,7 +180,7 @@ fn build_spec(
 
 /// Fluent builder for [`MeasureExperiment`].
 ///
-/// Required fields — `use_case_id`, `use_case` (factory), `samples`,
+/// Required fields — `service_contract_id`, `service_contract` (factory), `samples`,
 /// `inputs`, and `trial` — must be set before [`build`](Self::build)
 /// is called. Missing any of them produces a panic naming the field
 /// and the setter to call.
@@ -189,8 +189,8 @@ fn build_spec(
 /// single value (e.g., positive sample count, non-empty inputs) panic
 /// at the setter rather than deferring to `build`.
 pub struct MeasureExperimentBuilder<'a, T> {
-    use_case_id: Option<String>,
-    factory: Option<UseCaseFactory<'a, T>>,
+    service_contract_id: Option<String>,
+    factory: Option<ServiceContractFactory<'a, T>>,
     samples: Option<u32>,
     inputs: Option<&'a [String]>,
     trial: Option<TrialClosure<'a, T>>,
@@ -207,7 +207,7 @@ pub struct MeasureExperimentBuilder<'a, T> {
 impl<T> Default for MeasureExperimentBuilder<'_, T> {
     fn default() -> Self {
         Self {
-            use_case_id: None,
+            service_contract_id: None,
             factory: None,
             samples: None,
             inputs: None,
@@ -232,8 +232,8 @@ impl<'a, T> MeasureExperimentBuilder<'a, T> {
     /// Appears in the baseline spec YAML and in the spec resolver's
     /// output path.
     #[must_use]
-    pub fn use_case_id(mut self, id: impl Into<String>) -> Self {
-        self.use_case_id = Some(id.into());
+    pub fn service_contract_id(mut self, id: impl Into<String>) -> Self {
+        self.service_contract_id = Some(id.into());
         self
     }
 
@@ -245,7 +245,7 @@ impl<'a, T> MeasureExperimentBuilder<'a, T> {
     /// experiment, referenced by the trial closure on every sample,
     /// and dropped when the run completes.
     #[must_use]
-    pub fn use_case(mut self, factory: impl Fn() -> T + 'a) -> Self {
+    pub fn service_contract(mut self, factory: impl Fn() -> T + 'a) -> Self {
         self.factory = Some(Box::new(factory));
         self
     }
@@ -388,7 +388,7 @@ impl<'a, T> MeasureExperimentBuilder<'a, T> {
     ///
     /// # Panics
     ///
-    /// Panics if any required field (`use_case_id`, `use_case` factory,
+    /// Panics if any required field (`service_contract_id`, `service_contract` factory,
     /// `samples`, `inputs`, `trial`) is missing.
     #[must_use]
     pub fn build(self) -> MeasureExperiment<'a, T> {
@@ -405,12 +405,12 @@ impl<'a, T> MeasureExperimentBuilder<'a, T> {
         }
 
         MeasureExperiment {
-            use_case_id: self
-                .use_case_id
-                .expect("use_case_id must be set via .use_case_id(...)"),
+            service_contract_id: self
+                .service_contract_id
+                .expect("service_contract_id must be set via .service_contract_id(...)"),
             factory: self
                 .factory
-                .expect("use_case factory must be set via .use_case(...)"),
+                .expect("service_contract factory must be set via .service_contract(...)"),
             config,
             inputs: self.inputs.expect("inputs must be set via .inputs(...)"),
             trial: self.trial.expect("trial must be set via .trial(...)"),
@@ -466,8 +466,8 @@ mod tests {
     fn produces_baseline_spec() {
         let inputs = vec!["input".to_string()];
         let result = MeasureExperiment::builder()
-            .use_case_id("test-service")
-            .use_case(|| TestService)
+            .service_contract_id("test-service")
+            .service_contract(|| TestService)
             .samples(100)
             .inputs(&inputs)
             .trial(succeeding_trial)
@@ -476,7 +476,7 @@ mod tests {
             .run();
 
         let spec = result.spec();
-        assert_eq!(spec.use_case_id, "test-service");
+        assert_eq!(spec.service_contract_id, "test-service");
         assert_eq!(spec.experiment_id.as_deref(), Some("baseline-v1"));
         assert_eq!(spec.statistics.successes, 100);
         assert_eq!(spec.statistics.failures, 0);
@@ -490,8 +490,8 @@ mod tests {
         let inputs = vec!["input".to_string()];
 
         let result = MeasureExperiment::builder()
-            .use_case_id("disk-test")
-            .use_case(|| TestService)
+            .service_contract_id("disk-test")
+            .service_contract(|| TestService)
             .samples(50)
             .inputs(&inputs)
             .trial(succeeding_trial)
@@ -508,8 +508,8 @@ mod tests {
         let inputs = vec!["input".to_string()];
         let call_count = std::cell::Cell::new(0u32);
         let result = MeasureExperiment::builder()
-            .use_case_id("mixed-service")
-            .use_case(|| TestService)
+            .service_contract_id("mixed-service")
+            .service_contract(|| TestService)
             .samples(10)
             .inputs(&inputs)
             .trial(|_uc: &TestService, _input| {
@@ -535,8 +535,8 @@ mod tests {
     fn no_experiment_id_produces_none() {
         let inputs = vec!["input".to_string()];
         let result = MeasureExperiment::builder()
-            .use_case_id("no-id")
-            .use_case(|| TestService)
+            .service_contract_id("no-id")
+            .service_contract(|| TestService)
             .samples(10)
             .inputs(&inputs)
             .trial(succeeding_trial)
@@ -549,8 +549,8 @@ mod tests {
     fn experiment_id_is_recorded() {
         let inputs = vec!["input".to_string()];
         let result = MeasureExperiment::builder()
-            .use_case_id("eid-test")
-            .use_case(|| TestService)
+            .service_contract_id("eid-test")
+            .service_contract(|| TestService)
             .samples(10)
             .inputs(&inputs)
             .trial(succeeding_trial)
@@ -565,8 +565,8 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let inputs = vec!["input".to_string()];
         let result = MeasureExperiment::builder()
-            .use_case_id("custom-dir")
-            .use_case(|| TestService)
+            .service_contract_id("custom-dir")
+            .service_contract(|| TestService)
             .samples(10)
             .inputs(&inputs)
             .trial(succeeding_trial)
@@ -581,8 +581,8 @@ mod tests {
     fn all_successes_has_empty_failure_distribution() {
         let inputs = vec!["input".to_string()];
         let result = MeasureExperiment::builder()
-            .use_case_id("all-pass")
-            .use_case(|| TestService)
+            .service_contract_id("all-pass")
+            .service_contract(|| TestService)
             .samples(20)
             .inputs(&inputs)
             .trial(succeeding_trial)
@@ -606,8 +606,8 @@ mod tests {
     fn cost_block_is_present() {
         let inputs = vec!["input".to_string()];
         let result = MeasureExperiment::builder()
-            .use_case_id("cost-test")
-            .use_case(|| TestService)
+            .service_contract_id("cost-test")
+            .service_contract(|| TestService)
             .samples(10)
             .inputs(&inputs)
             .trial(succeeding_trial)
@@ -621,8 +621,8 @@ mod tests {
     fn latency_distribution_captured() {
         let inputs = vec!["input".to_string()];
         let result = MeasureExperiment::builder()
-            .use_case_id("latency-cap")
-            .use_case(|| TestService)
+            .service_contract_id("latency-cap")
+            .service_contract(|| TestService)
             .samples(20)
             .inputs(&inputs)
             .trial(succeeding_trial)
@@ -637,8 +637,8 @@ mod tests {
     fn execution_result_accessible() {
         let inputs = vec!["input".to_string()];
         let result = MeasureExperiment::builder()
-            .use_case_id("exec-access")
-            .use_case(|| TestService)
+            .service_contract_id("exec-access")
+            .service_contract(|| TestService)
             .samples(10)
             .inputs(&inputs)
             .trial(succeeding_trial)
@@ -651,8 +651,8 @@ mod tests {
     fn zero_expires_in_days_omits_expiration_block() {
         let inputs = vec!["input".to_string()];
         let result = MeasureExperiment::builder()
-            .use_case_id("no-expiry")
-            .use_case(|| TestService)
+            .service_contract_id("no-expiry")
+            .service_contract(|| TestService)
             .samples(10)
             .inputs(&inputs)
             .trial(succeeding_trial)
@@ -665,8 +665,8 @@ mod tests {
     fn expires_in_days_populates_expiration_block() {
         let inputs = vec!["input".to_string()];
         let result = MeasureExperiment::builder()
-            .use_case_id("with-expiry")
-            .use_case(|| TestService)
+            .service_contract_id("with-expiry")
+            .service_contract(|| TestService)
             .samples(10)
             .inputs(&inputs)
             .trial(succeeding_trial)

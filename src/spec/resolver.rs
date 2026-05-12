@@ -9,7 +9,7 @@ use crate::spec::BaselineSpec;
 use crate::spec::baseline::SpecLoadError;
 use crate::spec::namer::{CovariateProfile, baseline_filename, compute_footprint};
 use crate::spec::selector::{BaselineCandidate, SelectionError, SelectionResult};
-use crate::usecase::CovariateDeclaration;
+use crate::service_contract::CovariateDeclaration;
 
 /// Resolves baseline specs from the filesystem.
 ///
@@ -56,18 +56,18 @@ impl SpecResolver {
     /// # Errors
     ///
     /// Returns an error if no matching file is found or parsing fails.
-    pub fn resolve(&self, use_case_id: &str) -> Result<BaselineSpec, SpecResolveError> {
-        let candidates = self.find_candidates(use_case_id)?;
+    pub fn resolve(&self, service_contract_id: &str) -> Result<BaselineSpec, SpecResolveError> {
+        let candidates = self.find_candidates(service_contract_id)?;
         candidates
             .into_iter()
             .next()
             .map(|c| c.spec)
             .ok_or_else(|| SpecResolveError::NotFound {
-                use_case_id: use_case_id.to_string(),
+                service_contract_id: service_contract_id.to_string(),
                 path: self.spec_dir.clone(),
                 source: std::io::Error::new(
                     std::io::ErrorKind::NotFound,
-                    format!("no baseline file for '{use_case_id}'"),
+                    format!("no baseline file for '{service_contract_id}'"),
                 ),
             })
     }
@@ -84,24 +84,24 @@ impl SpecResolver {
     /// required configuration covariates, or parsing fails.
     pub fn resolve_with_covariates(
         &self,
-        use_case_id: &str,
+        service_contract_id: &str,
         profile: &CovariateProfile,
         declarations: &[CovariateDeclaration],
     ) -> Result<SelectionResult, SpecResolveError> {
-        let candidates = self.find_candidates(use_case_id)?;
+        let candidates = self.find_candidates(service_contract_id)?;
         if candidates.is_empty() {
             return Err(SpecResolveError::NotFound {
-                use_case_id: use_case_id.to_string(),
+                service_contract_id: service_contract_id.to_string(),
                 path: self.spec_dir.clone(),
                 source: std::io::Error::new(
                     std::io::ErrorKind::NotFound,
-                    format!("no baseline file for '{use_case_id}'"),
+                    format!("no baseline file for '{service_contract_id}'"),
                 ),
             });
         }
         crate::spec::selector::select(&candidates, profile, declarations).map_err(|e| {
             SpecResolveError::Selection {
-                use_case_id: use_case_id.to_string(),
+                service_contract_id: service_contract_id.to_string(),
                 source: e,
             }
         })
@@ -113,9 +113,9 @@ impl SpecResolver {
     /// the sanitized use case ID followed by `-`.
     pub(crate) fn find_candidates(
         &self,
-        use_case_id: &str,
+        service_contract_id: &str,
     ) -> Result<Vec<BaselineCandidate>, SpecResolveError> {
-        let sanitized = use_case_id
+        let sanitized = service_contract_id
             .chars()
             .map(|c| {
                 if c.is_ascii_alphanumeric() || c == '_' || c == '-' {
@@ -129,7 +129,7 @@ impl SpecResolver {
 
         let entries =
             std::fs::read_dir(&self.spec_dir).map_err(|e| SpecResolveError::NotFound {
-                use_case_id: use_case_id.to_string(),
+                service_contract_id: service_contract_id.to_string(),
                 path: self.spec_dir.clone(),
                 source: e,
             })?;
@@ -142,7 +142,7 @@ impl SpecResolver {
                 let path = entry.path();
                 let content =
                     std::fs::read_to_string(&path).map_err(|e| SpecResolveError::NotFound {
-                        use_case_id: use_case_id.to_string(),
+                        service_contract_id: service_contract_id.to_string(),
                         path: path.clone(),
                         source: e,
                     })?;
@@ -171,7 +171,7 @@ impl SpecResolver {
     pub fn resolve_file(path: impl AsRef<Path>) -> Result<BaselineSpec, SpecResolveError> {
         let path = path.as_ref();
         let content = std::fs::read_to_string(path).map_err(|e| SpecResolveError::NotFound {
-            use_case_id: path.display().to_string(),
+            service_contract_id: path.display().to_string(),
             path: path.to_path_buf(),
             source: e,
         })?;
@@ -197,8 +197,8 @@ impl SpecResolver {
         covariate_profile: &CovariateProfile,
     ) -> Result<PathBuf, std::io::Error> {
         std::fs::create_dir_all(&self.spec_dir)?;
-        let footprint = compute_footprint(&spec.use_case_id, covariate_keys);
-        let filename = baseline_filename(&spec.use_case_id, &footprint, covariate_profile);
+        let footprint = compute_footprint(&spec.service_contract_id, covariate_keys);
+        let filename = baseline_filename(&spec.service_contract_id, &footprint, covariate_profile);
         let path = self.spec_dir.join(filename);
 
         // Enrich the spec with footprint, covariates, and content fingerprint
@@ -228,7 +228,7 @@ pub enum SpecResolveError {
     /// The spec file was not found.
     NotFound {
         /// The use case ID that was looked up.
-        use_case_id: String,
+        service_contract_id: String,
         /// The path that was checked.
         path: PathBuf,
         /// The underlying IO error.
@@ -245,7 +245,7 @@ pub enum SpecResolveError {
     /// Covariate-aware selection failed (e.g., configuration mismatch).
     Selection {
         /// The use case ID.
-        use_case_id: String,
+        service_contract_id: String,
         /// The underlying selection error.
         source: SelectionError,
     },
@@ -255,21 +255,21 @@ impl std::fmt::Display for SpecResolveError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::NotFound {
-                use_case_id, path, ..
+                service_contract_id, path, ..
             } => write!(
                 f,
-                "no spec found for use case '{use_case_id}' at {}",
+                "no spec found for use case '{service_contract_id}' at {}",
                 path.display()
             ),
             Self::Integrity { path, source } => {
                 write!(f, "spec at {}: {source}", path.display())
             }
             Self::Selection {
-                use_case_id,
+                service_contract_id,
                 source,
             } => write!(
                 f,
-                "baseline selection failed for use case '{use_case_id}': {source}"
+                "baseline selection failed for use case '{service_contract_id}': {source}"
             ),
         }
     }
@@ -337,7 +337,7 @@ mod tests {
         );
 
         let resolved = resolver.resolve("test-use-case").unwrap();
-        assert_eq!(resolved.use_case_id, "test-use-case");
+        assert_eq!(resolved.service_contract_id, "test-use-case");
         assert!((resolved.requirements.min_pass_rate - 0.85).abs() < 1e-10);
     }
 
@@ -385,7 +385,7 @@ mod tests {
 
     #[test]
     fn resolve_with_covariates_selects_best() {
-        use crate::usecase::{CovariateCategory, CovariateDeclaration};
+        use crate::service_contract::{CovariateCategory, CovariateDeclaration};
 
         let dir = tempfile::tempdir().unwrap();
         let resolver = SpecResolver::with_dir(dir.path());
@@ -472,18 +472,18 @@ mod tests {
     }
 
     #[test]
-    fn sanitises_special_characters_in_use_case_id() {
+    fn sanitises_special_characters_in_service_contract_id() {
         let dir = tempfile::tempdir().unwrap();
         let resolver = SpecResolver::with_dir(dir.path());
 
         // Write a spec with a sanitised name: "my.service/v2" → "my_service_v2"
         let spec = sample_spec();
         let mut enriched = spec.clone();
-        enriched.use_case_id = "my.service/v2".to_string();
+        enriched.service_contract_id = "my.service/v2".to_string();
 
         // Write via the resolver (which sanitises internally)
         let profile = CovariateProfile::empty();
-        // The write uses the spec's use_case_id, but find_candidates sanitises
+        // The write uses the spec's service_contract_id, but find_candidates sanitises
         // the lookup ID. We need the file to match the sanitised prefix.
         // Write it manually with the sanitised name.
         let mut signed = enriched.clone();
@@ -502,7 +502,7 @@ mod tests {
 
     #[test]
     fn resolve_with_covariates_empty_dir_returns_not_found() {
-        use crate::usecase::{CovariateCategory, CovariateDeclaration};
+        use crate::service_contract::{CovariateCategory, CovariateDeclaration};
 
         let dir = tempfile::tempdir().unwrap();
         let resolver = SpecResolver::with_dir(dir.path());
@@ -535,7 +535,7 @@ mod tests {
     #[test]
     fn error_display_formats_correctly() {
         let err = SpecResolveError::NotFound {
-            use_case_id: "my-service".to_string(),
+            service_contract_id: "my-service".to_string(),
             path: PathBuf::from("/specs"),
             source: std::io::Error::new(std::io::ErrorKind::NotFound, "not found"),
         };
@@ -543,9 +543,9 @@ mod tests {
         assert!(err.to_string().contains("/specs"));
 
         let err = SpecResolveError::Selection {
-            use_case_id: "my-service".to_string(),
+            service_contract_id: "my-service".to_string(),
             source: SelectionError::NoCandidates {
-                use_case_id: "my-service".to_string(),
+                service_contract_id: "my-service".to_string(),
             },
         };
         assert!(err.to_string().contains("my-service"));
@@ -555,7 +555,7 @@ mod tests {
     #[test]
     fn error_source_is_accessible() {
         let err = SpecResolveError::NotFound {
-            use_case_id: "x".to_string(),
+            service_contract_id: "x".to_string(),
             path: PathBuf::from("/x"),
             source: std::io::Error::new(std::io::ErrorKind::NotFound, "not found"),
         };

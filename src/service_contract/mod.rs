@@ -14,7 +14,7 @@ use crate::spec::namer::CovariateProfile;
 /// Implementations define the identity and metadata of a use case.
 /// The actual service call logic lives in trial closures passed to
 /// experiment and test builders, not in this trait.
-pub trait UseCase: Send + Sync {
+pub trait ServiceContract: Send + Sync {
     /// Unique identifier for this use case.
     ///
     /// Used in spec filenames, reports, and CLI output.
@@ -57,9 +57,9 @@ pub trait UseCase: Send + Sync {
 /// A use case that exposes configurable factors.
 ///
 /// Experiments that need to manipulate configuration (explore, optimize)
-/// require `T: UseCase + Configurable`. Use cases that do not expose
+/// require `T: ServiceContract + Configurable`. Use cases that do not expose
 /// configurable factors simply do not implement this trait.
-pub trait Configurable: UseCase {
+pub trait Configurable: ServiceContract {
     /// Returns the current value of a named factor.
     fn get_factor(&self, name: &str) -> Option<FactorValue>;
 
@@ -256,12 +256,12 @@ impl CovariateContext {
     /// Extracts declarations and resolves the current profile. Returns
     /// `None` if the use case declares no covariates.
     #[must_use]
-    pub fn from_use_case(use_case: &dyn UseCase) -> Option<Self> {
-        let declarations = use_case.covariates();
+    pub fn from_service_contract(service_contract: &dyn ServiceContract) -> Option<Self> {
+        let declarations = service_contract.covariates();
         if declarations.is_empty() {
             return None;
         }
-        let profile = use_case.resolve_covariates();
+        let profile = service_contract.resolve_covariates();
         Some(Self {
             declarations,
             profile,
@@ -301,9 +301,9 @@ pub fn validate_covariates(covariates: &[CovariateDeclaration]) {
 mod tests {
     use super::*;
 
-    struct TestUseCase;
+    struct TestServiceContract;
 
-    impl UseCase for TestUseCase {
+    impl ServiceContract for TestServiceContract {
         fn id(&self) -> &str {
             "test.use-case"
         }
@@ -318,8 +318,8 @@ mod tests {
     }
 
     #[test]
-    fn use_case_provides_identity() {
-        let uc = TestUseCase;
+    fn service_contract_provides_identity() {
+        let uc = TestServiceContract;
         assert_eq!(uc.id(), "test.use-case");
         assert_eq!(uc.description(), "A test use case");
         assert_eq!(uc.warmup(), 5);
@@ -328,7 +328,7 @@ mod tests {
     #[test]
     fn default_warmup_is_zero() {
         struct Minimal;
-        impl UseCase for Minimal {
+        impl ServiceContract for Minimal {
             fn id(&self) -> &str {
                 "minimal"
             }
@@ -355,17 +355,17 @@ mod tests {
         );
     }
 
-    struct ConfigurableUseCase {
+    struct ConfigurableServiceContract {
         model: String,
     }
 
-    impl UseCase for ConfigurableUseCase {
+    impl ServiceContract for ConfigurableServiceContract {
         fn id(&self) -> &str {
             "configurable"
         }
     }
 
-    impl Configurable for ConfigurableUseCase {
+    impl Configurable for ConfigurableServiceContract {
         fn get_factor(&self, name: &str) -> Option<FactorValue> {
             match name {
                 "model" => Some(FactorValue::String(self.model.clone())),
@@ -394,7 +394,7 @@ mod tests {
 
     #[test]
     fn configurable_get_and_set() {
-        let mut uc = ConfigurableUseCase {
+        let mut uc = ConfigurableServiceContract {
             model: "gpt-4o".into(),
         };
         assert_eq!(
@@ -412,7 +412,7 @@ mod tests {
 
     #[test]
     fn configurable_rejects_unknown_factor() {
-        let mut uc = ConfigurableUseCase {
+        let mut uc = ConfigurableServiceContract {
             model: "gpt-4o".into(),
         };
         let result = uc.set_factor("unknown", FactorValue::String("x".into()));
@@ -497,9 +497,9 @@ mod tests {
     }
 
     #[test]
-    fn use_case_with_covariates() {
+    fn service_contract_with_covariates() {
         struct WithCovariates;
-        impl UseCase for WithCovariates {
+        impl ServiceContract for WithCovariates {
             fn id(&self) -> &str {
                 "with-covariates"
             }
@@ -536,9 +536,9 @@ mod tests {
     }
 
     #[test]
-    fn covariate_context_from_use_case_with_covariates() {
+    fn covariate_context_from_service_contract_with_covariates() {
         struct WithCovs;
-        impl UseCase for WithCovs {
+        impl ServiceContract for WithCovs {
             fn id(&self) -> &str {
                 "ctx-test"
             }
@@ -550,13 +550,13 @@ mod tests {
             }
         }
 
-        let ctx = CovariateContext::from_use_case(&WithCovs).unwrap();
+        let ctx = CovariateContext::from_service_contract(&WithCovs).unwrap();
         assert_eq!(ctx.declarations().len(), 1);
         assert_eq!(ctx.profile().get("region"), Some("EU"));
     }
 
     #[test]
     fn covariate_context_none_for_no_covariates() {
-        assert!(CovariateContext::from_use_case(&TestUseCase).is_none());
+        assert!(CovariateContext::from_service_contract(&TestServiceContract).is_none());
     }
 }

@@ -55,7 +55,7 @@ impl<W: Write + Send + Sync> VerdictSink for ConsoleVerdictSink<W> {
         writeln!(
             self.writer,
             "{}\t{}\t{:?}",
-            verdict.identity().use_case_id(),
+            verdict.identity().service_contract_id(),
             verdict.identity().test_name().unwrap_or("-"),
             verdict.verdict()
         )

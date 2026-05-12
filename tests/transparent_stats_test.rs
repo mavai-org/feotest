@@ -66,7 +66,7 @@ fn render_with_sample_size_first_approach() {
     let dir = tempfile::tempdir().unwrap();
 
     struct Uc;
-    impl feotest::usecase::UseCase for Uc {
+    impl feotest::service_contract::ServiceContract for Uc {
         fn id(&self) -> &str {
             "transparent-ssf"
         }
@@ -76,8 +76,8 @@ fn render_with_sample_size_first_approach() {
 
     // Establish a baseline
     feotest::experiment::MeasureExperiment::builder()
-        .use_case_id("transparent-ssf")
-        .use_case(|| ())
+        .service_contract_id("transparent-ssf")
+        .service_contract(|| ())
         .samples(200)
         .inputs(&inputs)
         .trial(|(): &(), input| always_succeeds(input))

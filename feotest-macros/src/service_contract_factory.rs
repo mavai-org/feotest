@@ -1,6 +1,6 @@
-//! Code expansion for `#[use_case_factory]`.
+//! Code expansion for `#[service_contract_factory]`.
 //!
-//! The attribute marks a method as producing a `UseCase`. For the current
+//! The attribute marks a method as producing a `ServiceContract`. For the current
 //! scaffolding it does no runtime transformation — it passes the method
 //! through unchanged — but it validates the return-type shape at
 //! macro-expansion time so that misshapen factory methods are rejected
@@ -11,13 +11,13 @@ use proc_macro2::TokenStream;
 use quote::quote;
 use syn::{Error, ImplItemFn, ReturnType, Type, parse2, spanned::Spanned};
 
-/// Expands `#[use_case_factory] fn ...` by validating the return type and
+/// Expands `#[service_contract_factory] fn ...` by validating the return type and
 /// emitting the original method unchanged.
 pub fn expand(attr: &TokenStream, item: TokenStream) -> syn::Result<TokenStream> {
     if !attr.is_empty() {
         return Err(Error::new(
             attr.span(),
-            "`#[use_case_factory]` does not accept arguments",
+            "`#[service_contract_factory]` does not accept arguments",
         ));
     }
 
@@ -33,7 +33,7 @@ fn validate_return_type(ret: &ReturnType) -> syn::Result<()> {
     let ReturnType::Type(_, ty) = ret else {
         return Err(Error::new(
             ret.span(),
-            "`#[use_case_factory]` methods must return `impl UseCase` or `Box<dyn UseCase>`",
+            "`#[service_contract_factory]` methods must return `impl ServiceContract` or `Box<dyn ServiceContract>`",
         ));
     };
 
@@ -42,7 +42,7 @@ fn validate_return_type(ret: &ReturnType) -> syn::Result<()> {
         Type::Path(path) if is_box_of_dyn(path) => Ok(()),
         other => Err(Error::new(
             other.span(),
-            "`#[use_case_factory]` methods must return `impl UseCase` or `Box<dyn UseCase>`",
+            "`#[service_contract_factory]` methods must return `impl ServiceContract` or `Box<dyn ServiceContract>`",
         )),
     }
 }

@@ -9,7 +9,7 @@ use std::fmt;
 use crate::spec::BaselineSpec;
 use crate::spec::matching::{ConformanceDetail, MatchResult, match_covariate};
 use crate::spec::namer::CovariateProfile;
-use crate::usecase::CovariateDeclaration;
+use crate::service_contract::CovariateDeclaration;
 
 /// A parsed baseline spec together with its source filename.
 #[derive(Debug, Clone)]
@@ -107,12 +107,12 @@ pub enum SelectionError {
     /// No candidate baselines found at all.
     NoCandidates {
         /// The use case ID that was searched.
-        use_case_id: String,
+        service_contract_id: String,
     },
     /// Candidates exist but none match the required configuration covariates.
     ConfigurationMismatch {
         /// The use case ID.
-        use_case_id: String,
+        service_contract_id: String,
         /// The configuration covariate values from the test profile that
         /// could not be matched.
         required: Vec<(String, String)>,
@@ -124,20 +124,20 @@ pub enum SelectionError {
 impl fmt::Display for SelectionError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::NoCandidates { use_case_id } => {
+            Self::NoCandidates { service_contract_id } => {
                 write!(
                     f,
-                    "no baseline candidates found for use case '{use_case_id}'"
+                    "no baseline candidates found for use case '{service_contract_id}'"
                 )
             }
             Self::ConfigurationMismatch {
-                use_case_id,
+                service_contract_id,
                 required,
                 available,
             } => {
                 write!(
                     f,
-                    "no baseline matches the configuration for use case '{use_case_id}'\n\
+                    "no baseline matches the configuration for use case '{service_contract_id}'\n\
                      Required: {}\n\
                      Available configurations:",
                     format_kv_pairs(required),
@@ -184,11 +184,11 @@ pub fn select(
 ) -> Result<SelectionResult, SelectionError> {
     if candidates.is_empty() {
         return Err(SelectionError::NoCandidates {
-            use_case_id: String::new(),
+            service_contract_id: String::new(),
         });
     }
 
-    let use_case_id = &candidates[0].spec.use_case_id;
+    let service_contract_id = &candidates[0].spec.service_contract_id;
 
     // Separate hard-gate and soft-match declarations
     let hard_gate_keys: Vec<&str> = declarations
@@ -246,7 +246,7 @@ pub fn select(
             .collect();
 
         return Err(SelectionError::ConfigurationMismatch {
-            use_case_id: use_case_id.clone(),
+            service_contract_id: service_contract_id.clone(),
             required,
             available,
         });
@@ -385,16 +385,16 @@ mod tests {
     use crate::spec::baseline::{
         BaselineSpec, ExecutionBlock, RequirementsBlock, StatisticsBlock, SuccessRateBlock,
     };
-    use crate::usecase::CovariateCategory;
+    use crate::service_contract::CovariateCategory;
     use std::collections::BTreeMap;
 
     fn make_spec(
-        use_case_id: &str,
+        service_contract_id: &str,
         generated_at: &str,
         covariates: &[(&str, &str)],
     ) -> BaselineSpec {
         let mut spec = BaselineSpec::new(
-            use_case_id,
+            service_contract_id,
             generated_at,
             ExecutionBlock {
                 samples_planned: 100,
@@ -424,7 +424,7 @@ mod tests {
     }
 
     fn make_candidate(spec: BaselineSpec) -> BaselineCandidate {
-        let filename = format!("{}.yaml", spec.use_case_id);
+        let filename = format!("{}.yaml", spec.service_contract_id);
         BaselineCandidate { filename, spec }
     }
 
@@ -435,7 +435,7 @@ mod tests {
         let profile = CovariateProfile::empty();
 
         let result = select(&candidates, &profile, &[]).unwrap();
-        assert_eq!(result.selected().use_case_id, "uc");
+        assert_eq!(result.selected().service_contract_id, "uc");
         assert_eq!(result.candidate_count(), 1);
         assert!(!result.ambiguous());
     }
@@ -630,7 +630,7 @@ mod tests {
     #[test]
     fn selection_error_display_no_candidates() {
         let err = SelectionError::NoCandidates {
-            use_case_id: "uc".to_string(),
+            service_contract_id: "uc".to_string(),
         };
         assert!(err.to_string().contains("no baseline candidates"));
     }
@@ -638,7 +638,7 @@ mod tests {
     #[test]
     fn selection_error_display_config_mismatch() {
         let err = SelectionError::ConfigurationMismatch {
-            use_case_id: "uc".to_string(),
+            service_contract_id: "uc".to_string(),
             required: vec![("model".to_string(), "claude".to_string())],
             available: vec![vec![("model".to_string(), "gpt-4o".to_string())]],
         };

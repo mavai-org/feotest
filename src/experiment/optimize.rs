@@ -9,7 +9,7 @@
 //! iterations.
 //!
 //! The API shape mirrors [`super::ExploreExperiment`]: a `factor` is a
-//! user-defined type, a `use_case(factory)` builds an instance from a
+//! user-defined type, a `service_contract(factory)` builds an instance from a
 //! factor, and a `trial(|uc, input| …)` closure runs against the
 //! instance. The only structural difference is how factors are
 //! supplied — optimize takes a single `initial_factor` plus a
@@ -26,7 +26,7 @@ use crate::experiment::engine::{ExecutionEngine, ExecutionResult};
 use crate::model::TrialOutcome;
 use crate::spec::optimization::{OptimizationSpec, OptimizeSpecWriter};
 
-type UseCaseFactory<'a, F, T> = Box<dyn Fn(&F) -> T + 'a>;
+type ServiceContractFactory<'a, F, T> = Box<dyn Fn(&F) -> T + 'a>;
 type TrialClosure<'a, T> = Box<dyn Fn(&T, &str) -> TrialOutcome + 'a>;
 
 /// A scoring function that evaluates an iteration's results.
@@ -186,9 +186,9 @@ impl<F> IterationRecord<F> {
 /// let inputs = vec!["request".to_string()];
 ///
 /// let _ = OptimizeExperiment::builder()
-///     .use_case_id("my-service")
+///     .service_contract_id("my-service")
 ///     .initial_factor(Temperature(0.3))
-///     .use_case(|f: &Temperature| MyService { temperature: f.0 })
+///     .service_contract(|f: &Temperature| MyService { temperature: f.0 })
 ///     .scorer(PassRateScorer)
 ///     .mutator(StepMutator)
 ///     .samples_per_iteration(20)
@@ -201,9 +201,9 @@ impl<F> IterationRecord<F> {
 ///     .run();
 /// ```
 pub struct OptimizeExperiment<'a, F, T> {
-    use_case_id: String,
+    service_contract_id: String,
     initial_factor: F,
-    factory: UseCaseFactory<'a, F, T>,
+    factory: ServiceContractFactory<'a, F, T>,
     scorer: Box<dyn Scorer>,
     mutator: Box<dyn FactorMutator<F>>,
     objective: Objective,
@@ -239,12 +239,12 @@ where
         let mut termination_reason = TerminationReason::MaxIterations;
 
         for iteration in 0..self.max_iterations {
-            let use_case = (self.factory)(&current_factor);
+            let service_contract = (self.factory)(&current_factor);
 
             let config = ExecutionConfig::new(self.samples_per_iteration);
             let recorder = TokenRecorder::new();
 
-            let mut trial_fn = |input: &str| (self.trial)(&use_case, input);
+            let mut trial_fn = |input: &str| (self.trial)(&service_contract, input);
 
             let result = ExecutionEngine::run(
                 &config,
@@ -289,7 +289,7 @@ where
         }
 
         OptimizeResult {
-            use_case_id: self.use_case_id,
+            service_contract_id: self.service_contract_id,
             objective: self.objective,
             experiment_id: self.experiment_id,
             history,
@@ -302,7 +302,7 @@ where
 
 /// Fluent builder for [`OptimizeExperiment`].
 ///
-/// Required fields — `use_case_id`, `initial_factor`, `use_case`
+/// Required fields — `service_contract_id`, `initial_factor`, `service_contract`
 /// (factory), `scorer`, `mutator`, `samples_per_iteration`, `inputs`,
 /// and `trial` — must be set before [`build`](Self::build) is called.
 /// Missing any of them produces a panic naming the field and the
@@ -314,9 +314,9 @@ where
 /// counts, non-empty inputs) panic at the setter rather than deferring
 /// to `build`.
 pub struct OptimizeExperimentBuilder<'a, F, T> {
-    use_case_id: Option<String>,
+    service_contract_id: Option<String>,
     initial_factor: Option<F>,
-    factory: Option<UseCaseFactory<'a, F, T>>,
+    factory: Option<ServiceContractFactory<'a, F, T>>,
     scorer: Option<Box<dyn Scorer>>,
     mutator: Option<Box<dyn FactorMutator<F>>>,
     objective: Objective,
@@ -331,7 +331,7 @@ pub struct OptimizeExperimentBuilder<'a, F, T> {
 impl<F, T> Default for OptimizeExperimentBuilder<'_, F, T> {
     fn default() -> Self {
         Self {
-            use_case_id: None,
+            service_contract_id: None,
             initial_factor: None,
             factory: None,
             scorer: None,
@@ -354,8 +354,8 @@ impl<'a, F, T> OptimizeExperimentBuilder<'a, F, T> {
     ///
     /// Appears in spec YAML and in the output directory layout.
     #[must_use]
-    pub fn use_case_id(mut self, id: impl Into<String>) -> Self {
-        self.use_case_id = Some(id.into());
+    pub fn service_contract_id(mut self, id: impl Into<String>) -> Self {
+        self.service_contract_id = Some(id.into());
         self
     }
 
@@ -373,7 +373,7 @@ impl<'a, F, T> OptimizeExperimentBuilder<'a, F, T> {
     /// `samples_per_iteration` trials against the resulting instance,
     /// then drops it before the next iteration.
     #[must_use]
-    pub fn use_case(mut self, factory: impl Fn(&F) -> T + 'a) -> Self {
+    pub fn service_contract(mut self, factory: impl Fn(&F) -> T + 'a) -> Self {
         self.factory = Some(Box::new(factory));
         self
     }
@@ -477,15 +477,15 @@ impl<'a, F, T> OptimizeExperimentBuilder<'a, F, T> {
     #[must_use]
     pub fn build(self) -> OptimizeExperiment<'a, F, T> {
         OptimizeExperiment {
-            use_case_id: self
-                .use_case_id
-                .expect("use_case_id must be set via .use_case_id(...)"),
+            service_contract_id: self
+                .service_contract_id
+                .expect("service_contract_id must be set via .service_contract_id(...)"),
             initial_factor: self
                 .initial_factor
                 .expect("initial_factor must be set via .initial_factor(...)"),
             factory: self
                 .factory
-                .expect("use_case factory must be set via .use_case(...)"),
+                .expect("service_contract factory must be set via .service_contract(...)"),
             scorer: self.scorer.expect("scorer must be set via .scorer(...)"),
             mutator: self.mutator.expect("mutator must be set via .mutator(...)"),
             objective: self.objective,
@@ -504,7 +504,7 @@ impl<'a, F, T> OptimizeExperimentBuilder<'a, F, T> {
 /// Result of an optimize experiment.
 #[derive(Debug)]
 pub struct OptimizeResult<F> {
-    use_case_id: String,
+    service_contract_id: String,
     objective: Objective,
     experiment_id: Option<String>,
     history: Vec<IterationRecord<F>>,
@@ -516,8 +516,8 @@ pub struct OptimizeResult<F> {
 impl<F> OptimizeResult<F> {
     /// The use case identifier.
     #[must_use]
-    pub fn use_case_id(&self) -> &str {
-        &self.use_case_id
+    pub fn service_contract_id(&self) -> &str {
+        &self.service_contract_id
     }
 
     /// The optimisation objective.
@@ -587,7 +587,7 @@ impl<F: Serialize> OptimizeResult<F> {
     /// Writes the optimization YAML artefact under the given output
     /// root.
     ///
-    /// The final path is `{root}/{use_case_id}/{experiment_id}.yaml`.
+    /// The final path is `{root}/{service_contract_id}/{experiment_id}.yaml`.
     /// The default output root is `target/feotest/optimizations/` — see
     /// [`write_to_default`](Self::write_to_default).
     ///
@@ -620,7 +620,7 @@ impl<F: fmt::Display> fmt::Display for OptimizeResult<F> {
         writeln!(
             f,
             "OptimizeResult: {} ({objective_label})",
-            self.use_case_id,
+            self.service_contract_id,
         )?;
 
         if let Some(id) = &self.experiment_id {
@@ -701,9 +701,9 @@ mod tests {
         let inputs = vec!["input".to_string()];
 
         let result = OptimizeExperiment::builder()
-            .use_case_id("test-uc")
+            .service_contract_id("test-uc")
             .initial_factor(Temp(0.5))
-            .use_case(build_service)
+            .service_contract(build_service)
             .scorer(PassRateScorer)
             .mutator(StepMutator)
             .samples_per_iteration(10)
@@ -718,7 +718,7 @@ mod tests {
         assert!(!result.history().is_empty());
         assert!(result.best_score().is_some());
         assert!(result.best_factor().is_some());
-        assert_eq!(result.use_case_id(), "test-uc");
+        assert_eq!(result.service_contract_id(), "test-uc");
     }
 
     #[test]
@@ -728,9 +728,9 @@ mod tests {
         let inputs = vec!["input".to_string()];
 
         let result = OptimizeExperiment::builder()
-            .use_case_id("mutation-test")
+            .service_contract_id("mutation-test")
             .initial_factor(Temp(1.0))
-            .use_case(build_service)
+            .service_contract(build_service)
             .scorer(PassRateScorer)
             .mutator(StepMutator)
             .samples_per_iteration(3)
@@ -756,9 +756,9 @@ mod tests {
         let inputs = vec!["input".to_string()];
 
         let result = OptimizeExperiment::builder()
-            .use_case_id("instance-test")
+            .service_contract_id("instance-test")
             .initial_factor(Temp(0.5))
-            .use_case(build_service)
+            .service_contract(build_service)
             .scorer(PassRateScorer)
             .mutator(StepMutator)
             .samples_per_iteration(3)
@@ -791,9 +791,9 @@ mod tests {
         let inputs = vec!["input".to_string()];
 
         let result = OptimizeExperiment::builder()
-            .use_case_id("plateau-test")
+            .service_contract_id("plateau-test")
             .initial_factor(Temp(1.0))
-            .use_case(build_service)
+            .service_contract(build_service)
             .scorer(PassRateScorer)
             .mutator(StepMutator)
             .samples_per_iteration(5)
@@ -817,9 +817,9 @@ mod tests {
         let inputs = vec!["input".to_string()];
 
         let result = OptimizeExperiment::builder()
-            .use_case_id("minimize-test")
+            .service_contract_id("minimize-test")
             .initial_factor(Temp(1.0))
-            .use_case(build_service)
+            .service_contract(build_service)
             .scorer(PassRateScorer)
             .mutator(StepMutator)
             .samples_per_iteration(5)
@@ -864,7 +864,7 @@ mod tests {
     // --- Builder precondition tests (missing-required at build) ---
 
     #[test]
-    #[should_panic(expected = "use_case_id must be set")]
+    #[should_panic(expected = "service_contract_id must be set")]
     fn build_without_any_required_fields_panics() {
         let _ = OptimizeExperiment::<Temp, MockService>::builder().build();
     }

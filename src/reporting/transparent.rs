@@ -75,7 +75,7 @@ pub fn render_verdict_line(record: &VerdictRecord, writer: &mut dyn fmt::Write) 
     let name = record
         .identity()
         .test_name()
-        .unwrap_or_else(|| record.identity().use_case_id());
+        .unwrap_or_else(|| record.identity().service_contract_id());
 
     let verdict = match record.verdict() {
         Verdict::Pass => "PASS",
@@ -161,7 +161,7 @@ fn write_header(
     let name = record
         .identity()
         .test_name()
-        .unwrap_or_else(|| record.identity().use_case_id());
+        .unwrap_or_else(|| record.identity().service_contract_id());
     write_line(w, &format!("Test:       {name}"))?;
 
     // Approach label

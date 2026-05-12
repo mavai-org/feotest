@@ -9,13 +9,13 @@ use feotest::model::{ContractViolation, TerminationReason, ThresholdOrigin, Tria
 use feotest::ptest::ProbabilisticTestBuilder;
 use feotest::ptest::builder::ThresholdApproach;
 use feotest::spec::SpecResolver;
-use feotest::usecase::UseCase;
+use feotest::service_contract::ServiceContract;
 use feotest::verdict::Verdict;
 
 // --- Fixtures ---
 
 struct TestUc(&'static str);
-impl UseCase for TestUc {
+impl ServiceContract for TestUc {
     fn id(&self) -> &str {
         self.0
     }
@@ -66,8 +66,8 @@ fn sample_size_first_terminates_on_failure_inevitable() {
     let baseline_uc = TestUc("ssf-fail-inev");
     let inputs = vec!["input".to_string()];
     MeasureExperiment::builder()
-        .use_case_id("ssf-fail-inev")
-        .use_case(|| ())
+        .service_contract_id("ssf-fail-inev")
+        .service_contract(|| ())
         .samples(200)
         .inputs(&inputs)
         .trial(|(): &(), input| always_succeed(input))
@@ -164,8 +164,8 @@ fn measure_experiment_runs_all_samples_regardless_of_failures() {
     let uc = TestUc("measure-non-reg");
     let inputs = vec!["input".to_string()];
     let result = MeasureExperiment::builder()
-        .use_case_id("measure-non-reg")
-        .use_case(|| ())
+        .service_contract_id("measure-non-reg")
+        .service_contract(|| ())
         .samples(30)
         .inputs(&inputs)
         .trial(|(): &(), input| always_fail(input))

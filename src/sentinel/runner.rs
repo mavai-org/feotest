@@ -226,7 +226,7 @@ impl SentinelRunner {
                 Ok(path) => eprintln!("wrote baseline: {}", path.display()),
                 Err(err) => eprintln!(
                     "failed to write baseline for {}: {err}",
-                    baseline.use_case_id
+                    baseline.service_contract_id
                 ),
             }
         }
@@ -251,12 +251,12 @@ impl SentinelRunner {
                     continue;
                 }
                 let profile = crate::spec::namer::CovariateProfile::empty();
-                let use_case_id = format!("{}.{}", spec.name(), content.method_name);
+                let service_contract_id = format!("{}.{}", spec.name(), content.method_name);
                 let query = crate::sentinel::resolver::BaselineQuery {
                     spec_name: spec.name(),
                     method_name: content.method_name,
                     covariate_profile: &profile,
-                    use_case_id: &use_case_id,
+                    service_contract_id: &service_contract_id,
                 };
                 let resolved = crate::sentinel::resolver::resolve_baseline(
                     &query,

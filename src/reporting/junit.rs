@@ -66,8 +66,8 @@ impl JunitXmlWriter {
         let name = verdict
             .identity()
             .test_name()
-            .unwrap_or_else(|| verdict.identity().use_case_id());
-        let classname = verdict.identity().use_case_id();
+            .unwrap_or_else(|| verdict.identity().service_contract_id());
+        let classname = verdict.identity().service_contract_id();
         let time = verdict.execution().cost().total_time().as_secs_f64();
 
         writeln!(
@@ -425,7 +425,7 @@ mod tests {
     }
 
     #[test]
-    fn uses_use_case_id_when_no_test_name() {
+    fn uses_service_contract_id_when_no_test_name() {
         let record = VerdictRecord::builder(
             TestIdentity::new("no-name-service"),
             Verdict::Pass,

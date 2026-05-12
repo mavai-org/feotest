@@ -8,7 +8,7 @@ use crate::model::Warning;
 use crate::spec::baseline::SpecLoadError;
 use crate::spec::selector::SelectionResult;
 use crate::spec::{BaselineSpec, SpecResolveError, SpecResolver};
-use crate::usecase::CovariateContext;
+use crate::service_contract::CovariateContext;
 
 /// Resolves a baseline spec, using covariate-aware selection when context is available.
 ///
@@ -19,16 +19,16 @@ use crate::usecase::CovariateContext;
 /// proceed with compromised data.
 pub fn resolve(
     resolver: &SpecResolver,
-    use_case_id: &str,
+    service_contract_id: &str,
     covariate_context: Option<&CovariateContext>,
     warnings: &mut Vec<Warning>,
 ) -> Option<BaselineSpec> {
     let Some(ctx) = covariate_context else {
-        let result = resolver.resolve(use_case_id);
+        let result = resolver.resolve(service_contract_id);
         return interpret_resolve_result(result, warnings);
     };
 
-    let result = resolver.resolve_with_covariates(use_case_id, ctx.profile(), ctx.declarations());
+    let result = resolver.resolve_with_covariates(service_contract_id, ctx.profile(), ctx.declarations());
     interpret_covariate_result(result, warnings)
 }
 
@@ -138,7 +138,7 @@ mod tests {
     #[test]
     fn interpret_not_found_pushes_warning_and_returns_none() {
         let err = SpecResolveError::NotFound {
-            use_case_id: "test".to_string(),
+            service_contract_id: "test".to_string(),
             path: PathBuf::from("/fake/path"),
             source: std::io::Error::new(std::io::ErrorKind::NotFound, "not found"),
         };
@@ -155,7 +155,7 @@ mod tests {
         let err = SpecResolveError::Integrity {
             path: PathBuf::from("/fake/spec.yaml"),
             source: SpecLoadError::IntegrityFailure {
-                use_case_id: "test".to_string(),
+                service_contract_id: "test".to_string(),
                 expected: "aaa".to_string(),
                 actual: "bbb".to_string(),
             },
@@ -170,7 +170,7 @@ mod tests {
         let err = SpecResolveError::Integrity {
             path: PathBuf::from("/fake/spec.yaml"),
             source: SpecLoadError::MissingFingerprint {
-                use_case_id: "test".to_string(),
+                service_contract_id: "test".to_string(),
             },
         };
         let mut warnings = Vec::new();
@@ -184,7 +184,7 @@ mod tests {
     #[test]
     fn covariate_not_found_pushes_warning() {
         let err = SpecResolveError::NotFound {
-            use_case_id: "test".to_string(),
+            service_contract_id: "test".to_string(),
             path: PathBuf::from("/fake"),
             source: std::io::Error::new(std::io::ErrorKind::NotFound, "not found"),
         };
@@ -200,7 +200,7 @@ mod tests {
         let err = SpecResolveError::Integrity {
             path: PathBuf::from("/fake/spec.yaml"),
             source: SpecLoadError::IntegrityFailure {
-                use_case_id: "test".to_string(),
+                service_contract_id: "test".to_string(),
                 expected: "aaa".to_string(),
                 actual: "bbb".to_string(),
             },
@@ -216,7 +216,7 @@ mod tests {
     #[test]
     fn non_integrity_error_does_not_panic() {
         let err = SpecResolveError::NotFound {
-            use_case_id: "test".to_string(),
+            service_contract_id: "test".to_string(),
             path: PathBuf::from("/fake"),
             source: std::io::Error::new(std::io::ErrorKind::NotFound, "not found"),
         };

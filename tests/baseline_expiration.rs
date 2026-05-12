@@ -9,11 +9,11 @@ use feotest::ptest::builder::ThresholdApproach;
 use feotest::spec::common::{iso8601_plus_days, parse_iso8601};
 use feotest::spec::expiration;
 use feotest::spec::{BaselineSpec, SpecResolver};
-use feotest::usecase::UseCase;
+use feotest::service_contract::ServiceContract;
 use feotest::verdict::Verdict;
 
 struct TestUc(&'static str);
-impl UseCase for TestUc {
+impl ServiceContract for TestUc {
     fn id(&self) -> &str {
         self.0
     }
@@ -29,8 +29,8 @@ fn measure_writes_expiration_block_that_round_trips_through_resolver() {
     let inputs = vec!["input".to_string()];
 
     let measure_result = MeasureExperiment::builder()
-        .use_case_id("expiry-uc")
-        .use_case(|| ())
+        .service_contract_id("expiry-uc")
+        .service_contract(|| ())
         .samples(30)
         .inputs(&inputs)
         .trial(|(): &(), input| always_succeed(input))
@@ -59,8 +59,8 @@ fn evaluate_at_future_time_crosses_expiry_boundary() {
     let inputs = vec!["input".to_string()];
 
     MeasureExperiment::builder()
-        .use_case_id("boundary-uc")
-        .use_case(|| ())
+        .service_contract_id("boundary-uc")
+        .service_contract(|| ())
         .samples(30)
         .inputs(&inputs)
         .trial(|(): &(), input| always_succeed(input))
@@ -104,8 +104,8 @@ fn ptest_with_expired_baseline_warns_by_default_and_still_passes() {
     // fingerprint covers the expiration block, we must recompute the spec
     // end-to-end rather than patching the YAML directly.
     MeasureExperiment::builder()
-        .use_case_id("warn-only")
-        .use_case(|| ())
+        .service_contract_id("warn-only")
+        .service_contract(|| ())
         .samples(30)
         .inputs(&inputs)
         .trial(|(): &(), input| always_succeed(input))
@@ -160,8 +160,8 @@ fn ptest_with_fail_on_expired_produces_fail_verdict() {
 
     let end = "2020-01-01T00:00:00Z".to_string();
     let mut spec = MeasureExperiment::builder()
-        .use_case_id("strict")
-        .use_case(|| ())
+        .service_contract_id("strict")
+        .service_contract(|| ())
         .samples(30)
         .inputs(&inputs)
         .trial(|(): &(), input| always_succeed(input))
@@ -203,8 +203,8 @@ fn ptest_with_no_expiration_block_attaches_no_info() {
 
     // No expires_in_days: the block is omitted.
     MeasureExperiment::builder()
-        .use_case_id("no-block")
-        .use_case(|| ())
+        .service_contract_id("no-block")
+        .service_contract(|| ())
         .samples(30)
         .inputs(&inputs)
         .trial(|(): &(), input| always_succeed(input))
@@ -235,8 +235,8 @@ fn evaluate_at_now_matches_evaluate() {
     let inputs = vec!["input".to_string()];
 
     MeasureExperiment::builder()
-        .use_case_id("matches-now")
-        .use_case(|| ())
+        .service_contract_id("matches-now")
+        .service_contract(|| ())
         .samples(30)
         .inputs(&inputs)
         .trial(|(): &(), input| always_succeed(input))

@@ -113,7 +113,7 @@ fn build_baseline_and_run(
     struct Uc {
         id: &'static str,
     }
-    impl feotest::usecase::UseCase for Uc {
+    impl feotest::service_contract::ServiceContract for Uc {
         fn id(&self) -> &str {
             self.id
         }
@@ -127,8 +127,8 @@ fn build_baseline_and_run(
     // Establish baseline with low-latency samples.
     let baseline_trial = fixed_latency_trial(baseline_latency);
     feotest::experiment::MeasureExperiment::builder()
-        .use_case_id(uc_id)
-        .use_case(|| ())
+        .service_contract_id(uc_id)
+        .service_contract(|| ())
         .samples(150)
         .inputs(&inputs)
         .trial(move |(): &(), input| baseline_trial(input))
@@ -190,7 +190,7 @@ fn scenario_baseline_p95_violated_strict_via_builder() {
 #[test]
 fn scenario_p99_with_small_baseline_is_infeasible() {
     struct Uc;
-    impl feotest::usecase::UseCase for Uc {
+    impl feotest::service_contract::ServiceContract for Uc {
         fn id(&self) -> &str {
             "latency-scenario-11"
         }
@@ -200,8 +200,8 @@ fn scenario_p99_with_small_baseline_is_infeasible() {
 
     let trial_fn = fixed_latency_trial(Duration::from_millis(10));
     feotest::experiment::MeasureExperiment::builder()
-        .use_case_id("latency-scenario-11")
-        .use_case(|| ())
+        .service_contract_id("latency-scenario-11")
+        .service_contract(|| ())
         .samples(30)
         .inputs(&inputs)
         .trial(move |(): &(), input| trial_fn(input))
@@ -240,7 +240,7 @@ fn scenario_p99_with_small_baseline_is_infeasible() {
 #[test]
 fn measure_round_trip_preserves_latency_block() {
     struct Uc;
-    impl feotest::usecase::UseCase for Uc {
+    impl feotest::service_contract::ServiceContract for Uc {
         fn id(&self) -> &str {
             "latency-scenario-9"
         }
@@ -250,8 +250,8 @@ fn measure_round_trip_preserves_latency_block() {
 
     let trial_fn = fixed_latency_trial(Duration::from_millis(42));
     let m = feotest::experiment::MeasureExperiment::builder()
-        .use_case_id("latency-scenario-9")
-        .use_case(|| ())
+        .service_contract_id("latency-scenario-9")
+        .service_contract(|| ())
         .samples(50)
         .inputs(&inputs)
         .trial(move |(): &(), input| trial_fn(input))

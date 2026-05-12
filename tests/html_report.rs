@@ -175,7 +175,7 @@ fn report_contains_assumptions_section() {
 }
 
 #[test]
-fn report_groups_by_use_case() {
+fn report_groups_by_service_contract() {
     let Some(html) = generate_or_skip(
         &[pass_record(), fail_record()],
         Some("2026-04-01T12:00:00Z"),

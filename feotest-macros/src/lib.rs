@@ -5,7 +5,7 @@
 //! - `#[probabilistic_test]` — probabilistic test with statistical inference.
 //! - `#[sentinel]` — marks a struct as a reliability specification and
 //!   registers it into the sentinel inventory.
-//! - `#[use_case_factory]` — marks a method within a `#[sentinel]` struct
+//! - `#[service_contract_factory]` — marks a method within a `#[sentinel]` struct
 //!   as producing a use case.
 
 mod expand;
@@ -13,7 +13,7 @@ mod include_baselines;
 mod parse;
 mod sentinel;
 mod sentinel_impl;
-mod use_case_factory;
+mod service_contract_factory;
 
 use proc_macro::TokenStream;
 
@@ -72,14 +72,14 @@ pub fn sentinel(attr: TokenStream, item: TokenStream) -> TokenStream {
 
 /// Marks a method as a use-case factory within a `#[sentinel]` struct.
 ///
-/// The method must return `impl UseCase` or `Box<dyn UseCase>`. Any other
+/// The method must return `impl ServiceContract` or `Box<dyn ServiceContract>`. Any other
 /// return shape is a compile-time error. The method itself is emitted
 /// unchanged; the attribute's current role is validation and reservation
 /// for future discovery machinery.
 #[proc_macro_attribute]
-pub fn use_case_factory(attr: TokenStream, item: TokenStream) -> TokenStream {
+pub fn service_contract_factory(attr: TokenStream, item: TokenStream) -> TokenStream {
     let attr: proc_macro2::TokenStream = attr.into();
-    use_case_factory::expand(&attr, item.into())
+    service_contract_factory::expand(&attr, item.into())
         .unwrap_or_else(|e| e.to_compile_error())
         .into()
 }

@@ -87,7 +87,7 @@ mod tests {
     use std::io::{BufRead, BufReader};
     use std::time::Duration;
 
-    fn sample_record(use_case: &str, verdict: Verdict) -> VerdictRecord {
+    fn sample_record(service_contract: &str, verdict: Verdict) -> VerdictRecord {
         let exec = ExecutionSummary::new(
             100,
             100,
@@ -97,7 +97,7 @@ mod tests {
             CostSummary::new(Duration::from_millis(200), 500, 100),
         );
         VerdictRecord::builder(
-            TestIdentity::new(use_case),
+            TestIdentity::new(service_contract),
             verdict,
             TestIntent::Verification,
             exec,

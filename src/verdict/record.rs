@@ -866,7 +866,7 @@ mod tests {
 
         assert_eq!(record.verdict(), Verdict::Pass);
         assert_eq!(record.intent(), TestIntent::Verification);
-        assert_eq!(record.identity().use_case_id(), "shopping-basket");
+        assert_eq!(record.identity().service_contract_id(), "shopping-basket");
         assert!(record.statistical_analysis().is_none());
         assert!(record.spec_provenance().is_none());
         assert!(record.warnings().is_empty());

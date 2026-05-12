@@ -1,11 +1,11 @@
-use feotest::{sentinel, use_case_factory};
+use feotest::{sentinel, service_contract_factory};
 
 #[sentinel]
 #[derive(Default)]
 struct Spec;
 
 impl Spec {
-    #[use_case_factory]
+    #[service_contract_factory]
     fn not_a_factory(&self) -> String {
         String::new()
     }

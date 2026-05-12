@@ -44,7 +44,8 @@ pub struct ExplorationSpec {
     pub schema_version: String,
 
     /// The use case identifier.
-    pub use_case_id: String,
+    #[serde(rename = "useCaseId")]
+    pub service_contract_id: String,
 
     /// ISO 8601 timestamp of when the spec was generated.
     pub generated_at: String,
@@ -136,7 +137,7 @@ impl ExploreSpecWriter {
         result: &ExploreResult,
         factor_values: &BTreeMap<String, BTreeMap<String, FactorYamlValue>>,
     ) -> Result<Vec<PathBuf>, std::io::Error> {
-        let dir = self.output_dir.join(result.use_case_id());
+        let dir = self.output_dir.join(result.service_contract_id());
 
         std::fs::create_dir_all(&dir)?;
         let dir = dir.canonicalize()?;
@@ -144,7 +145,7 @@ impl ExploreSpecWriter {
         let mut paths = Vec::new();
         for config in result.configs() {
             let spec = Self::build_spec(
-                result.use_case_id(),
+                result.service_contract_id(),
                 result.experiment_id(),
                 config.execution(),
                 factor_values.get(config.name()),
@@ -171,16 +172,16 @@ impl ExploreSpecWriter {
     /// Returns an error if directory creation or file writing fails.
     pub fn write_one(
         &self,
-        use_case_id: &str,
+        service_contract_id: &str,
         experiment_id: Option<&str>,
         config_name: &str,
         execution: &ExecutionResult,
         factors: Option<&BTreeMap<String, FactorYamlValue>>,
     ) -> Result<PathBuf, std::io::Error> {
-        let dir = self.output_dir.join(use_case_id);
+        let dir = self.output_dir.join(service_contract_id);
         std::fs::create_dir_all(&dir)?;
 
-        let spec = Self::build_spec(use_case_id, experiment_id, execution, factors);
+        let spec = Self::build_spec(service_contract_id, experiment_id, execution, factors);
         let path = dir.join(format!("{config_name}.yaml"));
         let yaml = spec.to_yaml().map_err(std::io::Error::other)?;
         std::fs::write(&path, yaml)?;
@@ -188,7 +189,7 @@ impl ExploreSpecWriter {
     }
 
     fn build_spec(
-        use_case_id: &str,
+        service_contract_id: &str,
         experiment_id: Option<&str>,
         execution: &ExecutionResult,
         factors: Option<&BTreeMap<String, FactorYamlValue>>,
@@ -198,7 +199,7 @@ impl ExploreSpecWriter {
 
         ExplorationSpec {
             schema_version: "feotest-spec-1".to_owned(),
-            use_case_id: use_case_id.to_owned(),
+            service_contract_id: service_contract_id.to_owned(),
             generated_at: now_iso8601(),
             experiment_id: experiment_id.map(str::to_owned),
             execution_context: factors.cloned().unwrap_or_default(),
@@ -232,7 +233,7 @@ mod tests {
     fn exploration_spec_round_trips_yaml() {
         let spec = ExplorationSpec {
             schema_version: "feotest-spec-1".to_owned(),
-            use_case_id: "shopping-basket".to_owned(),
+            service_contract_id: "shopping-basket".to_owned(),
             generated_at: "2026-04-04T10:00:00Z".to_owned(),
             experiment_id: Some("model-comparison".to_owned()),
             execution_context: BTreeMap::from([
@@ -260,7 +261,7 @@ mod tests {
         let restored = ExplorationSpec::from_yaml(&yaml).unwrap();
 
         assert_eq!(restored.schema_version, "feotest-spec-1");
-        assert_eq!(restored.use_case_id, "shopping-basket");
+        assert_eq!(restored.service_contract_id, "shopping-basket");
         assert_eq!(restored.statistics.successes, 4);
         assert_eq!(restored.execution_context.len(), 2);
     }
@@ -269,7 +270,7 @@ mod tests {
     fn yaml_uses_camel_case() {
         let spec = ExplorationSpec {
             schema_version: "feotest-spec-1".to_owned(),
-            use_case_id: "test".to_owned(),
+            service_contract_id: "test".to_owned(),
             generated_at: "2026-04-04T10:00:00Z".to_owned(),
             experiment_id: None,
             execution_context: BTreeMap::new(),
@@ -297,7 +298,7 @@ mod tests {
     fn empty_execution_context_omitted() {
         let spec = ExplorationSpec {
             schema_version: "feotest-spec-1".to_owned(),
-            use_case_id: "test".to_owned(),
+            service_contract_id: "test".to_owned(),
             generated_at: "2026-04-04T10:00:00Z".to_owned(),
             experiment_id: None,
             execution_context: BTreeMap::new(),
@@ -323,7 +324,7 @@ mod tests {
     fn factor_values_serialize_as_natural_types() {
         let spec = ExplorationSpec {
             schema_version: "feotest-spec-1".to_owned(),
-            use_case_id: "test".to_owned(),
+            service_contract_id: "test".to_owned(),
             generated_at: "2026-04-04T10:00:00Z".to_owned(),
             experiment_id: None,
             execution_context: BTreeMap::from([
@@ -361,7 +362,7 @@ mod tests {
     fn descriptive_statistics_has_no_confidence_interval() {
         let spec = ExplorationSpec {
             schema_version: "feotest-spec-1".to_owned(),
-            use_case_id: "test".to_owned(),
+            service_contract_id: "test".to_owned(),
             generated_at: "2026-04-04T10:00:00Z".to_owned(),
             experiment_id: None,
             execution_context: BTreeMap::new(),
