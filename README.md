@@ -181,6 +181,12 @@ it behind opaque abstractions.
 engine, experiment types, and probabilistic test builder are implemented. The
 API should be considered unstable.
 
-## Licence
+## License
 
-Attribution Required License (ARL-1.0). See [LICENSE](LICENSE).
+Apache License, Version 2.0. See [LICENSE](LICENSE) and [NOTICE](NOTICE).
+
+## Contributing
+
+Contributions are welcome. All contributions are accepted under Apache 2.0 and
+require a [Developer Certificate of Origin](dco.txt) sign-off (`git commit -s`).
+See [CONTRIBUTING.md](CONTRIBUTING.md) for details.
