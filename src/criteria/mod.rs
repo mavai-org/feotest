@@ -175,6 +175,31 @@ mod tests {
     }
 
     #[test]
+    fn multiple_satisfies_all_must_pass() {
+        // A criterion with several postconditions passes only if every clause
+        // passes; a later-clause failure surfaces as that clause's reason.
+        let criteria = Criteria::<String>::of([Criteria::meeting()
+            .pass_rate(0.9)
+            .name("c")
+            .satisfies("first", passes)
+            .satisfies("second", passes)
+            .satisfies("third", passes)
+            .build()]);
+        assert!(criteria.evaluate(&"x".to_string())[0].passed());
+
+        let with_late_failure = Criteria::<String>::of([Criteria::meeting()
+            .pass_rate(0.9)
+            .name("c")
+            .satisfies("first", passes)
+            .satisfies("second", passes)
+            .satisfies("third", fails("third"))
+            .build()]);
+        let results = with_late_failure.evaluate(&"x".to_string());
+        assert!(!results[0].passed());
+        assert_eq!(results[0].reason().unwrap().check(), "third");
+    }
+
+    #[test]
     fn clean_pass_carries_no_reason() {
         let criteria = Criteria::<String>::of([Criteria::meeting()
             .pass_rate(0.9)
