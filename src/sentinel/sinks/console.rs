@@ -75,7 +75,7 @@ mod tests {
     use crate::model::{
         CostSummary, ExecutionSummary, TerminationInfo, TerminationReason, TestIdentity, TestIntent,
     };
-    use crate::verdict::{FunctionalDimension, Verdict, VerdictRecord};
+    use crate::verdict::{CriterionRow, FunctionalAssessment, Verdict, VerdictRecord};
     use std::time::Duration;
 
     fn sample_execution() -> ExecutionSummary {
@@ -95,7 +95,7 @@ mod tests {
             Verdict::Pass,
             TestIntent::Verification,
             sample_execution(),
-            FunctionalDimension::new(95, 5, vec![]),
+            FunctionalAssessment::single(CriterionRow::result(95, 5, vec![], Verdict::Pass)),
         )
         .build()
     }
@@ -115,7 +115,7 @@ mod tests {
             Verdict::Fail,
             TestIntent::Verification,
             sample_execution(),
-            FunctionalDimension::new(0, 100, vec![]),
+            FunctionalAssessment::single(CriterionRow::result(0, 100, vec![], Verdict::Fail)),
         )
         .build();
 

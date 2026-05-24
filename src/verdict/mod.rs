@@ -12,8 +12,8 @@ mod record;
 
 pub use assessment::{CriterionRow, FunctionalAssessment};
 pub use record::{
-    BaselineProvenance, CovariateStatus, FunctionalDimension, Misalignment, SpecProvenance,
-    StatisticalAnalysis, VerdictRecord, VerdictRecordBuilder,
+    BaselineProvenance, CovariateStatus, Misalignment, SpecProvenance, StatisticalAnalysis,
+    VerdictRecord, VerdictRecordBuilder,
 };
 
 use serde::{Serialize, Serializer};

@@ -128,7 +128,8 @@ mod tests {
         TestIntent, ThresholdOrigin,
     };
     use crate::verdict::{
-        FunctionalDimension, SpecProvenance, StatisticalAnalysis, Verdict, VerdictRecord,
+        CriterionRow, FunctionalAssessment, SpecProvenance, StatisticalAnalysis, Verdict,
+        VerdictRecord,
     };
     use std::time::Duration;
 
@@ -160,7 +161,7 @@ mod tests {
             Verdict::Pass,
             TestIntent::Verification,
             sample_execution(100, 100, 96, 4),
-            FunctionalDimension::new(96, 4, vec![]),
+            FunctionalAssessment::single(CriterionRow::result(96, 4, vec![], Verdict::Pass)),
         )
         .statistical_analysis(analysis)
         .spec_provenance(provenance)
@@ -173,7 +174,7 @@ mod tests {
             Verdict::Fail,
             TestIntent::Verification,
             sample_execution(100, 100, 80, 20),
-            FunctionalDimension::new(80, 20, vec![]),
+            FunctionalAssessment::single(CriterionRow::result(80, 20, vec![], Verdict::Fail)),
         )
         .statistical_analysis(StatisticalAnalysis::new(
             0.95,

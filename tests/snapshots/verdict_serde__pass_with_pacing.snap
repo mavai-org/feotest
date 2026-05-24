@@ -1,6 +1,6 @@
 ---
 source: tests/verdict_serde.rs
-assertion_line: 150
+assertion_line: 152
 expression: "serde_json::to_value(&record).unwrap()"
 ---
 {
@@ -21,12 +21,17 @@ expression: "serde_json::to_value(&record).unwrap()"
       "reason": "COMPLETED"
     }
   },
-  "functional": {
-    "conformanceMismatches": 0,
-    "failureDistribution": {},
-    "failures": 5,
-    "passRate": 0.95,
-    "successes": 95
+  "functionalAssessment": {
+    "composite": "PASS",
+    "criteria": [
+      {
+        "fail": 5,
+        "name": "result",
+        "pass": 95,
+        "passRate": 0.95,
+        "verdict": "PASS"
+      }
+    ]
   },
   "identity": {
     "testName": "paced",

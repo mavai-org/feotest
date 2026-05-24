@@ -83,7 +83,7 @@ mod tests {
     use crate::model::{
         CostSummary, ExecutionSummary, TerminationInfo, TerminationReason, TestIdentity, TestIntent,
     };
-    use crate::verdict::{FunctionalDimension, Verdict, VerdictRecord};
+    use crate::verdict::{CriterionRow, FunctionalAssessment, Verdict, VerdictRecord};
     use std::io::{BufRead, BufReader};
     use std::time::Duration;
 
@@ -101,7 +101,7 @@ mod tests {
             verdict,
             TestIntent::Verification,
             exec,
-            FunctionalDimension::new(95, 5, vec![]),
+            FunctionalAssessment::single(CriterionRow::result(95, 5, vec![], verdict)),
         )
         .build()
     }

@@ -53,7 +53,10 @@
 //!   "verdictReason": "1.0000 >= 0.9500",
 //!   "intent": "VERIFICATION",
 //!   "execution": { ... },
-//!   "functional": { "successes": 100, "failures": 0, "passRate": 1.0, ... },
+//!   "functionalAssessment": {
+//!     "composite": "PASS",
+//!     "criteria": [ { "name": "result", "pass": 100, "fail": 0, "passRate": 1.0, "verdict": "PASS" } ]
+//!   },
 //!   "covariateStatus": { "aligned": true }
 //! }
 //! ```

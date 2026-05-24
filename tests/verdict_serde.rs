@@ -13,8 +13,8 @@ use feotest::model::{
     TerminationInfo, TerminationReason, TestIdentity, TestIntent, ThresholdOrigin, Warning,
 };
 use feotest::verdict::{
-    BaselineProvenance, CovariateStatus, FunctionalDimension, Misalignment, SpecProvenance,
-    StatisticalAnalysis, Verdict, VerdictRecord,
+    BaselineProvenance, CovariateStatus, CriterionRow, FunctionalAssessment, Misalignment,
+    SpecProvenance, StatisticalAnalysis, Verdict, VerdictRecord,
 };
 
 const fn sample_execution() -> ExecutionSummary {
@@ -35,7 +35,7 @@ fn pass_verdict_minimal() {
         Verdict::Pass,
         TestIntent::Verification,
         sample_execution(),
-        FunctionalDimension::new(95, 5, vec![]),
+        FunctionalAssessment::single(CriterionRow::result(95, 5, vec![], Verdict::Pass)),
     )
     .build();
 
@@ -49,8 +49,12 @@ fn fail_verdict_with_distribution_and_warnings() {
         Verdict::Fail,
         TestIntent::Verification,
         sample_execution(),
-        FunctionalDimension::new(80, 20, vec![("parse".into(), 12), ("content".into(), 8)])
-            .conformance(3, vec!["diff-1".into(), "diff-2".into()]),
+        FunctionalAssessment::single(CriterionRow::result(
+            80,
+            20,
+            vec![("parse".into(), 12), ("content".into(), 8)],
+            Verdict::Fail,
+        )),
     )
     .statistical_analysis(
         StatisticalAnalysis::new(0.95, 0.04, 0.722, 0.90, ThresholdOrigin::Empirical)
@@ -72,7 +76,7 @@ fn inconclusive_verdict_with_covariate_misalignment() {
         Verdict::Inconclusive,
         TestIntent::Verification,
         sample_execution(),
-        FunctionalDimension::new(85, 15, vec![]),
+        FunctionalAssessment::single(CriterionRow::result(85, 15, vec![], Verdict::Inconclusive)),
     )
     .covariate_status(CovariateStatus::new(
         false,
@@ -95,7 +99,7 @@ fn pass_verdict_with_baseline_provenance_and_spec_provenance() {
         Verdict::Pass,
         TestIntent::Verification,
         sample_execution(),
-        FunctionalDimension::new(95, 5, vec![]),
+        FunctionalAssessment::single(CriterionRow::result(95, 5, vec![], Verdict::Pass)),
     )
     .statistical_analysis(StatisticalAnalysis::new(
         0.95,
@@ -140,7 +144,7 @@ fn verdict_with_pacing_summary() {
         Verdict::Pass,
         TestIntent::Verification,
         sample_execution(),
-        FunctionalDimension::new(95, 5, vec![]),
+        FunctionalAssessment::single(CriterionRow::result(95, 5, vec![], Verdict::Pass)),
     )
     .pacing(pacing)
     .build();
