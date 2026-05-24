@@ -7,8 +7,10 @@
 //! [`VerdictRecord`] is the single source of truth consumed by all rendering
 //! paths: machine-readable XML, human-readable HTML reports, and console output.
 
+mod assessment;
 mod record;
 
+pub use assessment::{CriterionRow, FunctionalAssessment};
 pub use record::{
     BaselineProvenance, CovariateStatus, FunctionalDimension, Misalignment, SpecProvenance,
     StatisticalAnalysis, VerdictRecord, VerdictRecordBuilder,
