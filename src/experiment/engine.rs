@@ -80,7 +80,7 @@ impl ExecutionEngine {
 
         for i in 0..config.samples() {
             if let Some(reason) =
-                check_pre_sample_budgets(i, config, token_recorder, run_budget, start)
+                check_pre_sample_budgets(config, token_recorder, run_budget, start)
             {
                 termination_reason = reason;
                 break;
@@ -141,21 +141,26 @@ where
 ///
 /// Run-scoped budgets are checked before method-level ones: when both
 /// scopes exhaust at the same sample, the more general cause is
-/// reported. `sample_index` is the zero-based iteration counter and
-/// `method_start` is the wall-clock start of the per-method run.
+/// reported. `method_start` is the wall-clock start of the per-method run.
+///
+/// The static charge for the upcoming sample is not yet in
+/// `token_recorder` — it is recorded post-trial — so both the run-scoped
+/// and method-level token checks project exactly **one** upcoming charge
+/// on top of what is already recorded. Charges for prior samples are
+/// already in `token_recorder.total()` and must not be re-projected.
 fn check_pre_sample_budgets(
-    sample_index: u32,
     config: &ExecutionConfig,
     token_recorder: &TokenRecorder,
     run_budget: Option<&RunBudget>,
     method_start: Instant,
 ) -> Option<TerminationReason> {
+    let projected_charge = config.static_token_charge().unwrap_or(0);
+
     if let Some(rb) = run_budget {
         if rb.time_exhausted() {
             return Some(TerminationReason::RunTimeBudgetExhausted);
         }
-        let projected = config.static_token_charge().unwrap_or(0);
-        if rb.token_exhausted_at(projected) {
+        if rb.token_exhausted_at(projected_charge) {
             return Some(TerminationReason::RunTokenBudgetExhausted);
         }
     }
@@ -166,12 +171,8 @@ fn check_pre_sample_budgets(
         }
     }
 
-    let tokens_consumed = token_recorder.total()
-        + config
-            .static_token_charge()
-            .map_or(0, |c| u64::from(sample_index) * c);
     if let Some(budget) = config.token_budget() {
-        if tokens_consumed >= budget {
+        if token_recorder.total() + projected_charge >= budget {
             return Some(TerminationReason::TokenBudgetExhausted);
         }
     }
@@ -422,6 +423,29 @@ mod tests {
 
         // Should terminate before all 100 samples
         assert!(result.summary().samples_executed() < 100);
+    }
+
+    #[test]
+    fn token_budget_projection_does_not_double_count_prior_charges() {
+        // 100 per sample against a 1000 budget. Each pre-sample check
+        // projects one upcoming charge on top of what is recorded, so the
+        // run affords 9 samples (900 recorded; the 10th would reach 1000
+        // and is refused). The earlier defect projected one charge per
+        // elapsed sample, terminating at 5 — this pins the fix.
+        let config = ExecutionConfig::new(100)
+            .with_static_token_charge(100)
+            .with_token_budget(1000);
+        let recorder = TokenRecorder::new();
+        let inputs = vec!["input".to_string()];
+
+        let result = ExecutionEngine::run(&config, &inputs, &recorder, None, always_succeeds);
+
+        assert_eq!(result.summary().samples_executed(), 9);
+        assert_eq!(recorder.total(), 900);
+        assert_eq!(
+            result.summary().termination().reason(),
+            &TerminationReason::TokenBudgetExhausted
+        );
     }
 
     #[test]
@@ -768,7 +792,7 @@ mod tests {
             let recorder = TokenRecorder::new();
             let start = Instant::now();
 
-            assert!(check_pre_sample_budgets(0, &config, &recorder, None, start).is_none());
+            assert!(check_pre_sample_budgets(&config, &recorder, None, start).is_none());
         }
 
         #[test]
@@ -781,7 +805,7 @@ mod tests {
             std::thread::sleep(Duration::from_millis(5));
             let start = Instant::now() - Duration::from_millis(10);
 
-            let reason = check_pre_sample_budgets(0, &config, &recorder, Some(&run_budget), start);
+            let reason = check_pre_sample_budgets(&config, &recorder, Some(&run_budget), start);
             assert_eq!(reason, Some(TerminationReason::RunTimeBudgetExhausted));
         }
 
@@ -794,7 +818,7 @@ mod tests {
             let run_budget = RunBudget::new(None, Some(10));
 
             let reason =
-                check_pre_sample_budgets(0, &config, &recorder, Some(&run_budget), Instant::now());
+                check_pre_sample_budgets(&config, &recorder, Some(&run_budget), Instant::now());
             assert_eq!(reason, Some(TerminationReason::RunTokenBudgetExhausted));
         }
 
@@ -804,7 +828,7 @@ mod tests {
             let recorder = TokenRecorder::new();
             let start = Instant::now() - Duration::from_millis(10);
 
-            let reason = check_pre_sample_budgets(0, &config, &recorder, None, start);
+            let reason = check_pre_sample_budgets(&config, &recorder, None, start);
             assert_eq!(reason, Some(TerminationReason::TimeBudgetExhausted));
         }
 
@@ -814,7 +838,37 @@ mod tests {
             let recorder = TokenRecorder::new();
             recorder.record(100);
 
-            let reason = check_pre_sample_budgets(0, &config, &recorder, None, Instant::now());
+            let reason = check_pre_sample_budgets(&config, &recorder, None, Instant::now());
+            assert_eq!(reason, Some(TerminationReason::TokenBudgetExhausted));
+        }
+
+        #[test]
+        fn projects_only_the_upcoming_static_charge_not_all_prior() {
+            // Three prior samples already recorded (3 × 100). The check
+            // for the fourth must project exactly one upcoming charge —
+            // 300 + 100 = 400, below the 450 budget — so it proceeds. The
+            // earlier defect projected one charge *per elapsed sample*
+            // (300 + 4 × 100 = 700), which would have terminated here.
+            let config = ExecutionConfig::new(10)
+                .with_static_token_charge(100)
+                .with_token_budget(450);
+            let recorder = TokenRecorder::new();
+            recorder.record(300);
+
+            let reason = check_pre_sample_budgets(&config, &recorder, None, Instant::now());
+            assert_eq!(reason, None);
+        }
+
+        #[test]
+        fn terminates_when_recorded_plus_one_upcoming_charge_meets_budget() {
+            // 400 recorded + one projected 100 = 500 ≥ 500 budget → stop.
+            let config = ExecutionConfig::new(10)
+                .with_static_token_charge(100)
+                .with_token_budget(500);
+            let recorder = TokenRecorder::new();
+            recorder.record(400);
+
+            let reason = check_pre_sample_budgets(&config, &recorder, None, Instant::now());
             assert_eq!(reason, Some(TerminationReason::TokenBudgetExhausted));
         }
     }
