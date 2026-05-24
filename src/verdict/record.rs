@@ -7,7 +7,7 @@ use crate::model::{
     ExecutionSummary, ExpirationInfo, PacingSummary, TestIdentity, TestIntent, ThresholdOrigin,
     Warning,
 };
-use crate::verdict::Verdict;
+use crate::verdict::{FunctionalAssessment, Verdict};
 
 /// The complete record of a probabilistic test verdict.
 ///
@@ -23,6 +23,8 @@ pub struct VerdictRecord {
     intent: TestIntent,
     execution: ExecutionSummary,
     functional: FunctionalDimension,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    functional_assessment: Option<FunctionalAssessment>,
     #[serde(skip_serializing_if = "Option::is_none")]
     statistical_analysis: Option<StatisticalAnalysis>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -76,6 +78,7 @@ impl VerdictRecord {
             intent,
             execution,
             functional,
+            functional_assessment: None,
             statistical_analysis: None,
             spec_provenance: None,
             baseline_provenance: None,
@@ -116,6 +119,15 @@ impl VerdictRecord {
     #[must_use]
     pub const fn functional(&self) -> &FunctionalDimension {
         &self.functional
+    }
+
+    /// The composite, per-criterion functional assessment, if one was built.
+    ///
+    /// Carried alongside [`functional`](Self::functional) while the spine is
+    /// re-modelled; the single-criterion path populates one row.
+    #[must_use]
+    pub const fn functional_assessment(&self) -> Option<&FunctionalAssessment> {
+        self.functional_assessment.as_ref()
     }
 
     /// Statistical analysis, if performed.
@@ -238,6 +250,7 @@ pub struct VerdictRecordBuilder {
     intent: TestIntent,
     execution: ExecutionSummary,
     functional: FunctionalDimension,
+    functional_assessment: Option<FunctionalAssessment>,
     statistical_analysis: Option<StatisticalAnalysis>,
     spec_provenance: Option<SpecProvenance>,
     baseline_provenance: Option<BaselineProvenance>,
@@ -250,6 +263,13 @@ pub struct VerdictRecordBuilder {
 }
 
 impl VerdictRecordBuilder {
+    /// Attaches the composite, per-criterion functional assessment.
+    #[must_use]
+    pub fn functional_assessment(mut self, assessment: FunctionalAssessment) -> Self {
+        self.functional_assessment = Some(assessment);
+        self
+    }
+
     /// Attaches statistical analysis to the verdict.
     #[must_use]
     pub const fn statistical_analysis(mut self, analysis: StatisticalAnalysis) -> Self {
@@ -333,6 +353,7 @@ impl VerdictRecordBuilder {
             intent: self.intent,
             execution: self.execution,
             functional: self.functional,
+            functional_assessment: self.functional_assessment,
             statistical_analysis: self.statistical_analysis,
             spec_provenance: self.spec_provenance,
             baseline_provenance: self.baseline_provenance,

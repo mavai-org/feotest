@@ -12,13 +12,13 @@ use crate::model::{
 use crate::ptest::approach;
 use crate::ptest::builder::ThresholdApproach;
 use crate::ptest::diagnostics;
+use crate::service_contract::CovariateContext;
 use crate::spec::{BaselineSpec, SpecResolver};
 use crate::statistics::types::{DerivedThreshold, FeasibilityResult};
 use crate::statistics::{evaluator, feasibility, proportion};
-use crate::service_contract::CovariateContext;
 use crate::verdict::{
-    BaselineProvenance, FunctionalDimension, SpecProvenance, StatisticalAnalysis, Verdict,
-    VerdictRecord,
+    BaselineProvenance, CriterionRow, FunctionalAssessment, FunctionalDimension, SpecProvenance,
+    StatisticalAnalysis, Verdict, VerdictRecord,
 };
 
 /// What constitutes acceptable service behaviour.
@@ -208,6 +208,18 @@ where
         aggregate.failure_distribution().to_vec(),
     );
 
+    // Composite-over-one: the single-criterion path expressed in the
+    // per-criterion shape. The one row carries the run's statistical analysis
+    // and its verdict is the composite. Multi-criterion population follows
+    // when the criteria surface drives the engine.
+    let functional_assessment = FunctionalAssessment::single(CriterionRow::new(
+        "result",
+        summary.successes(),
+        summary.failures(),
+        Some(analysis.clone()),
+        verdict,
+    ));
+
     let latency_dimension = build_latency_dimension(
         &criteria.latency,
         aggregate.successful_latencies(),
@@ -225,6 +237,7 @@ where
         summary.clone(),
         functional,
     )
+    .functional_assessment(functional_assessment)
     .statistical_analysis(analysis)
     .spec_provenance(provenance);
     if let Some(bp) = baseline_prov {
@@ -696,6 +709,33 @@ mod tests {
     }
 
     #[test]
+    fn verdict_record_carries_composite_over_one_assessment() {
+        let inputs = vec!["input".to_string()];
+        let result = ProbabilisticTestBuilder::new("test-uc", &inputs, always_succeeds)
+            .approach(ThresholdApproach::ThresholdFirst {
+                samples: 30,
+                min_pass_rate: 0.80,
+            })
+            .threshold_origin(ThresholdOrigin::Empirical)
+            .run();
+
+        let record = result.verdict_record();
+        let assessment = record
+            .functional_assessment()
+            .expect("the single-criterion path populates an assessment");
+
+        // Exactly one row, and it mirrors today's single verdict.
+        assert_eq!(assessment.criteria().len(), 1);
+        let row = &assessment.criteria()[0];
+        assert_eq!(assessment.composite(), record.verdict());
+        assert_eq!(row.verdict(), record.verdict());
+        assert_eq!(row.pass(), record.execution().successes());
+        assert_eq!(row.fail(), record.execution().failures());
+        assert_eq!(row.total(), record.execution().samples_executed());
+        assert!(row.statistical_analysis().is_some());
+    }
+
+    #[test]
     fn smoke_intent_is_recorded() {
         let inputs = vec!["input".to_string()];
         let result = ProbabilisticTestBuilder::new("test-uc", &inputs, always_succeeds)
@@ -813,8 +853,8 @@ mod tests {
     #[test]
     #[should_panic(expected = "integrity check failed")]
     fn threshold_first_with_covariates_panics_on_tampered_baseline() {
-        use crate::spec::namer::CovariateProfile;
         use crate::service_contract::{CovariateCategory, CovariateDeclaration, ServiceContract};
+        use crate::spec::namer::CovariateProfile;
 
         // Write a valid baseline with covariates
         let dir = tempfile::tempdir().unwrap();
