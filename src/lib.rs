@@ -40,6 +40,7 @@ extern crate self as feotest;
 
 pub mod contract;
 pub mod controls;
+pub mod criteria;
 pub mod experiment;
 pub mod latency;
 pub mod model;
