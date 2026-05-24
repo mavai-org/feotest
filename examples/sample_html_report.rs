@@ -13,8 +13,8 @@ use feotest::model::{
 };
 use feotest::reporting::HtmlReportWriter;
 use feotest::verdict::{
-    BaselineProvenance, CovariateStatus, FunctionalDimension, Misalignment, SpecProvenance,
-    StatisticalAnalysis, Verdict, VerdictRecord,
+    BaselineProvenance, CovariateStatus, CriterionRow, FunctionalAssessment, Misalignment,
+    SpecProvenance, StatisticalAnalysis, Verdict, VerdictRecord,
 };
 
 fn execution(
@@ -80,7 +80,7 @@ fn full_pass_record() -> VerdictRecord {
         Verdict::Pass,
         TestIntent::Verification,
         execution(200, 200, 192, 8, 4200),
-        FunctionalDimension::new(192, 8, vec![]),
+        FunctionalAssessment::single(CriterionRow::result(192, 8, vec![], Verdict::Pass)),
     )
     .statistical_analysis(analysis)
     .spec_provenance(provenance)
@@ -129,7 +129,7 @@ fn fail_record() -> VerdictRecord {
         Verdict::Fail,
         TestIntent::Verification,
         execution(100, 100, 80, 20, 8500),
-        FunctionalDimension::new(
+        FunctionalAssessment::single(CriterionRow::result(
             80,
             20,
             vec![
@@ -137,7 +137,8 @@ fn fail_record() -> VerdictRecord {
                 ("currency_error".to_string(), 5),
                 ("timeout".to_string(), 3),
             ],
-        ),
+            Verdict::Fail,
+        )),
     )
     .statistical_analysis(analysis)
     .spec_provenance(provenance)
@@ -196,7 +197,7 @@ fn inconclusive_covariate_record() -> VerdictRecord {
         Verdict::Inconclusive,
         TestIntent::Verification,
         execution(100, 100, 90, 10, 3800),
-        FunctionalDimension::new(90, 10, vec![("misclassification".to_string(), 10)]),
+        FunctionalAssessment::single(CriterionRow::result(90, 10, vec![("misclassification".to_string(), 10)], Verdict::Inconclusive)),
     )
     .statistical_analysis(analysis)
     .spec_provenance(provenance)

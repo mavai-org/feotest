@@ -7,7 +7,7 @@ use crate::model::{
     ExecutionSummary, ExpirationInfo, PacingSummary, TestIdentity, TestIntent, ThresholdOrigin,
     Warning,
 };
-use crate::verdict::{FunctionalAssessment, Verdict};
+use crate::verdict::{CriterionRow, FunctionalAssessment, Verdict};
 
 /// The complete record of a probabilistic test verdict.
 ///
@@ -22,9 +22,7 @@ pub struct VerdictRecord {
     verdict_reason: String,
     intent: TestIntent,
     execution: ExecutionSummary,
-    functional: FunctionalDimension,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    functional_assessment: Option<FunctionalAssessment>,
+    functional_assessment: FunctionalAssessment,
     #[serde(skip_serializing_if = "Option::is_none")]
     statistical_analysis: Option<StatisticalAnalysis>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -70,15 +68,14 @@ impl VerdictRecord {
         verdict: Verdict,
         intent: TestIntent,
         execution: ExecutionSummary,
-        functional: FunctionalDimension,
+        functional_assessment: FunctionalAssessment,
     ) -> VerdictRecordBuilder {
         VerdictRecordBuilder {
             identity,
             verdict,
             intent,
             execution,
-            functional,
-            functional_assessment: None,
+            functional_assessment,
             statistical_analysis: None,
             spec_provenance: None,
             baseline_provenance: None,
@@ -115,19 +112,29 @@ impl VerdictRecord {
         &self.execution
     }
 
-    /// Functional dimension (successes, failures, pass rate).
+    /// The composite, per-criterion functional assessment: the per-criterion
+    /// rows and the composite verdict over them. The single-criterion path
+    /// populates exactly one row.
     #[must_use]
-    pub const fn functional(&self) -> &FunctionalDimension {
-        &self.functional
+    pub const fn functional_assessment(&self) -> &FunctionalAssessment {
+        &self.functional_assessment
     }
 
-    /// The composite, per-criterion functional assessment, if one was built.
+    /// The single criterion row summarising the run, for renderers that show
+    /// one functional figure. Valid while runs are single-criterion;
+    /// multi-criterion rendering iterates
+    /// [`functional_assessment`](Self::functional_assessment) directly.
     ///
-    /// Carried alongside [`functional`](Self::functional) while the spine is
-    /// re-modelled; the single-criterion path populates one row.
+    /// # Panics
+    ///
+    /// Panics if the assessment carries no rows — an invariant a built record
+    /// always upholds.
     #[must_use]
-    pub const fn functional_assessment(&self) -> Option<&FunctionalAssessment> {
-        self.functional_assessment.as_ref()
+    pub(crate) fn functional_summary(&self) -> &CriterionRow {
+        self.functional_assessment
+            .criteria()
+            .first()
+            .expect("a verdict always carries at least one criterion row")
     }
 
     /// Statistical analysis, if performed.
@@ -249,8 +256,7 @@ pub struct VerdictRecordBuilder {
     verdict: Verdict,
     intent: TestIntent,
     execution: ExecutionSummary,
-    functional: FunctionalDimension,
-    functional_assessment: Option<FunctionalAssessment>,
+    functional_assessment: FunctionalAssessment,
     statistical_analysis: Option<StatisticalAnalysis>,
     spec_provenance: Option<SpecProvenance>,
     baseline_provenance: Option<BaselineProvenance>,
@@ -263,13 +269,6 @@ pub struct VerdictRecordBuilder {
 }
 
 impl VerdictRecordBuilder {
-    /// Attaches the composite, per-criterion functional assessment.
-    #[must_use]
-    pub fn functional_assessment(mut self, assessment: FunctionalAssessment) -> Self {
-        self.functional_assessment = Some(assessment);
-        self
-    }
-
     /// Attaches statistical analysis to the verdict.
     #[must_use]
     pub const fn statistical_analysis(mut self, analysis: StatisticalAnalysis) -> Self {
@@ -339,11 +338,16 @@ impl VerdictRecordBuilder {
     /// execution, covariate status, and statistical analysis.
     #[must_use]
     pub fn build(self) -> VerdictRecord {
+        let observed_pass_rate = self
+            .functional_assessment
+            .criteria()
+            .first()
+            .map_or(0.0, CriterionRow::pass_rate);
         let verdict_reason = derive_verdict_reason(
             self.verdict,
             &self.execution,
             &self.covariate_status,
-            &self.functional,
+            observed_pass_rate,
             self.statistical_analysis.as_ref(),
         );
         VerdictRecord {
@@ -352,7 +356,6 @@ impl VerdictRecordBuilder {
             verdict_reason,
             intent: self.intent,
             execution: self.execution,
-            functional: self.functional,
             functional_assessment: self.functional_assessment,
             statistical_analysis: self.statistical_analysis,
             spec_provenance: self.spec_provenance,
@@ -364,101 +367,6 @@ impl VerdictRecordBuilder {
             pacing: self.pacing,
             environment: self.environment,
         }
-    }
-}
-
-/// Functional dimension of a verdict: success/failure counts and pass rate.
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct FunctionalDimension {
-    successes: u32,
-    failures: u32,
-    pass_rate: f64,
-    #[serde(serialize_with = "serialize_string_u32_pairs")]
-    failure_distribution: Vec<(String, u32)>,
-    conformance_mismatches: u32,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    example_mismatches: Vec<String>,
-}
-
-fn serialize_string_u32_pairs<S: serde::Serializer>(
-    pairs: &[(String, u32)],
-    serializer: S,
-) -> Result<S::Ok, S::Error> {
-    use serde::ser::SerializeMap;
-    let mut map = serializer.serialize_map(Some(pairs.len()))?;
-    for (k, v) in pairs {
-        map.serialize_entry(k, v)?;
-    }
-    map.end()
-}
-
-impl FunctionalDimension {
-    /// Creates a new functional dimension.
-    #[must_use]
-    pub fn new(successes: u32, failures: u32, failure_distribution: Vec<(String, u32)>) -> Self {
-        let total = successes + failures;
-        let pass_rate = if total == 0 {
-            0.0
-        } else {
-            f64::from(successes) / f64::from(total)
-        };
-        Self {
-            successes,
-            failures,
-            pass_rate,
-            failure_distribution,
-            conformance_mismatches: 0,
-            example_mismatches: Vec::new(),
-        }
-    }
-
-    /// Creates a functional dimension with conformance data.
-    #[must_use]
-    pub fn conformance(
-        mut self,
-        conformance_mismatches: u32,
-        example_mismatches: Vec<String>,
-    ) -> Self {
-        self.conformance_mismatches = conformance_mismatches;
-        self.example_mismatches = example_mismatches;
-        self
-    }
-
-    /// Number of successful trials.
-    #[must_use]
-    pub const fn successes(&self) -> u32 {
-        self.successes
-    }
-
-    /// Number of failed trials.
-    #[must_use]
-    pub const fn failures(&self) -> u32 {
-        self.failures
-    }
-
-    /// Observed pass rate.
-    #[must_use]
-    pub const fn pass_rate(&self) -> f64 {
-        self.pass_rate
-    }
-
-    /// Distribution of failures by postcondition check name.
-    #[must_use]
-    pub fn failure_distribution(&self) -> &[(String, u32)] {
-        &self.failure_distribution
-    }
-
-    /// Number of instance conformance mismatches.
-    #[must_use]
-    pub const fn conformance_mismatches(&self) -> u32 {
-        self.conformance_mismatches
-    }
-
-    /// Example mismatch diffs for diagnostic reporting.
-    #[must_use]
-    pub fn example_mismatches(&self) -> &[String] {
-        &self.example_mismatches
     }
 }
 
@@ -825,24 +733,22 @@ fn derive_verdict_reason(
     verdict: Verdict,
     execution: &ExecutionSummary,
     covariate_status: &CovariateStatus,
-    functional: &FunctionalDimension,
+    observed_pass_rate: f64,
     analysis: Option<&StatisticalAnalysis>,
 ) -> String {
     let is_budget_exhausted = execution.termination().reason().is_budget_exhausted();
 
     match verdict {
         Verdict::Pass => {
-            let observed = functional.pass_rate();
             let threshold = analysis.map_or(0.0, StatisticalAnalysis::threshold);
-            format!("{observed:.4} >= {threshold:.4}")
+            format!("{observed_pass_rate:.4} >= {threshold:.4}")
         }
         Verdict::Fail => {
             if is_budget_exhausted {
                 "budget exhausted".to_string()
             } else {
-                let observed = functional.pass_rate();
                 let threshold = analysis.map_or(0.0, StatisticalAnalysis::threshold);
-                format!("{observed:.4} < {threshold:.4}")
+                format!("{observed_pass_rate:.4} < {threshold:.4}")
             }
         }
         Verdict::Inconclusive => {
@@ -881,7 +787,7 @@ mod tests {
             Verdict::Pass,
             TestIntent::Verification,
             sample_execution(),
-            FunctionalDimension::new(95, 5, vec![]),
+            FunctionalAssessment::single(CriterionRow::result(95, 5, vec![], Verdict::Pass)),
         )
         .build();
 
@@ -908,11 +814,12 @@ mod tests {
             Verdict::Pass,
             TestIntent::Verification,
             sample_execution(),
-            FunctionalDimension::new(
+            FunctionalAssessment::single(CriterionRow::result(
                 95,
                 5,
                 vec![("parse".to_string(), 3), ("content".to_string(), 2)],
-            ),
+                Verdict::Pass,
+            )),
         )
         .statistical_analysis(analysis)
         .spec_provenance(provenance)
@@ -931,18 +838,6 @@ mod tests {
         assert_eq!(record.warnings().len(), 1);
     }
 
-    #[test]
-    fn functional_dimension_computes_pass_rate() {
-        let dim = FunctionalDimension::new(80, 20, vec![]);
-        assert!((dim.pass_rate() - 0.80).abs() < 1e-10);
-    }
-
-    #[test]
-    fn functional_dimension_zero_samples() {
-        let dim = FunctionalDimension::new(0, 0, vec![]);
-        assert!((dim.pass_rate()).abs() < 1e-10);
-    }
-
     // --- Verdict reason derivation ---
 
     #[test]
@@ -952,7 +847,7 @@ mod tests {
             Verdict::Pass,
             TestIntent::Verification,
             sample_execution(),
-            FunctionalDimension::new(95, 5, vec![]),
+            FunctionalAssessment::single(CriterionRow::result(95, 5, vec![], Verdict::Pass)),
         )
         .statistical_analysis(StatisticalAnalysis::new(
             0.95,
@@ -973,7 +868,7 @@ mod tests {
             Verdict::Fail,
             TestIntent::Verification,
             sample_execution(),
-            FunctionalDimension::new(80, 20, vec![]),
+            FunctionalAssessment::single(CriterionRow::result(80, 20, vec![], Verdict::Fail)),
         )
         .statistical_analysis(StatisticalAnalysis::new(
             0.95,
@@ -1001,7 +896,7 @@ mod tests {
                 TerminationInfo::new(TerminationReason::TimeBudgetExhausted),
                 CostSummary::new(Duration::from_secs(60), 0, 50),
             ),
-            FunctionalDimension::new(30, 20, vec![]),
+            FunctionalAssessment::single(CriterionRow::result(30, 20, vec![], Verdict::Fail)),
         )
         .build();
 
@@ -1015,7 +910,12 @@ mod tests {
             Verdict::Inconclusive,
             TestIntent::Verification,
             sample_execution(),
-            FunctionalDimension::new(85, 15, vec![]),
+            FunctionalAssessment::single(CriterionRow::result(
+                85,
+                15,
+                vec![],
+                Verdict::Inconclusive,
+            )),
         )
         .covariate_status(CovariateStatus::new(
             false,
@@ -1042,7 +942,12 @@ mod tests {
                 TerminationInfo::new(TerminationReason::TokenBudgetExhausted),
                 CostSummary::new(Duration::from_secs(10), 10_000, 20),
             ),
-            FunctionalDimension::new(15, 5, vec![]),
+            FunctionalAssessment::single(CriterionRow::result(
+                15,
+                5,
+                vec![],
+                Verdict::Inconclusive,
+            )),
         )
         .build();
 
@@ -1056,7 +961,7 @@ mod tests {
             Verdict::Inconclusive,
             TestIntent::Verification,
             sample_execution(),
-            FunctionalDimension::new(7, 3, vec![]),
+            FunctionalAssessment::single(CriterionRow::result(7, 3, vec![], Verdict::Inconclusive)),
         )
         .build();
 
@@ -1072,7 +977,7 @@ mod tests {
             Verdict::Pass,
             TestIntent::Verification,
             sample_execution(),
-            FunctionalDimension::new(95, 5, vec![]),
+            FunctionalAssessment::single(CriterionRow::result(95, 5, vec![], Verdict::Pass)),
         )
         .build();
 
@@ -1087,7 +992,7 @@ mod tests {
             Verdict::Pass,
             TestIntent::Verification,
             sample_execution(),
-            FunctionalDimension::new(95, 5, vec![]),
+            FunctionalAssessment::single(CriterionRow::result(95, 5, vec![], Verdict::Pass)),
         )
         .build();
 
@@ -1101,7 +1006,7 @@ mod tests {
             Verdict::Pass,
             TestIntent::Verification,
             sample_execution(),
-            FunctionalDimension::new(95, 5, vec![]),
+            FunctionalAssessment::single(CriterionRow::result(95, 5, vec![], Verdict::Pass)),
         )
         .baseline_provenance(BaselineProvenance::new(
             "test.yaml",
@@ -1127,7 +1032,7 @@ mod tests {
             Verdict::Pass,
             TestIntent::Verification,
             sample_execution(),
-            FunctionalDimension::new(95, 5, vec![]),
+            FunctionalAssessment::single(CriterionRow::result(95, 5, vec![], Verdict::Pass)),
         )
         .build();
 
@@ -1154,7 +1059,7 @@ mod tests {
             Verdict::Pass,
             TestIntent::Verification,
             sample_execution(),
-            FunctionalDimension::new(95, 5, vec![]),
+            FunctionalAssessment::single(CriterionRow::result(95, 5, vec![], Verdict::Pass)),
         )
         .correlation_id("run-123")
         .pacing(pacing)
@@ -1171,14 +1076,5 @@ mod tests {
         let exp = record.spec_provenance().unwrap().expiration().unwrap();
         assert_eq!(exp.status(), &ExpirationStatus::ExpiringSoon);
         assert_eq!(exp.expires_at(), Some("2026-06-01T00:00:00Z"));
-    }
-
-    #[test]
-    fn conformance_dimension_accessors() {
-        let dim = FunctionalDimension::new(80, 20, vec![("parse".to_string(), 12)])
-            .conformance(3, vec!["diff1".to_string(), "diff2".to_string()]);
-        assert_eq!(dim.conformance_mismatches(), 3);
-        assert_eq!(dim.example_mismatches().len(), 2);
-        assert_eq!(dim.failure_distribution().len(), 1);
     }
 }

@@ -16,7 +16,7 @@ use feotest::model::{
 };
 use feotest::reporting::HtmlReportWriter;
 use feotest::verdict::{
-    FunctionalDimension, SpecProvenance, StatisticalAnalysis, Verdict, VerdictRecord,
+    CriterionRow, FunctionalAssessment, SpecProvenance, StatisticalAnalysis, Verdict, VerdictRecord,
 };
 
 fn sample_execution(
@@ -46,7 +46,7 @@ fn pass_record() -> VerdictRecord {
         Verdict::Pass,
         TestIntent::Verification,
         sample_execution(100, 100, 96, 4),
-        FunctionalDimension::new(96, 4, vec![]),
+        FunctionalAssessment::single(CriterionRow::result(96, 4, vec![], Verdict::Pass)),
     )
     .statistical_analysis(analysis)
     .spec_provenance(provenance)
@@ -62,11 +62,12 @@ fn fail_record() -> VerdictRecord {
         Verdict::Fail,
         TestIntent::Verification,
         sample_execution(100, 100, 80, 20),
-        FunctionalDimension::new(
+        FunctionalAssessment::single(CriterionRow::result(
             80,
             20,
             vec![("parse".to_string(), 12), ("content".to_string(), 8)],
-        ),
+            Verdict::Fail,
+        )),
     )
     .statistical_analysis(analysis)
     .build()
@@ -78,7 +79,7 @@ fn inconclusive_record() -> VerdictRecord {
         Verdict::Inconclusive,
         TestIntent::Verification,
         sample_execution(10, 10, 7, 3),
-        FunctionalDimension::new(7, 3, vec![]),
+        FunctionalAssessment::single(CriterionRow::result(7, 3, vec![], Verdict::Inconclusive)),
     )
     .build()
 }

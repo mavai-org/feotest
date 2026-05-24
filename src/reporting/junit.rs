@@ -80,7 +80,7 @@ impl JunitXmlWriter {
             Verdict::Fail => {
                 let message = format!(
                     "Observed pass rate {:.4} below threshold",
-                    verdict.functional().pass_rate()
+                    verdict.functional_summary().pass_rate()
                 );
                 let detail = Self::build_detail(verdict);
                 writeln!(
@@ -118,7 +118,7 @@ impl JunitXmlWriter {
     fn build_detail(verdict: &VerdictRecord) -> String {
         let mut lines = Vec::new();
         let exec = verdict.execution();
-        let func = verdict.functional();
+        let func = verdict.functional_summary();
 
         lines.push(format!("Verdict: {}", verdict.verdict()));
         lines.push(format!("Intent: {}", verdict.intent()));
@@ -130,8 +130,8 @@ impl JunitXmlWriter {
         lines.push(format!(
             "Pass rate: {:.4} ({}/{})",
             func.pass_rate(),
-            func.successes(),
-            func.successes() + func.failures()
+            func.pass(),
+            func.pass() + func.fail()
         ));
 
         if let Some(stats) = verdict.statistical_analysis() {
@@ -205,7 +205,7 @@ mod tests {
         CostSummary, ExecutionSummary, TerminationInfo, TerminationReason, TestIdentity,
         TestIntent, ThresholdOrigin,
     };
-    use crate::verdict::{FunctionalDimension, StatisticalAnalysis, VerdictRecord};
+    use crate::verdict::{CriterionRow, FunctionalAssessment, StatisticalAnalysis, VerdictRecord};
     use std::time::Duration;
 
     fn pass_verdict() -> VerdictRecord {
@@ -221,7 +221,7 @@ mod tests {
                 TerminationInfo::new(TerminationReason::Completed),
                 CostSummary::new(Duration::from_millis(500), 1000, 100),
             ),
-            FunctionalDimension::new(95, 5, vec![]),
+            FunctionalAssessment::single(CriterionRow::result(95, 5, vec![], Verdict::Pass)),
         )
         .build()
     }
@@ -239,7 +239,7 @@ mod tests {
                 TerminationInfo::new(TerminationReason::Completed),
                 CostSummary::new(Duration::from_millis(500), 1000, 100),
             ),
-            FunctionalDimension::new(70, 30, vec![]),
+            FunctionalAssessment::single(CriterionRow::result(70, 30, vec![], Verdict::Fail)),
         )
         .statistical_analysis(StatisticalAnalysis::new(
             0.95,
@@ -319,7 +319,12 @@ mod tests {
                 TerminationInfo::new(TerminationReason::Completed),
                 CostSummary::new(Duration::from_millis(500), 1000, 100),
             ),
-            FunctionalDimension::new(60, 40, vec![]),
+            FunctionalAssessment::single(CriterionRow::result(
+                60,
+                40,
+                vec![],
+                Verdict::Inconclusive,
+            )),
         )
         .build()
     }
@@ -357,7 +362,7 @@ mod tests {
                 TerminationInfo::new(TerminationReason::Completed),
                 CostSummary::new(Duration::from_millis(500), 1000, 100),
             ),
-            FunctionalDimension::new(70, 30, vec![]),
+            FunctionalAssessment::single(CriterionRow::result(70, 30, vec![], Verdict::Pass)),
         )
         .statistical_analysis(analysis)
         .spec_provenance(provenance)
@@ -404,7 +409,7 @@ mod tests {
                 TerminationInfo::new(TerminationReason::Completed),
                 CostSummary::new(Duration::from_millis(100), 0, 10),
             ),
-            FunctionalDimension::new(5, 5, vec![]),
+            FunctionalAssessment::single(CriterionRow::result(5, 5, vec![], Verdict::Fail)),
         )
         .statistical_analysis(StatisticalAnalysis::new(
             0.95,
@@ -438,7 +443,7 @@ mod tests {
                 TerminationInfo::new(TerminationReason::Completed),
                 CostSummary::new(Duration::from_millis(50), 0, 10),
             ),
-            FunctionalDimension::new(10, 0, vec![]),
+            FunctionalAssessment::single(CriterionRow::result(10, 0, vec![], Verdict::Pass)),
         )
         .build();
 

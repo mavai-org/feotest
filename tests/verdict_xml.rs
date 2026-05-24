@@ -12,8 +12,8 @@ use feotest::model::{
 };
 use feotest::reporting::VerdictXmlWriter;
 use feotest::verdict::{
-    BaselineProvenance, FunctionalDimension, SpecProvenance, StatisticalAnalysis, Verdict,
-    VerdictRecord,
+    BaselineProvenance, CriterionRow, FunctionalAssessment, SpecProvenance, StatisticalAnalysis,
+    Verdict, VerdictRecord,
 };
 
 fn sample_execution(
@@ -59,7 +59,7 @@ fn full_record() -> VerdictRecord {
         Verdict::Pass,
         TestIntent::Verification,
         sample_execution(200, 200, 192, 8),
-        FunctionalDimension::new(192, 8, vec![]),
+        FunctionalAssessment::single(CriterionRow::result(192, 8, vec![], Verdict::Pass)),
     )
     .statistical_analysis(analysis)
     .spec_provenance(provenance)

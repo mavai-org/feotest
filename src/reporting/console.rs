@@ -163,15 +163,15 @@ fn render_test_name(record: &VerdictRecord, writer: &mut dyn fmt::Write) -> fmt:
 }
 
 fn render_pass_rate(record: &VerdictRecord, writer: &mut dyn fmt::Write) -> fmt::Result {
-    let func = record.functional();
-    let total = func.successes() + func.failures();
+    let func = record.functional_summary();
+    let total = func.pass() + func.fail();
     label_value(
         writer,
         "Pass rate:",
         &format!(
             "{:.4} ({}/{} samples)",
             func.pass_rate(),
-            func.successes(),
+            func.pass(),
             total,
         ),
     )?;
@@ -390,8 +390,8 @@ mod tests {
         TestIntent, ThresholdOrigin, Warning,
     };
     use crate::verdict::{
-        BaselineProvenance, CovariateStatus, FunctionalDimension, Misalignment, SpecProvenance,
-        StatisticalAnalysis,
+        BaselineProvenance, CovariateStatus, CriterionRow, FunctionalAssessment, Misalignment,
+        SpecProvenance, StatisticalAnalysis,
     };
     use insta::assert_snapshot;
     use std::time::Duration;
@@ -435,7 +435,7 @@ mod tests {
             Verdict::Pass,
             TestIntent::Verification,
             sample_execution(100, 100, 96, 4),
-            FunctionalDimension::new(96, 4, vec![]),
+            FunctionalAssessment::single(CriterionRow::result(96, 4, vec![], Verdict::Pass)),
         )
         .statistical_analysis(analysis)
         .spec_provenance(provenance)
@@ -455,11 +455,12 @@ mod tests {
             Verdict::Fail,
             TestIntent::Verification,
             sample_execution(100, 100, 80, 20),
-            FunctionalDimension::new(
+            FunctionalAssessment::single(CriterionRow::result(
                 80,
                 20,
                 vec![("parse".to_string(), 12), ("content".to_string(), 8)],
-            ),
+                Verdict::Fail,
+            )),
         )
         .statistical_analysis(analysis)
         .spec_provenance(provenance)
@@ -472,7 +473,7 @@ mod tests {
             Verdict::Inconclusive,
             TestIntent::Verification,
             sample_execution(10, 10, 7, 3),
-            FunctionalDimension::new(7, 3, vec![]),
+            FunctionalAssessment::single(CriterionRow::result(7, 3, vec![], Verdict::Inconclusive)),
         )
         .build()
     }
@@ -496,7 +497,12 @@ mod tests {
             Verdict::Inconclusive,
             TestIntent::Verification,
             sample_execution(100, 100, 85, 15),
-            FunctionalDimension::new(85, 15, vec![]),
+            FunctionalAssessment::single(CriterionRow::result(
+                85,
+                15,
+                vec![],
+                Verdict::Inconclusive,
+            )),
         )
         .covariate_status(cov)
         .build()
@@ -508,7 +514,7 @@ mod tests {
             Verdict::Pass,
             TestIntent::Smoke,
             sample_execution(10, 10, 10, 0),
-            FunctionalDimension::new(10, 0, vec![]),
+            FunctionalAssessment::single(CriterionRow::result(10, 0, vec![], Verdict::Pass)),
         )
         .warning(Warning::new(
             "UNDERSIZED",
@@ -590,7 +596,7 @@ mod tests {
                 TerminationInfo::new(TerminationReason::FailureInevitable),
                 CostSummary::new(Duration::from_millis(200), 500, 42),
             ),
-            FunctionalDimension::new(20, 22, vec![]),
+            FunctionalAssessment::single(CriterionRow::result(20, 22, vec![], Verdict::Fail)),
         )
         .statistical_analysis(
             StatisticalAnalysis::new(0.95, 0.077, 0.342, 0.900, ThresholdOrigin::Empirical)
@@ -611,7 +617,7 @@ mod tests {
             Verdict::Pass,
             TestIntent::Verification,
             sample_execution(100, 100, 96, 4),
-            FunctionalDimension::new(96, 4, vec![]),
+            FunctionalAssessment::single(CriterionRow::result(96, 4, vec![], Verdict::Pass)),
         )
         .build();
 

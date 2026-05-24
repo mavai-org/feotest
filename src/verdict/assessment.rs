@@ -1,13 +1,12 @@
 //! The composite, per-criterion functional assessment.
 //!
-//! Where [`FunctionalDimension`](crate::verdict::FunctionalDimension) reports
-//! the functional dimension as a single aggregate, a `FunctionalAssessment`
-//! partitions it per criterion — one [`CriterionRow`] each — plus the
-//! composite verdict over them. It is carried alongside the aggregate while
-//! the spine is re-modelled; the single-criterion case populates exactly one
-//! row whose verdict is the composite.
+//! A `FunctionalAssessment` partitions a verdict's functional dimension per
+//! criterion — one [`CriterionRow`] each — plus the composite verdict over
+//! them. It is the verdict record's functional block; the single-criterion
+//! case populates exactly one row whose verdict is the composite.
 
 use serde::Serialize;
+use serde::ser::SerializeMap;
 
 use crate::verdict::StatisticalAnalysis;
 use crate::verdict::Verdict;
@@ -24,9 +23,26 @@ pub struct CriterionRow {
     pass: u32,
     fail: u32,
     pass_rate: f64,
+    #[serde(
+        skip_serializing_if = "Vec::is_empty",
+        serialize_with = "serialize_failure_distribution"
+    )]
+    failure_distribution: Vec<(String, u32)>,
     #[serde(skip_serializing_if = "Option::is_none")]
     statistical_analysis: Option<StatisticalAnalysis>,
     verdict: Verdict,
+}
+
+/// Serialises a failure distribution (check name → count) as a JSON object.
+fn serialize_failure_distribution<S: serde::Serializer>(
+    pairs: &[(String, u32)],
+    serializer: S,
+) -> Result<S::Ok, S::Error> {
+    let mut map = serializer.serialize_map(Some(pairs.len()))?;
+    for (check, count) in pairs {
+        map.serialize_entry(check, count)?;
+    }
+    map.end()
 }
 
 impl CriterionRow {
@@ -37,6 +53,7 @@ impl CriterionRow {
         name: impl Into<String>,
         pass: u32,
         fail: u32,
+        failure_distribution: Vec<(String, u32)>,
         statistical_analysis: Option<StatisticalAnalysis>,
         verdict: Verdict,
     ) -> Self {
@@ -51,9 +68,22 @@ impl CriterionRow {
             pass,
             fail,
             pass_rate,
+            failure_distribution,
             statistical_analysis,
             verdict,
         }
+    }
+
+    /// Convenience for the conventional single criterion of a non-decomposed
+    /// run — named `"result"`, with no separate statistical analysis on the row.
+    #[must_use]
+    pub fn result(
+        pass: u32,
+        fail: u32,
+        failure_distribution: Vec<(String, u32)>,
+        verdict: Verdict,
+    ) -> Self {
+        Self::new("result", pass, fail, failure_distribution, None, verdict)
     }
 
     /// The criterion name.
@@ -84,6 +114,12 @@ impl CriterionRow {
     #[must_use]
     pub const fn pass_rate(&self) -> f64 {
         self.pass_rate
+    }
+
+    /// The failure distribution: counts keyed by the failing check's name.
+    #[must_use]
+    pub fn failure_distribution(&self) -> &[(String, u32)] {
+        &self.failure_distribution
     }
 
     /// The statistical analysis behind the verdict, if inferential.
@@ -151,22 +187,30 @@ mod tests {
 
     #[test]
     fn row_derives_pass_rate_and_total() {
-        let row = CriterionRow::new("c", 8, 2, None, Verdict::Pass);
+        let row = CriterionRow::new("c", 8, 2, vec![], None, Verdict::Pass);
         assert_eq!(row.total(), 10);
         assert!((row.pass_rate() - 0.8).abs() < 1e-12);
     }
 
     #[test]
     fn row_with_no_trials_has_zero_pass_rate() {
-        let row = CriterionRow::new("c", 0, 0, None, Verdict::Inconclusive);
+        let row = CriterionRow::new("c", 0, 0, vec![], None, Verdict::Inconclusive);
         assert_eq!(row.total(), 0);
         assert!(row.pass_rate().abs() < 1e-12);
     }
 
     #[test]
+    fn result_row_is_named_and_carries_its_distribution() {
+        let row = CriterionRow::result(7, 3, vec![("parse".to_string(), 3)], Verdict::Fail);
+        assert_eq!(row.name(), "result");
+        assert!(row.statistical_analysis().is_none());
+        assert_eq!(row.failure_distribution(), [("parse".to_string(), 3)]);
+    }
+
+    #[test]
     fn single_takes_its_composite_from_the_row() {
         let assessment =
-            FunctionalAssessment::single(CriterionRow::new("c", 5, 5, None, Verdict::Fail));
+            FunctionalAssessment::single(CriterionRow::new("c", 5, 5, vec![], None, Verdict::Fail));
         assert_eq!(assessment.composite(), Verdict::Fail);
         assert_eq!(assessment.criteria().len(), 1);
     }
@@ -176,8 +220,8 @@ mod tests {
         let assessment = FunctionalAssessment::new(
             Verdict::Inconclusive,
             vec![
-                CriterionRow::new("a", 10, 0, None, Verdict::Pass),
-                CriterionRow::new("b", 0, 0, None, Verdict::Inconclusive),
+                CriterionRow::new("a", 10, 0, vec![], None, Verdict::Pass),
+                CriterionRow::new("b", 0, 0, vec![], None, Verdict::Inconclusive),
             ],
         );
         assert_eq!(assessment.composite(), Verdict::Inconclusive);

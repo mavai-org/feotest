@@ -1,6 +1,6 @@
 ---
 source: tests/verdict_serde.rs
-assertion_line: 86
+assertion_line: 89
 expression: "serde_json::to_value(&record).unwrap()"
 ---
 {
@@ -34,12 +34,17 @@ expression: "serde_json::to_value(&record).unwrap()"
       "reason": "COMPLETED"
     }
   },
-  "functional": {
-    "conformanceMismatches": 0,
-    "failureDistribution": {},
-    "failures": 15,
-    "passRate": 0.85,
-    "successes": 85
+  "functionalAssessment": {
+    "composite": "INCONCLUSIVE",
+    "criteria": [
+      {
+        "fail": 15,
+        "name": "result",
+        "pass": 85,
+        "passRate": 0.85,
+        "verdict": "INCONCLUSIVE"
+      }
+    ]
   },
   "identity": {
     "testName": "accurate_enough",

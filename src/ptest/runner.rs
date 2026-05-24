@@ -17,8 +17,8 @@ use crate::spec::{BaselineSpec, SpecResolver};
 use crate::statistics::types::{DerivedThreshold, FeasibilityResult};
 use crate::statistics::{evaluator, feasibility, proportion};
 use crate::verdict::{
-    BaselineProvenance, CriterionRow, FunctionalAssessment, FunctionalDimension, SpecProvenance,
-    StatisticalAnalysis, Verdict, VerdictRecord,
+    BaselineProvenance, CriterionRow, FunctionalAssessment, SpecProvenance, StatisticalAnalysis,
+    Verdict, VerdictRecord,
 };
 
 /// What constitutes acceptable service behaviour.
@@ -101,7 +101,7 @@ pub struct LatencyConfig {
 /// let record = result.verdict_record();
 /// assert_eq!(record.verdict(), Verdict::Pass);
 /// assert!(record.statistical_analysis().is_some());
-/// assert!(record.functional().pass_rate() > 0.80);
+/// assert!(record.functional_assessment().criteria()[0].pass_rate() > 0.80);
 /// ```
 #[derive(Debug)]
 pub struct ProbabilisticTestResult {
@@ -202,20 +202,16 @@ where
         criteria.contract_ref.as_deref(),
         expiration_info,
     );
-    let functional = FunctionalDimension::new(
-        summary.successes(),
-        summary.failures(),
-        aggregate.failure_distribution().to_vec(),
-    );
-
     // Composite-over-one: the single-criterion path expressed in the
-    // per-criterion shape. The one row carries the run's statistical analysis
-    // and its verdict is the composite. Multi-criterion population follows
-    // when the criteria surface drives the engine.
+    // per-criterion shape. The one row carries the run's failure distribution
+    // and statistical analysis, and its verdict is the composite.
+    // Multi-criterion population follows when the criteria surface drives the
+    // engine.
     let functional_assessment = FunctionalAssessment::single(CriterionRow::new(
         "result",
         summary.successes(),
         summary.failures(),
+        aggregate.failure_distribution().to_vec(),
         Some(analysis.clone()),
         verdict,
     ));
@@ -235,9 +231,8 @@ where
         verdict,
         criteria.intent,
         summary.clone(),
-        functional,
+        functional_assessment,
     )
-    .functional_assessment(functional_assessment)
     .statistical_analysis(analysis)
     .spec_provenance(provenance);
     if let Some(bp) = baseline_prov {
@@ -720,9 +715,7 @@ mod tests {
             .run();
 
         let record = result.verdict_record();
-        let assessment = record
-            .functional_assessment()
-            .expect("the single-criterion path populates an assessment");
+        let assessment = record.functional_assessment();
 
         // Exactly one row, and it mirrors today's single verdict.
         assert_eq!(assessment.criteria().len(), 1);

@@ -1,5 +1,6 @@
 ---
 source: tests/verdict_serde.rs
+assertion_line: 66
 expression: "serde_json::to_value(&record).unwrap()"
 ---
 {
@@ -20,19 +21,21 @@ expression: "serde_json::to_value(&record).unwrap()"
       "reason": "COMPLETED"
     }
   },
-  "functional": {
-    "conformanceMismatches": 3,
-    "exampleMismatches": [
-      "diff-1",
-      "diff-2"
-    ],
-    "failureDistribution": {
-      "content": 8,
-      "parse": 12
-    },
-    "failures": 20,
-    "passRate": 0.8,
-    "successes": 80
+  "functionalAssessment": {
+    "composite": "FAIL",
+    "criteria": [
+      {
+        "fail": 20,
+        "failureDistribution": {
+          "content": 8,
+          "parse": 12
+        },
+        "name": "result",
+        "pass": 80,
+        "passRate": 0.8,
+        "verdict": "FAIL"
+      }
+    ]
   },
   "identity": {
     "testName": "translates",

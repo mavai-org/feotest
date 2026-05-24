@@ -150,12 +150,12 @@ fn write_execution(w: &mut String, record: &VerdictRecord) {
 }
 
 fn write_functional(w: &mut String, record: &VerdictRecord) {
-    let func = record.functional();
+    let func = record.functional_summary();
     let has_distribution = !func.failure_distribution().is_empty();
 
     write!(w, "  <functional").unwrap();
-    write!(w, " successes=\"{}\"", func.successes()).unwrap();
-    write!(w, " failures=\"{}\"", func.failures()).unwrap();
+    write!(w, " successes=\"{}\"", func.pass()).unwrap();
+    write!(w, " failures=\"{}\"", func.fail()).unwrap();
     write!(w, " pass-rate=\"{:.4}\"", func.pass_rate()).unwrap();
 
     if has_distribution {
@@ -496,8 +496,8 @@ mod tests {
         TerminationInfo, TerminationReason, TestIdentity, TestIntent, ThresholdOrigin, Warning,
     };
     use crate::verdict::{
-        BaselineProvenance, CovariateStatus, FunctionalDimension, Misalignment, SpecProvenance,
-        StatisticalAnalysis,
+        BaselineProvenance, CovariateStatus, CriterionRow, FunctionalAssessment, Misalignment,
+        SpecProvenance, StatisticalAnalysis,
     };
     use insta::assert_snapshot;
     use std::time::Duration;
@@ -537,7 +537,7 @@ mod tests {
             Verdict::Pass,
             TestIntent::Verification,
             sample_execution(100, 100, 96, 4),
-            FunctionalDimension::new(96, 4, vec![]),
+            FunctionalAssessment::single(CriterionRow::result(96, 4, vec![], Verdict::Pass)),
         )
         .statistical_analysis(analysis)
         .spec_provenance(provenance)
@@ -555,11 +555,12 @@ mod tests {
             Verdict::Fail,
             TestIntent::Verification,
             sample_execution(100, 100, 80, 20),
-            FunctionalDimension::new(
+            FunctionalAssessment::single(CriterionRow::result(
                 80,
                 20,
                 vec![("parse".to_string(), 12), ("content".to_string(), 8)],
-            ),
+                Verdict::Fail,
+            )),
         )
         .statistical_analysis(analysis)
         .build()
@@ -584,7 +585,12 @@ mod tests {
             Verdict::Inconclusive,
             TestIntent::Verification,
             sample_execution(100, 100, 85, 15),
-            FunctionalDimension::new(85, 15, vec![]),
+            FunctionalAssessment::single(CriterionRow::result(
+                85,
+                15,
+                vec![],
+                Verdict::Inconclusive,
+            )),
         )
         .covariate_status(cov)
         .build()
@@ -637,7 +643,7 @@ mod tests {
             Verdict::Pass,
             TestIntent::Verification,
             sample_execution(100, 100, 95, 5),
-            FunctionalDimension::new(95, 5, vec![]),
+            FunctionalAssessment::single(CriterionRow::result(95, 5, vec![], Verdict::Pass)),
         )
         .statistical_analysis(analysis)
         .latency(latency)
@@ -650,7 +656,7 @@ mod tests {
             Verdict::Pass,
             TestIntent::Smoke,
             sample_execution(10, 10, 10, 0),
-            FunctionalDimension::new(10, 0, vec![]),
+            FunctionalAssessment::single(CriterionRow::result(10, 0, vec![], Verdict::Pass)),
         )
         .warning(Warning::new(
             "UNDERSIZED",
@@ -755,7 +761,7 @@ mod tests {
             Verdict::Pass,
             TestIntent::Verification,
             sample_execution(10, 10, 10, 0),
-            FunctionalDimension::new(10, 0, vec![]),
+            FunctionalAssessment::single(CriterionRow::result(10, 0, vec![], Verdict::Pass)),
         )
         .build();
         let xml = VerdictXmlWriter::write_record(&record, Some("2026-04-01T12:00:00Z"));
@@ -769,7 +775,7 @@ mod tests {
             Verdict::Pass,
             TestIntent::Verification,
             sample_execution(50, 50, 48, 2),
-            FunctionalDimension::new(48, 2, vec![]),
+            FunctionalAssessment::single(CriterionRow::result(48, 2, vec![], Verdict::Pass)),
         )
         .correlation_id("run-20260419-abc123")
         .build();
@@ -789,7 +795,7 @@ mod tests {
             Verdict::Pass,
             TestIntent::Verification,
             sample_execution(100, 100, 95, 5),
-            FunctionalDimension::new(95, 5, vec![]),
+            FunctionalAssessment::single(CriterionRow::result(95, 5, vec![], Verdict::Pass)),
         )
         .pacing(pacing_summary)
         .build();
@@ -804,7 +810,7 @@ mod tests {
             Verdict::Pass,
             TestIntent::Verification,
             sample_execution(50, 50, 50, 0),
-            FunctionalDimension::new(50, 0, vec![]),
+            FunctionalAssessment::single(CriterionRow::result(50, 0, vec![], Verdict::Pass)),
         )
         .environment(vec![
             ("cloud_provider".to_string(), "aws".to_string()),
@@ -830,7 +836,7 @@ mod tests {
             Verdict::Pass,
             TestIntent::Verification,
             sample_execution(100, 100, 92, 8),
-            FunctionalDimension::new(92, 8, vec![]),
+            FunctionalAssessment::single(CriterionRow::result(92, 8, vec![], Verdict::Pass)),
         )
         .spec_provenance(provenance)
         .build();
@@ -868,7 +874,7 @@ mod tests {
             Verdict::Pass,
             TestIntent::Verification,
             sample_execution(200, 200, 192, 8),
-            FunctionalDimension::new(192, 8, vec![]),
+            FunctionalAssessment::single(CriterionRow::result(192, 8, vec![], Verdict::Pass)),
         )
         .statistical_analysis(analysis)
         .spec_provenance(provenance)
