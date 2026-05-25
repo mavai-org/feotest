@@ -1,12 +1,13 @@
 //! Integration tests for optimization YAML output.
 
-use std::time::Duration;
-
+use feotest::controls::Cost;
+use feotest::criteria::Criteria;
 use feotest::experiment::{
-    ExecutionResult, FactorMutator, IterationRecord, Objective, OptimizeExperiment, Scorer,
+    ContractExecutionResult, FactorMutator, IterationRecord, Objective, OptimizeExperiment, Scorer,
     TerminationReason,
 };
-use feotest::model::TrialOutcome;
+use feotest::model::Defect;
+use feotest::service_contract::ServiceContract;
 use feotest::spec::optimization::OptimizationSpec;
 use serde::Serialize;
 
@@ -20,7 +21,29 @@ struct Temp(f64);
 #[derive(Clone, Serialize)]
 struct Prompt(String);
 
+/// An always-pass contract; iterations differ only by the factor that built it.
 struct Service;
+
+impl ServiceContract for Service {
+    type Input = String;
+    type Output = String;
+
+    fn id(&self) -> &str {
+        "service"
+    }
+
+    fn invoke(&self, input: &String, _cost: &mut Cost) -> Result<String, Defect> {
+        Ok(input.clone())
+    }
+
+    fn criteria(&self) -> Criteria<String> {
+        Criteria::of([Criteria::meeting()
+            .pass_rate(0.5)
+            .name("ok")
+            .satisfies("ok", |_: &String| Ok(()))
+            .build()])
+    }
+}
 
 fn build_service_from_temp(_t: &Temp) -> Service {
     Service
@@ -30,13 +53,9 @@ fn build_service_from_prompt(_p: &Prompt) -> Service {
     Service
 }
 
-fn always_succeed(_uc: &Service, _input: &str) -> TrialOutcome {
-    TrialOutcome::success(Duration::ZERO)
-}
-
 struct PassRateScorer;
 impl Scorer for PassRateScorer {
-    fn score(&self, result: &ExecutionResult) -> f64 {
+    fn score(&self, result: &ContractExecutionResult) -> f64 {
         result.summary().observed_pass_rate()
     }
 }
@@ -75,7 +94,6 @@ fn writes_yaml_to_service_contract_scoped_path() {
         .mutator(FloatIncrementMutator(0.1))
         .samples_per_iteration(5)
         .inputs(&inputs)
-        .trial(always_succeed)
         .max_iterations(3)
         .no_improvement_window(10)
         .experiment_id("temp-tune-v1")
@@ -119,7 +137,6 @@ fn multi_line_factor_value_uses_block_scalar() {
         .mutator(PromptMutator { variants: prompts })
         .samples_per_iteration(3)
         .inputs(&inputs)
-        .trial(always_succeed)
         .max_iterations(2)
         .no_improvement_window(10)
         .experiment_id("prompt-v1")
@@ -156,7 +173,6 @@ fn minimize_objective_is_recorded() {
         .mutator(FloatIncrementMutator(-10.0))
         .samples_per_iteration(3)
         .inputs(&inputs)
-        .trial(always_succeed)
         .objective(Objective::Minimize)
         .max_iterations(2)
         .no_improvement_window(10)
@@ -185,7 +201,6 @@ fn plateau_termination_recorded_as_no_improvement() {
         .mutator(FloatIncrementMutator(0.1))
         .samples_per_iteration(3)
         .inputs(&inputs)
-        .trial(always_succeed)
         .max_iterations(20)
         .no_improvement_window(2)
         .experiment_id("plateau-exp")
@@ -219,7 +234,6 @@ fn max_iterations_termination_recorded() {
         .mutator(FloatIncrementMutator(0.1))
         .samples_per_iteration(3)
         .inputs(&inputs)
-        .trial(always_succeed)
         .max_iterations(3)
         .no_improvement_window(100)
         .experiment_id("cap-exp")
@@ -251,7 +265,6 @@ fn iterations_record_samples_executed() {
         .mutator(FloatIncrementMutator(0.1))
         .samples_per_iteration(7)
         .inputs(&inputs)
-        .trial(always_succeed)
         .max_iterations(1)
         .experiment_id("samples-exp")
         .build()
@@ -277,7 +290,6 @@ fn result_to_yaml_without_writing_to_disk() {
         .mutator(FloatIncrementMutator(0.1))
         .samples_per_iteration(3)
         .inputs(&inputs)
-        .trial(always_succeed)
         .max_iterations(2)
         .experiment_id("in-memory")
         .build()
@@ -325,7 +337,6 @@ fn struct_factor_emits_as_yaml_mapping() {
         .mutator(ModelTempMutator)
         .samples_per_iteration(3)
         .inputs(&inputs)
-        .trial(always_succeed)
         .max_iterations(2)
         .experiment_id("struct-v1")
         .build()
