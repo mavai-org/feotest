@@ -28,10 +28,6 @@ categories = ["development-tools::testing"]
 
 [features]
 default = []
-# Kept for backward compatibility. `serde_json` is now a required dependency
-# because verdict sinks (file + webhook) need structured JSON output, so
-# enabling this feature is a no-op.
-json-matcher = []
 # Enables the `WebhookVerdictSink` (blocking HTTP POST of verdicts). Pulls
 # in `ureq` and nothing else; the default build remains free of any HTTP
 # client.
