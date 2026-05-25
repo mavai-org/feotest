@@ -24,8 +24,8 @@ fn threshold_first_with_provenance(_input: &str) -> bool {
     true
 }
 
-#[probabilistic_test(samples = 40, threshold = 0.80, transparent_stats = true)]
-fn threshold_first_with_transparent_stats(_input: &str) -> bool {
+#[probabilistic_test(samples = 40, threshold = 0.80)]
+fn threshold_first_plain(_input: &str) -> bool {
     true
 }
 
@@ -65,14 +65,13 @@ fn sample_size_first_with_origin(_input: &str) -> bool {
     true
 }
 
-// --- Confidence-first approach ---
+// --- Result-returning body (passes on Ok) ---
 
-#[probabilistic_test(
-    confidence = 0.95,
-    min_detectable_effect = 0.05,
-    power = 0.80,
-    spec = "tests/fixtures/test-baseline.yaml"
-)]
-fn confidence_first_with_spec(_input: &str) -> bool {
-    true
+#[probabilistic_test(samples = 40, threshold = 0.80)]
+fn result_body_passes_on_ok(input: &str) -> Result<(), feotest::model::ContractViolation> {
+    if input.is_empty() {
+        Err(feotest::model::ContractViolation::new("empty", "no input"))
+    } else {
+        Ok(())
+    }
 }

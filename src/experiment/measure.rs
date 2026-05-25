@@ -159,6 +159,10 @@ fn build_spec(
             latency_distribution: build_latency_distribution(
                 result.aggregate().successful_latencies(),
             ),
+            // Per-criterion measurement emission lands with the contract-driven
+            // measure path; the aggregate figures describe today's single
+            // criterion.
+            per_criterion: None,
         },
     );
 

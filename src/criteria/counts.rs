@@ -16,6 +16,7 @@ pub struct CriterionCounts {
     criterion: String,
     pass: u32,
     fail: u32,
+    failure_distribution: BTreeMap<String, u32>,
 }
 
 impl CriterionCounts {
@@ -24,14 +25,24 @@ impl CriterionCounts {
             criterion,
             pass: 0,
             fail: 0,
+            failure_distribution: BTreeMap::new(),
         }
     }
 
-    const fn record(&mut self, passed: bool) {
-        if passed {
+    /// Folds one sample's result for this criterion into the tally. A clean
+    /// pass increments `pass`; any failure increments `fail` and tallies its
+    /// reason by the violating check's name.
+    fn record(&mut self, result: &CriterionSampleResult) {
+        if result.passed() {
             self.pass += 1;
         } else {
             self.fail += 1;
+            if let Some(violation) = result.reason() {
+                *self
+                    .failure_distribution
+                    .entry(violation.check().to_string())
+                    .or_insert(0) += 1;
+            }
         }
     }
 
@@ -65,6 +76,14 @@ impl CriterionCounts {
         let total = self.total();
         (total > 0).then(|| f64::from(self.pass) / f64::from(total))
     }
+
+    /// This criterion's failures keyed by the violating check's name, in name
+    /// order. A failed transform is keyed by the transform's check name like
+    /// any other violation.
+    #[must_use]
+    pub const fn failure_distribution(&self) -> &BTreeMap<String, u32> {
+        &self.failure_distribution
+    }
 }
 
 /// Per-criterion tallies accumulated across a run, in first-seen order.
@@ -96,7 +115,7 @@ impl CriteriaCounts {
                     self.index.insert(result.criterion().to_string(), idx);
                     idx
                 });
-            self.counts[idx].record(result.passed());
+            self.counts[idx].record(result);
         }
     }
 
@@ -124,6 +143,31 @@ mod tests {
 
     fn fail(criterion: &str) -> CriterionSampleResult {
         CriterionSampleResult::fail(criterion, ContractViolation::new("c", "r"))
+    }
+
+    fn fail_with(criterion: &str, check: &str) -> CriterionSampleResult {
+        CriterionSampleResult::fail(criterion, ContractViolation::new(check, "r"))
+    }
+
+    #[test]
+    fn tallies_failure_reasons_per_criterion() {
+        let mut counts = CriteriaCounts::new();
+        counts.record_sample(&[fail_with("a", "empty")]);
+        counts.record_sample(&[fail_with("a", "empty")]);
+        counts.record_sample(&[fail_with("a", "transform")]);
+        counts.record_sample(&[pass("a")]);
+
+        let dist = counts.get("a").unwrap().failure_distribution();
+        assert_eq!(dist.get("empty"), Some(&2));
+        assert_eq!(dist.get("transform"), Some(&1));
+        assert_eq!(counts.get("a").unwrap().fail(), 3);
+    }
+
+    #[test]
+    fn clean_passes_leave_an_empty_distribution() {
+        let mut counts = CriteriaCounts::new();
+        counts.record_sample(&[pass("a")]);
+        assert!(counts.get("a").unwrap().failure_distribution().is_empty());
     }
 
     #[test]

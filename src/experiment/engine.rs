@@ -1,10 +1,12 @@
 //! The common execution engine for all experiment types and probabilistic tests.
 
+use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::time::{Duration, Instant};
 
 use crate::controls::{ExecutionConfig, RunBudget, TokenRecorder};
+use crate::criteria::{CriteriaCounts, CriterionSampleResult};
 use crate::model::{
-    CostSummary, ExecutionSummary, SampleAggregate, TerminationInfo, TerminationReason,
+    CostSummary, Defect, ExecutionSummary, SampleAggregate, TerminationInfo, TerminationReason,
     TrialOutcome,
 };
 
@@ -21,6 +23,53 @@ impl ExecutionResult {
     #[must_use]
     pub const fn aggregate(&self) -> &SampleAggregate {
         &self.aggregate
+    }
+
+    /// The execution summary.
+    #[must_use]
+    pub const fn summary(&self) -> &ExecutionSummary {
+        &self.summary
+    }
+
+    /// The token recorder used during execution.
+    #[must_use]
+    pub const fn token_recorder(&self) -> &TokenRecorder {
+        &self.token_recorder
+    }
+}
+
+/// One sample's evaluation: every criterion's per-sample result, plus the
+/// wall-clock time the service invocation took (used for latency percentiles
+/// over passing samples).
+#[derive(Debug, Clone)]
+pub struct SampleEvaluation {
+    /// The per-criterion results for this sample, in declaration order.
+    pub results: Vec<CriterionSampleResult>,
+    /// How long the service invocation took.
+    pub elapsed: Duration,
+}
+
+/// Result of a contract-driven execution run: the per-criterion tallies
+/// alongside the composite aggregate and the run summary.
+#[derive(Debug)]
+pub struct ContractExecutionResult {
+    aggregate: SampleAggregate,
+    criteria_counts: CriteriaCounts,
+    summary: ExecutionSummary,
+    token_recorder: TokenRecorder,
+}
+
+impl ContractExecutionResult {
+    /// The composite aggregate (a sample succeeds iff every criterion passed).
+    #[must_use]
+    pub const fn aggregate(&self) -> &SampleAggregate {
+        &self.aggregate
+    }
+
+    /// The per-criterion pass/fail tallies.
+    #[must_use]
+    pub const fn criteria_counts(&self) -> &CriteriaCounts {
+        &self.criteria_counts
     }
 
     /// The execution summary.
@@ -133,6 +182,145 @@ where
     for i in 0..config.warmup() {
         let input = &inputs[i as usize % inputs.len()];
         let _ = trial(input);
+    }
+}
+
+impl ExecutionEngine {
+    /// Runs a contract-driven sampling: the `sample` closure invokes the
+    /// service and judges its response, returning one [`SampleEvaluation`] per
+    /// call. Warmup, input cycling, budget enforcement, pacing, and early
+    /// termination behave exactly as for [`run`](Self::run).
+    ///
+    /// Each sample is wrapped in [`catch_unwind`]: a caught panic, like an
+    /// explicit `Err(Defect)`, is a defect that **aborts** the run — the engine
+    /// stops and returns `Err(Defect)` rather than counting the sample. (A
+    /// malformed-but-received response is not a defect; the closure returns it
+    /// as a counted criterion failure.)
+    ///
+    /// A sample counts as a composite success iff **every** criterion passed;
+    /// that composite drives the aggregate success tally, the passing-sample
+    /// latencies, and early termination, while the per-criterion tallies are
+    /// accumulated separately.
+    ///
+    /// # Errors
+    ///
+    /// Returns `Err(Defect)` if any sample (warmup or counted) yields a defect.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `inputs` is empty.
+    pub fn run_contract<I, F>(
+        config: &ExecutionConfig,
+        inputs: &[I],
+        token_recorder: &TokenRecorder,
+        run_budget: Option<&RunBudget>,
+        mut sample: F,
+    ) -> Result<ContractExecutionResult, Defect>
+    where
+        F: FnMut(&I) -> Result<SampleEvaluation, Defect>,
+    {
+        assert!(!inputs.is_empty(), "inputs must not be empty");
+
+        for i in 0..config.warmup() {
+            let input = &inputs[i as usize % inputs.len()];
+            invoke_sample(&mut sample, input)?;
+        }
+
+        let start = Instant::now();
+        let mut aggregate = SampleAggregate::new();
+        let mut criteria_counts = CriteriaCounts::new();
+        let mut termination_reason = TerminationReason::Completed;
+
+        for i in 0..config.samples() {
+            if let Some(reason) =
+                check_pre_sample_budgets(config, token_recorder, run_budget, start)
+            {
+                termination_reason = reason;
+                break;
+            }
+
+            apply_pacing(i, config);
+
+            let tokens_before = token_recorder.total();
+            let input = &inputs[i as usize % inputs.len()];
+            let evaluation = invoke_sample(&mut sample, input)?;
+
+            record_post_trial_consumption(config, token_recorder, run_budget, tokens_before);
+            criteria_counts.record_sample(&evaluation.results);
+            record_contract_sample(&mut aggregate, &evaluation, config.max_example_failures());
+
+            let remaining = config.samples() - (i + 1);
+            if let Some(reason) = check_early_termination(&aggregate, remaining, config) {
+                termination_reason = reason;
+                break;
+            }
+        }
+
+        let cost = build_cost_summary(
+            start.elapsed(),
+            token_recorder.total(),
+            aggregate.total(),
+            run_budget,
+        );
+        let summary = ExecutionSummary::new(
+            config.samples(),
+            aggregate.total(),
+            aggregate.successes(),
+            aggregate.failures(),
+            TerminationInfo::new(termination_reason),
+            cost,
+        );
+
+        Ok(ContractExecutionResult {
+            aggregate,
+            criteria_counts,
+            summary,
+            token_recorder: token_recorder.clone(),
+        })
+    }
+}
+
+/// Invokes the sample closure once, converting a caught panic into a
+/// [`Defect`] so a panicking service invocation aborts the run cleanly rather
+/// than unwinding through the engine.
+fn invoke_sample<I, F>(sample: &mut F, input: &I) -> Result<SampleEvaluation, Defect>
+where
+    F: FnMut(&I) -> Result<SampleEvaluation, Defect>,
+{
+    match catch_unwind(AssertUnwindSafe(|| sample(input))) {
+        Ok(result) => result,
+        Err(panic) => Err(Defect::new(panic_message(panic.as_ref()))),
+    }
+}
+
+/// Extracts a human-readable message from a caught panic payload.
+fn panic_message(panic: &(dyn std::any::Any + Send)) -> String {
+    if let Some(s) = panic.downcast_ref::<&str>() {
+        (*s).to_string()
+    } else if let Some(s) = panic.downcast_ref::<String>() {
+        s.clone()
+    } else {
+        "service invocation panicked".to_string()
+    }
+}
+
+/// Records one contract sample into the composite aggregate. The sample is a
+/// success iff every criterion passed; otherwise the first failing criterion's
+/// violation is recorded as the representative failure.
+fn record_contract_sample(
+    aggregate: &mut SampleAggregate,
+    evaluation: &SampleEvaluation,
+    max_example_failures: u32,
+) {
+    let first_failure = evaluation
+        .results
+        .iter()
+        .find_map(CriterionSampleResult::reason);
+    match first_failure {
+        None => aggregate.record_success(evaluation.elapsed),
+        Some(violation) => {
+            aggregate.record_failure(violation, evaluation.elapsed, max_example_failures);
+        }
     }
 }
 
@@ -322,6 +510,92 @@ fn check_early_termination(
 mod tests {
     use super::*;
     use crate::model::ContractViolation;
+
+    // --- contract-driven path (run_contract) ---
+
+    fn eval(results: Vec<CriterionSampleResult>) -> SampleEvaluation {
+        SampleEvaluation {
+            results,
+            elapsed: Duration::from_millis(1),
+        }
+    }
+
+    #[test]
+    fn run_contract_accumulates_per_criterion_and_composite() {
+        let config = ExecutionConfig::new(4);
+        let recorder = TokenRecorder::new();
+        let inputs = vec!["x".to_string()];
+
+        // "a" always passes; "b" fails on even samples. Composite succeeds only
+        // when both pass.
+        let mut i = 0u32;
+        let result = ExecutionEngine::run_contract(
+            &config,
+            &inputs,
+            &recorder,
+            None,
+            |_: &String| {
+                let b_passes = i % 2 == 1;
+                i += 1;
+                Ok(eval(vec![
+                    CriterionSampleResult::pass("a"),
+                    if b_passes {
+                        CriterionSampleResult::pass("b")
+                    } else {
+                        CriterionSampleResult::fail("b", ContractViolation::new("flake", "even"))
+                    },
+                ]))
+            },
+        )
+        .expect("no defect");
+
+        let counts = result.criteria_counts();
+        assert_eq!(counts.get("a").unwrap().pass(), 4);
+        assert_eq!(counts.get("b").unwrap().pass(), 2);
+        assert_eq!(counts.get("b").unwrap().fail(), 2);
+        // Composite success requires every criterion to pass.
+        assert_eq!(result.summary().successes(), 2);
+        assert_eq!(result.summary().failures(), 2);
+    }
+
+    #[test]
+    fn run_contract_aborts_on_defect() {
+        let config = ExecutionConfig::new(10);
+        let recorder = TokenRecorder::new();
+        let inputs = vec!["x".to_string()];
+
+        let mut i = 0u32;
+        let result = ExecutionEngine::run_contract(
+            &config,
+            &inputs,
+            &recorder,
+            None,
+            |_: &String| {
+                i += 1;
+                if i == 3 {
+                    Err(Defect::new("connection refused"))
+                } else {
+                    Ok(eval(vec![CriterionSampleResult::pass("a")]))
+                }
+            },
+        );
+
+        assert_eq!(result.unwrap_err().message(), "connection refused");
+    }
+
+    #[test]
+    fn run_contract_converts_panic_to_defect() {
+        let config = ExecutionConfig::new(10);
+        let recorder = TokenRecorder::new();
+        let inputs = vec!["x".to_string()];
+
+        let result =
+            ExecutionEngine::run_contract(&config, &inputs, &recorder, None, |_: &String| {
+                panic!("kaboom");
+            });
+
+        assert_eq!(result.unwrap_err().message(), "kaboom");
+    }
 
     fn always_succeeds(_input: &str) -> TrialOutcome {
         TrialOutcome::success(Duration::from_millis(1))

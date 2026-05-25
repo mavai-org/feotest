@@ -415,6 +415,7 @@ mod tests {
                 failures: 10,
                 failure_distribution: None,
                 latency_distribution: None,
+                per_criterion: None,
             },
         );
         spec.covariates = covariates

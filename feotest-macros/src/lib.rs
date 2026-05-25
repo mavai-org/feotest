@@ -29,16 +29,15 @@ use proc_macro::TokenStream;
 /// |----------|-------------------|
 /// | Threshold-first | `samples` + `threshold` |
 /// | Sample-size-first | `samples` + `confidence` + `spec` |
-/// | Confidence-first | `confidence` + `min_detectable_effect` + `power` + `spec` |
+///
+/// The test body is the criterion: a `-> bool` body passes on `true`, and a
+/// `-> Result<(), ContractViolation>` body passes on `Ok(())`.
 ///
 /// # Optional attributes
 ///
 /// - `intent` — `"verification"` (default) or `"smoke"`
 /// - `threshold_origin` — `"sla"`, `"slo"`, `"policy"`, `"empirical"`
 /// - `contract_ref` — human-readable document reference
-/// - `transparent_stats` — `true` to include detailed statistics
-/// - `time_budget` — wall-clock cap, e.g. `"30s"`, `"5m"`
-/// - `pacing` — rate limit, e.g. `"10/s"`, `"100/m"`
 #[proc_macro_attribute]
 // javai-ref: JVI-9TK3B9R — do not remove (resolves in javai-orchestrator)
 pub fn probabilistic_test(attr: TokenStream, item: TokenStream) -> TokenStream {

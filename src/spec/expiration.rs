@@ -123,6 +123,7 @@ mod tests {
                 failures: 5,
                 failure_distribution: None,
                 latency_distribution: None,
+                per_criterion: None,
             },
         );
         if expires_in_days > 0 {
