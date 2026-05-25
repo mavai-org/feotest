@@ -3,10 +3,12 @@
 //! These types form the shared vocabulary of the framework. They are small,
 //! explicit, and carry no behaviour beyond construction and access.
 
+mod defect;
 mod outcome;
 mod sample;
 pub(crate) mod types;
 
+pub use defect::Defect;
 pub use outcome::{ContractViolation, Outcome, TrialOutcome};
 pub use sample::SampleAggregate;
 pub use types::{
