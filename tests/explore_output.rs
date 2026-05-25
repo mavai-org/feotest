@@ -1,4 +1,4 @@
-//! Integration tests for exploration YAML output (EX05).
+//! Integration tests for exploration YAML output.
 
 use std::collections::BTreeMap;
 use std::fmt;

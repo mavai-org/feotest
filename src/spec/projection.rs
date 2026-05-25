@@ -148,9 +148,9 @@ pub fn build_projection(
 /// output. Diff tools can align on these markers across experiment runs,
 /// even when response content lengths vary.
 ///
-/// The algorithm uses a seeded linear congruential generator matching
-/// `java.util.Random(42)` so that anchor values are consistent across
-/// the feotest and punit frameworks.
+/// The algorithm uses a seeded linear congruential generator (seed 42,
+/// the multiplier/increment defined by the shared baseline scheme) so that
+/// anchor values are consistent across frameworks.
 pub struct DiffAnchorGenerator;
 
 impl DiffAnchorGenerator {
@@ -220,7 +220,7 @@ fn java_random_next_long(state: &mut u64) -> i64 {
 // YAML projection formatting
 // ---------------------------------------------------------------------------
 
-/// Formats result projections as YAML text matching punit's output format.
+/// Formats result projections as YAML text matching the shared output format.
 ///
 /// Each sample is preceded by a diff anchor comment and rendered as a
 /// `sample[N]:` block with optional fields.
@@ -397,7 +397,7 @@ mod tests {
     }
 
     #[test]
-    fn anchor_matches_punit_format() {
+    fn anchor_matches_reference_format() {
         let line = DiffAnchorGenerator::anchor_line(0);
         assert!(line.starts_with("# \u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500} anchor:"));
         assert!(line.ends_with(" \u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}"));
@@ -410,8 +410,8 @@ mod tests {
     }
 
     #[test]
-    fn anchor_values_match_punit_reference() {
-        // These values are taken from punit's test output files
+    fn anchor_values_match_reference() {
+        // These values are taken from the javai conformance reference output
         assert_eq!(
             DiffAnchorGenerator::anchor_line(0),
             "# ────── anchor:0dfe8af7 ──────"

@@ -37,7 +37,7 @@ pub struct DefaultEmbeddedRegistry;
 
 impl EmbeddedBaselineLookup for DefaultEmbeddedRegistry {
     fn lookup(&self, query: &BaselineQuery<'_>) -> Option<BaselineSpec> {
-        // SN02 keys embedded defaults by (spec, method) only — covariate-
+        // The sentinel binary keys embedded defaults by (spec, method) only — covariate-
         // aware embedded lookup is follow-up work. The runtime accepts the
         // first matching entry whose YAML parses cleanly; malformed
         // embedded YAML is a build-time bug and panics the caller via the

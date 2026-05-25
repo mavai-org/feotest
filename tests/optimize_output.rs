@@ -1,4 +1,4 @@
-//! Integration tests for optimization YAML output (EX06).
+//! Integration tests for optimization YAML output.
 
 use std::time::Duration;
 

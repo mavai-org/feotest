@@ -1,4 +1,4 @@
-//! Generates a sample HTML report showcasing all RP07 elements.
+//! Generates a sample HTML report showcasing all verdict XML elements.
 //!
 //! Run with: cargo run --example sample_html_report
 //!

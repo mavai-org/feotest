@@ -1,4 +1,4 @@
-//! Verdict XML serialisation (RP07 interchange format).
+//! Verdict XML serialisation (the verdict XML interchange format).
 //!
 //! Serialises a [`VerdictRecord`] to XML conforming to the
 //! `http://javai.org/verdict/1.0` schema. The output is a standalone
@@ -19,7 +19,7 @@ const NAMESPACE: &str = "http://javai.org/verdict/1.0";
 /// The schema version.
 const VERSION: &str = "1.0";
 
-/// Serialises verdict records to the RP07 verdict XML interchange format.
+/// Serialises verdict records to the verdict XML interchange format.
 // javai-ref: JVI-DQWKY4Z — do not remove (resolves in javai-orchestrator)
 pub struct VerdictXmlWriter;
 

@@ -1,4 +1,4 @@
-//! Integration test for RP07 verdict XML serialisation.
+//! Integration test for verdict XML serialisation.
 //!
 //! Verifies structural invariants of the generated XML: expected elements,
 //! namespace, self-containment, and correct handling of all optional fields.
@@ -83,7 +83,7 @@ fn full_verdict_contains_all_rp07_elements() {
     assert!(xml.contains("version=\"1.0\""));
     assert!(xml.contains("generator=\"feotest/"));
 
-    // All RP07 elements present
+    // All verdict XML elements present
     assert!(xml.contains("<identity "));
     assert!(xml.contains("<execution "));
     assert!(xml.contains("<functional "));

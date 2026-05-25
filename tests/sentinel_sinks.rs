@@ -1,5 +1,5 @@
 //! Integration tests that drive the `sentinel_demo` example through the
-//! SN03 sink plumbing.
+//! verdict-sink plumbing.
 //!
 //! These tests complement `tests/sentinel_demo.rs` by focusing on the
 //! verdict-sink surface specifically: the default console sink's output

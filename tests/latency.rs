@@ -1,4 +1,4 @@
-//! Integration tests for the latency dimension (LT01–LT06).
+//! Integration tests for the latency dimension.
 //!
 //! Covers the acceptance scenarios enumerated in
 //! `plan/DES-LATENCY.md::Acceptance tests`.

@@ -9,7 +9,7 @@ use crate::verdict::VerdictRecord;
 ///
 /// If a wrapped sink returns a [`SinkError`] from any lifecycle method,
 /// the composite logs the error to stderr and continues with the
-/// remaining sinks. This is the failure-isolation contract the SN03
+/// remaining sinks. This is the failure-isolation contract the verdict-sink
 /// specification calls for: a webhook endpoint going offline must not
 /// stop verdicts reaching the console or the on-disk audit log.
 ///

@@ -281,9 +281,9 @@ fn required_successes(samples: u32, min_pass_rate: f64) -> u32 {
 /// planned samples:
 ///
 /// - `FailureInevitable` — the threshold is mathematically unreachable
-///   given the failures already recorded (PT09).
+///   given the failures already recorded.
 /// - `SuccessGuaranteed` — the threshold is already met and will remain
-///   met even if every remaining sample fails (PT10), subject to the
+///   met even if every remaining sample fails, subject to the
 ///   `min_samples_for_validity` floor so early success does not bypass
 ///   the sample count required for a statistically valid verdict.
 ///
@@ -301,12 +301,12 @@ fn check_early_termination(
     let successes = aggregate.successes();
     let executed = aggregate.total();
 
-    // PT09: can we still reach the threshold?
+    // Failure-inevitable: can the threshold still be reached?
     if successes + remaining < required {
         return Some(TerminationReason::FailureInevitable);
     }
 
-    // PT10: already guaranteed, and enough samples for statistical
+    // Success-guaranteed: already guaranteed, and enough samples for statistical
     // validity, and there are still planned samples to skip.
     if remaining > 0 && successes >= required {
         let floor = config.configured_min_samples_for_validity().unwrap_or(0);
@@ -458,7 +458,7 @@ mod tests {
         ExecutionEngine::run(&config, &[], &recorder, None, always_succeeds);
     }
 
-    // --- PT09: failure-inevitable early termination ---
+    // --- failure-inevitable early termination ---
 
     #[test]
     fn failure_inevitable_terminates_after_required_failures() {
@@ -506,7 +506,7 @@ mod tests {
         );
     }
 
-    // --- PT10: success-guaranteed early termination ---
+    // --- success-guaranteed early termination ---
 
     #[test]
     fn success_guaranteed_terminates_when_threshold_met_and_floor_cleared() {
@@ -739,7 +739,7 @@ mod tests {
         );
     }
 
-    // --- Pacing (RC08 / RC10) ---
+    // --- Pacing (max-per-second / min-interval-per-sample) ---
 
     #[test]
     fn first_sample_runs_without_pacing_delay() {

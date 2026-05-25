@@ -1,5 +1,5 @@
 //! End-to-end integration tests that drive the `sentinel_demo` example
-//! through the full SN02 CLI surface.
+//! through the full sentinel CLI surface.
 //!
 //! Each test spawns `cargo run --example sentinel_demo -- <subcommand>`
 //! in release-agnostic mode and asserts exit code + output shape. The

@@ -1,7 +1,7 @@
 //! HTML report writer via XSLT transformation.
 //!
 //! Generates a self-contained HTML5 report by:
-//! 1. Serialising verdict records to RP07 verdict XML.
+//! 1. Serialising verdict records to verdict XML.
 //! 2. Wrapping them in a `<verdict-suite>` envelope.
 //! 3. Applying the shared XSLT stylesheet via `xsltproc`.
 //!

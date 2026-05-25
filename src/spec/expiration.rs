@@ -18,8 +18,8 @@ use crate::spec::baseline::{BaselineSpec, ExpirationBlock};
 use crate::spec::common::parse_iso8601;
 
 /// Threshold below which a baseline is "expiring imminently" (≤ 10 %
-/// of the validity window remaining). Matches punit's scheme so that
-/// cross-framework verdicts can be compared directly.
+/// of the validity window remaining). Follows the shared baseline scheme so
+/// that cross-framework verdicts can be compared directly.
 const IMMINENT_REMAINING_RATIO: f64 = 0.10;
 
 /// Threshold below which a baseline is "expiring soon" (≤ 25 % of
