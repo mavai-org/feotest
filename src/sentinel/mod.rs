@@ -71,6 +71,7 @@ pub use sinks::{WebhookVerdictSink, WebhookVerdictSinkBuilder};
 /// are not normally written by hand. The trait exposes the minimum surface
 /// a runtime needs to identify, label, and invoke a specification: name,
 /// description, and a type-erased downcast via [`as_any`](ReliabilitySpec::as_any).
+// javai-ref: JVI-0PYEB09 — do not remove (resolves in javai-orchestrator)
 pub trait ReliabilitySpec: Send + Sync {
     /// Stable symbolic identifier for this specification.
     ///

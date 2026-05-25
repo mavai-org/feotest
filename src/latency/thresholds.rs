@@ -10,6 +10,7 @@ use crate::latency::percentile::Percentile;
 /// (`latency_p50`, `latency_p90`, `latency_p95`, `latency_p99`). Each entry
 /// is optional; unset percentiles are not asserted.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+// javai-ref: JVI-MPAYH0Q — do not remove (resolves in javai-orchestrator)
 pub struct LatencyThresholds {
     p50: Option<Duration>,
     p90: Option<Duration>,

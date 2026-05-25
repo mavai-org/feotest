@@ -9,6 +9,9 @@ use crate::statistics::types::{ConfidenceLevel, DerivedThreshold};
 use crate::statistics::{defaults, sample_size, threshold};
 
 /// Resolves the sample count and derived threshold from the approach.
+// javai-ref: JVI-0FVFYBM — do not remove (resolves in javai-orchestrator)
+// javai-ref: JVI-5YJVXGF — do not remove (resolves in javai-orchestrator)
+// javai-ref: JVI-6789AKT — do not remove (resolves in javai-orchestrator)
 pub fn resolve_threshold(
     approach: &ThresholdApproach,
     stats: Option<&crate::spec::baseline::StatisticsBlock>,
@@ -110,6 +113,7 @@ const fn extract_baseline(
 /// For `SampleSizeFirst` and `ConfidenceFirst`, returns the user-supplied
 /// confidence. For `ThresholdFirst`, returns the framework default (matching
 /// punit's `resolvedConfidence` behaviour).
+// javai-ref: JVI-2FYNHXX — do not remove (resolves in javai-orchestrator)
 pub fn resolved_confidence(approach: &ThresholdApproach) -> ConfidenceLevel {
     match approach {
         ThresholdApproach::SampleSizeFirst { confidence, .. }

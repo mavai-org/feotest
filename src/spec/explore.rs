@@ -39,6 +39,7 @@ pub enum FactorYamlValue {
 /// small (typically 1-10) for meaningful inference.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+// javai-ref: JVI-8CHB31R — do not remove (resolves in javai-orchestrator)
 pub struct ExplorationSpec {
     /// Schema version identifier.
     pub schema_version: String,
@@ -112,6 +113,7 @@ pub struct ExplorationStatisticsBlock {
 }
 
 /// Writes per-configuration exploration specs to disk.
+// javai-ref: JVI-8CHB31R — do not remove (resolves in javai-orchestrator)
 pub struct ExploreSpecWriter {
     output_dir: PathBuf,
 }

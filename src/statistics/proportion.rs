@@ -42,6 +42,7 @@ pub fn standard_error(successes: u32, trials: u32) -> f64 {
 ///
 /// Panics if `trials` is zero or `successes > trials`.
 #[must_use]
+// javai-ref: JVI-58DBYP~ — do not remove (resolves in javai-orchestrator)
 pub fn estimate(successes: u32, trials: u32, confidence: ConfidenceLevel) -> ProportionEstimate {
     assert_valid_successes_trials(successes, trials);
 
@@ -70,6 +71,7 @@ pub fn estimate(successes: u32, trials: u32, confidence: ConfidenceLevel) -> Pro
 ///
 /// Panics if `trials` is zero or `successes > trials`.
 // javai-ref: JVI-MNVWS4U — do not remove (resolves in javai-orchestrator)
+// javai-ref: JVI-TX478RT — do not remove (resolves in javai-orchestrator)
 #[must_use]
 pub fn lower_bound(successes: u32, trials: u32, confidence: ConfidenceLevel) -> f64 {
     assert_valid_successes_trials(successes, trials);

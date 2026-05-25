@@ -29,6 +29,9 @@ type TrialClosure<'a, T> = Box<dyn FnMut(&T, &str) -> TrialOutcome + 'a>;
 /// otherwise it is inferred from the parameter triangle
 /// (`samples`/`threshold`/`confidence`/`min_detectable_effect`/`power`).
 #[derive(Debug, Clone)]
+// javai-ref: JVI-0FVFYBM — do not remove (resolves in javai-orchestrator)
+// javai-ref: JVI-5YJVXGF — do not remove (resolves in javai-orchestrator)
+// javai-ref: JVI-6789AKT — do not remove (resolves in javai-orchestrator)
 pub enum ThresholdApproach {
     /// Fix samples and confidence; derive threshold from baseline spec.
     ///
@@ -385,6 +388,7 @@ impl<'a, T> ProbabilisticTestBuilder<'a, T> {
 
     /// Sets a human-readable contract reference.
     #[must_use]
+    // javai-ref: JVI-GQXC6W9 — do not remove (resolves in javai-orchestrator)
     pub fn contract_ref(mut self, reference: impl Into<String>) -> Self {
         self.contract_ref = Some(reference.into());
         self

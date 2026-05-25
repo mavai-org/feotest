@@ -70,6 +70,7 @@ pub struct SentinelResult {
 /// Holds the configuration (baseline source / output destination) the
 /// subcommands resolve once at startup and pass to each invocation,
 /// plus any verdict sinks to fan each produced verdict out to.
+// javai-ref: JVI-PYF4FP9 — do not remove (resolves in javai-orchestrator)
 pub struct SentinelRunner {
     source: Option<PathBuf>,
     output: Option<String>,

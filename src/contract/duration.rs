@@ -41,6 +41,7 @@ use std::time::Duration;
 ///
 /// Construction panics if `max_duration` is zero.
 #[derive(Debug, Clone, PartialEq, Eq)]
+// javai-ref: JVI-NBPN769 — do not remove (resolves in javai-orchestrator)
 pub struct DurationConstraint {
     description: String,
     max_duration: Duration,

@@ -118,6 +118,7 @@ impl ConfigResult {
 /// assert_eq!(result.configs().len(), 3);
 /// assert_eq!(result.configs()[0].name(), "gpt-4_t0");
 /// ```
+// javai-ref: JVI-HGF78G* — do not remove (resolves in javai-orchestrator)
 pub struct ExploreExperiment<'a, F, T> {
     service_contract_id: String,
     factors: Vec<F>,

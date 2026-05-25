@@ -84,6 +84,7 @@ pub struct ConvergenceBlock {
 /// The complete optimization YAML document.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+// javai-ref: JVI-FJK9SN9 — do not remove (resolves in javai-orchestrator)
 pub struct OptimizationSpec {
     /// Schema version identifier.
     pub schema_version: String,
@@ -175,6 +176,7 @@ pub fn default_output_root() -> PathBuf {
 ///
 /// Files land at `{root}/{service_contract_id}/{experiment_id}.yaml`, where
 /// `root` defaults to [`default_output_root`].
+// javai-ref: JVI-FJK9SN9 — do not remove (resolves in javai-orchestrator)
 pub struct OptimizeSpecWriter {
     root: PathBuf,
 }
