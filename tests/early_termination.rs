@@ -16,9 +16,31 @@ use feotest::verdict::Verdict;
 
 struct TestUc(&'static str);
 impl ServiceContract for TestUc {
+    type Input = String;
+    type Output = String;
     fn id(&self) -> &str {
         self.0
     }
+    fn invoke(
+        &self,
+        input: &String,
+        _cost: &mut feotest::controls::Cost,
+    ) -> Result<String, feotest::model::Defect> {
+        Ok(input.clone())
+    }
+    fn criteria(&self) -> feotest::criteria::Criteria<String> {
+        trivial_criteria()
+    }
+}
+
+/// A single always-pass criterion for fixtures that exercise identity and the
+/// runner path rather than response judging.
+fn trivial_criteria() -> feotest::criteria::Criteria<String> {
+    feotest::criteria::Criteria::of([feotest::criteria::Criteria::meeting()
+        .pass_rate(0.5)
+        .name("response received")
+        .satisfies("response received", |_: &String| Ok(()))
+        .build()])
 }
 
 const fn always_succeed(_input: &str) -> TrialOutcome {
