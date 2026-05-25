@@ -19,9 +19,9 @@ use std::fmt;
 use std::fmt::Write as _;
 use std::path::PathBuf;
 
-use crate::controls::{ExecutionConfig, TokenRecorder};
-use crate::experiment::engine::{ExecutionEngine, ExecutionResult};
-use crate::model::TrialOutcome;
+use crate::controls::{Cost, ExecutionConfig, TokenRecorder};
+use crate::experiment::engine::{ContractExecutionResult, ExecutionEngine, SampleEvaluation};
+use crate::service_contract::ServiceContract;
 use crate::spec::baseline::ExecutionBlock;
 use crate::spec::common::{build_cost_block, build_failure_distribution, now_iso8601, round4};
 use crate::spec::explore::{
@@ -30,13 +30,12 @@ use crate::spec::explore::{
 use crate::spec::projection::{SampleProjection, build_projection, format_projections};
 
 type ServiceContractFactory<'a, F, T> = Box<dyn Fn(&F) -> T + 'a>;
-type TrialClosure<'a, T> = Box<dyn Fn(&T, &str) -> TrialOutcome + 'a>;
 
 /// A single configuration's exploration results.
 #[derive(Debug)]
 pub struct ConfigResult {
     name: String,
-    execution: ExecutionResult,
+    execution: ContractExecutionResult,
     projections: Vec<SampleProjection>,
 }
 
@@ -49,7 +48,7 @@ impl ConfigResult {
 
     /// The execution result for this configuration.
     #[must_use]
-    pub const fn execution(&self) -> &ExecutionResult {
+    pub const fn execution(&self) -> &ContractExecutionResult {
         &self.execution
     }
 
@@ -70,9 +69,11 @@ impl ConfigResult {
 ///
 /// ```
 /// use feotest::experiment::ExploreExperiment;
-/// use feotest::model::TrialOutcome;
+/// use feotest::controls::Cost;
+/// use feotest::criteria::Criteria;
+/// use feotest::model::Defect;
+/// use feotest::service_contract::ServiceContract;
 /// use std::fmt;
-/// use std::time::Duration;
 ///
 /// // The factor: the values that distinguish one configuration from
 /// // another. `Display` yields the configuration's name in reports.
@@ -87,14 +88,23 @@ impl ConfigResult {
 ///     }
 /// }
 ///
-/// // The service contract: what the factory produces.
+/// // The service contract: what the factory produces for each factor.
 /// struct ShoppingBasket { model: &'static str, temperature: f64 }
-/// impl ShoppingBasket {
-///     fn new(model: &'static str, temperature: f64) -> Self {
-///         Self { model, temperature }
+/// impl ServiceContract for ShoppingBasket {
+///     type Input = String;
+///     type Output = String;
+///     fn id(&self) -> &str { "shopping-basket" }
+///     fn invoke(&self, input: &String, _cost: &mut Cost) -> Result<String, Defect> {
+///         Ok(input.clone())
 ///     }
-///     fn search(&self, _input: &str) -> TrialOutcome {
-///         TrialOutcome::success(Duration::from_millis(1))
+///     fn criteria(&self) -> Criteria<String> {
+///         Criteria::of([Criteria::meeting().pass_rate(0.9)
+///             .name("non-empty")
+///             .satisfies("non-empty", |r: &String| {
+///                 if r.is_empty() { Err(feotest::model::ContractViolation::new("empty", "no content")) }
+///                 else { Ok(()) }
+///             })
+///             .build()])
 ///     }
 /// }
 ///
@@ -108,10 +118,9 @@ impl ConfigResult {
 /// let result = ExploreExperiment::builder()
 ///     .service_contract_id("shopping-basket")
 ///     .factors(factors)
-///     .service_contract(|f: &BasketFactors| ShoppingBasket::new(f.model, f.temperature))
+///     .service_contract(|f: &BasketFactors| ShoppingBasket { model: f.model, temperature: f.temperature })
 ///     .samples_per_config(10)
 ///     .inputs(&inputs)
-///     .trial(|uc: &ShoppingBasket, input| uc.search(input))
 ///     .build()
 ///     .run();
 ///
@@ -119,25 +128,25 @@ impl ConfigResult {
 /// assert_eq!(result.configs()[0].name(), "gpt-4_t0");
 /// ```
 // javai-ref: JVI-HGF78G* — do not remove (resolves in javai-orchestrator)
-pub struct ExploreExperiment<'a, F, T> {
+pub struct ExploreExperiment<'a, F, T: ServiceContract> {
     service_contract_id: String,
     factors: Vec<F>,
     factory: ServiceContractFactory<'a, F, T>,
     samples_per_config: u32,
-    inputs: &'a [String],
-    trial: TrialClosure<'a, T>,
+    inputs: &'a [T::Input],
     experiment_id: Option<String>,
     output_dir: Option<PathBuf>,
 }
 
-impl<'a, F, T> ExploreExperiment<'a, F, T>
+impl<'a, F, T: ServiceContract> ExploreExperiment<'a, F, T>
 where
     F: fmt::Display,
+    T::Output: 'static,
 {
     /// Starts a new builder for an explore experiment.
     ///
     /// Required fields (`service_contract_id`, `factors`, `service_contract`,
-    /// `samples_per_config`, `inputs`, `trial`) must be set via their
+    /// `samples_per_config`, `inputs`) must be set via their
     /// corresponding setters before
     /// [`build`](ExploreExperimentBuilder::build) is called.
     #[must_use]
@@ -146,11 +155,17 @@ where
     }
 
     /// Runs the explore experiment and returns results per configuration.
+    ///
+    /// # Panics
+    ///
+    /// Panics if a service invocation yields a defect (a transport failure or a
+    /// caught panic) — a defect aborts the experiment.
     pub fn run(self) -> ExploreResult {
         let mut results = Vec::new();
 
         for factor in &self.factors {
             let service_contract = (self.factory)(factor);
+            let criteria = service_contract.criteria();
             let name = factor.to_string();
 
             let exec_config = ExecutionConfig::new(self.samples_per_config);
@@ -159,20 +174,32 @@ where
             let mut projections = Vec::new();
             let mut sample_idx: u32 = 0;
 
-            let mut trial_fn = |input: &str| {
-                let outcome = (self.trial)(&service_contract, input);
-                projections.push(build_projection(sample_idx, input, &outcome));
-                sample_idx += 1;
-                outcome
+            let execution = {
+                let cost_recorder = recorder.clone();
+                let criteria = &criteria;
+                let service_contract = &service_contract;
+                let projections = &mut projections;
+                ExecutionEngine::run_contract(
+                    &exec_config,
+                    self.inputs,
+                    &recorder,
+                    crate::controls::run::current(),
+                    |input: &T::Input| {
+                        let mut cost = Cost::new();
+                        let start = std::time::Instant::now();
+                        let output = service_contract.invoke(input, &mut cost)?;
+                        let elapsed = start.elapsed();
+                        cost_recorder.record(cost.tokens_recorded());
+                        let results = criteria.evaluate(&output);
+                        projections.push(build_projection(sample_idx, "", &results, elapsed));
+                        sample_idx += 1;
+                        Ok(SampleEvaluation { results, elapsed })
+                    },
+                )
+                .unwrap_or_else(|defect| {
+                    panic!("\n\nservice invocation aborted the explore experiment: {defect}\n");
+                })
             };
-
-            let execution = ExecutionEngine::run(
-                &exec_config,
-                self.inputs,
-                &recorder,
-                crate::controls::run::current(),
-                &mut trial_fn,
-            );
 
             results.push(ConfigResult {
                 name,
@@ -204,25 +231,24 @@ where
 /// Fluent builder for [`ExploreExperiment`].
 ///
 /// Required fields — `service_contract_id`, `factors`, `service_contract` (factory),
-/// `samples_per_config`, `inputs`, and `trial` — must be set before
+/// `samples_per_config`, and `inputs` — must be set before
 /// [`build`](Self::build) is called. Missing any of them produces a
 /// panic naming the field and the setter to call.
 ///
 /// Setters that validate a single value (e.g. a non-empty factor list,
 /// positive sample count, non-empty inputs) panic at the setter rather
 /// than deferring to `build`.
-pub struct ExploreExperimentBuilder<'a, F, T> {
+pub struct ExploreExperimentBuilder<'a, F, T: ServiceContract> {
     service_contract_id: Option<String>,
     factors: Vec<F>,
     factory: Option<ServiceContractFactory<'a, F, T>>,
     samples_per_config: Option<u32>,
-    inputs: Option<&'a [String]>,
-    trial: Option<TrialClosure<'a, T>>,
+    inputs: Option<&'a [T::Input]>,
     experiment_id: Option<String>,
     output_dir: Option<PathBuf>,
 }
 
-impl<F, T> Default for ExploreExperimentBuilder<'_, F, T> {
+impl<F, T: ServiceContract> Default for ExploreExperimentBuilder<'_, F, T> {
     fn default() -> Self {
         Self {
             service_contract_id: None,
@@ -230,14 +256,13 @@ impl<F, T> Default for ExploreExperimentBuilder<'_, F, T> {
             factory: None,
             samples_per_config: None,
             inputs: None,
-            trial: None,
             experiment_id: None,
             output_dir: None,
         }
     }
 }
 
-impl<'a, F, T> ExploreExperimentBuilder<'a, F, T>
+impl<'a, F, T: ServiceContract> ExploreExperimentBuilder<'a, F, T>
 where
     F: fmt::Display,
 {
@@ -303,21 +328,9 @@ where
     ///
     /// Panics if `inputs` is empty.
     #[must_use]
-    pub fn inputs(mut self, inputs: &'a [String]) -> Self {
+    pub fn inputs(mut self, inputs: &'a [T::Input]) -> Self {
         assert!(!inputs.is_empty(), "inputs must not be empty");
         self.inputs = Some(inputs);
-        self
-    }
-
-    /// Sets the trial closure.
-    ///
-    /// The closure receives a reference to the current configuration's
-    /// service contract instance and an input string, and returns a
-    /// [`TrialOutcome`]. It may borrow data that outlives the builder
-    /// (the `'a` lifetime); it is not required to be `'static`.
-    #[must_use]
-    pub fn trial(mut self, trial: impl Fn(&T, &str) -> TrialOutcome + 'a) -> Self {
-        self.trial = Some(Box::new(trial));
         self
     }
 
@@ -347,8 +360,8 @@ where
     /// # Panics
     ///
     /// Panics if any required field is missing: `service_contract_id`,
-    /// `factors`, `service_contract` (factory), `samples_per_config`, `inputs`,
-    /// or `trial`.
+    /// `factors`, `service_contract` (factory), `samples_per_config`, or
+    /// `inputs`.
     #[must_use]
     pub fn build(self) -> ExploreExperiment<'a, F, T> {
         ExploreExperiment {
@@ -369,7 +382,6 @@ where
                 .samples_per_config
                 .expect("samples_per_config must be set via .samples_per_config(...)"),
             inputs: self.inputs.expect("inputs must be set via .inputs(...)"),
-            trial: self.trial.expect("trial must be set via .trial(...)"),
             experiment_id: self.experiment_id,
             output_dir: self.output_dir,
         }
@@ -413,8 +425,8 @@ impl ExploreResult {
     /// Renders all configuration results as YAML.
     ///
     /// Each configuration produces a separate YAML document, delimited
-    /// by `---`. Includes per-sample result projections when the trial
-    /// function enriched the `TrialOutcome` with projection metadata.
+    /// by `---`, with per-sample result projections (per-criterion outcomes
+    /// and timing) embedded inline.
     pub fn to_yaml(&self) -> String {
         let timestamp = now_iso8601();
         let mut out = String::new();
@@ -464,7 +476,8 @@ impl ExploreResult {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::time::Duration;
+    use crate::criteria::Criteria;
+    use crate::model::{ContractViolation, Defect, Outcome};
 
     #[derive(Clone)]
     struct RateFactor {
@@ -476,6 +489,8 @@ mod tests {
         }
     }
 
+    /// A contract whose single criterion passes a deterministic fraction of
+    /// samples set by the factor's success rate.
     struct MockService {
         success_rate: f64,
     }
@@ -484,6 +499,35 @@ mod tests {
             Self {
                 success_rate: factor.success_rate,
             }
+        }
+    }
+
+    impl ServiceContract for MockService {
+        type Input = String;
+        type Output = bool;
+
+        fn id(&self) -> &str {
+            "mock"
+        }
+
+        fn invoke(&self, _input: &String, _cost: &mut Cost) -> Result<bool, Defect> {
+            // Deterministic: pass when the input is anything (the criterion's
+            // rate gate decides pass/fail), keyed off the configured rate.
+            Ok(self.success_rate > 0.5)
+        }
+
+        fn criteria(&self) -> Criteria<bool> {
+            Criteria::of([Criteria::meeting()
+                .pass_rate(0.5)
+                .name("meets-rate")
+                .satisfies("meets-rate", |passed: &bool| -> Outcome {
+                    if *passed {
+                        Ok(())
+                    } else {
+                        Err(ContractViolation::new("rate", "below configured rate"))
+                    }
+                })
+                .build()])
         }
     }
 
@@ -501,7 +545,6 @@ mod tests {
             .service_contract(MockService::from_factor)
             .samples_per_config(5)
             .inputs(&inputs)
-            .trial(|_svc: &MockService, _input| TrialOutcome::success(Duration::ZERO))
             .build()
             .run();
 
@@ -521,7 +564,6 @@ mod tests {
             .service_contract(MockService::from_factor)
             .samples_per_config(10)
             .inputs(&inputs)
-            .trial(|_svc: &MockService, _input| TrialOutcome::success(Duration::ZERO))
             .build()
             .run();
 
@@ -545,16 +587,6 @@ mod tests {
             .service_contract(MockService::from_factor)
             .samples_per_config(5)
             .inputs(&inputs)
-            .trial(|svc: &MockService, _input| {
-                if svc.success_rate > 0.5 {
-                    TrialOutcome::success(Duration::ZERO)
-                } else {
-                    TrialOutcome::failure(
-                        crate::model::ContractViolation::new("test", "forced failure"),
-                        Duration::ZERO,
-                    )
-                }
-            })
             .build()
             .run();
 

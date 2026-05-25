@@ -2,10 +2,12 @@
 
 use std::collections::BTreeMap;
 use std::fmt;
-use std::time::Duration;
 
+use feotest::controls::Cost;
+use feotest::criteria::Criteria;
 use feotest::experiment::ExploreExperiment;
-use feotest::model::TrialOutcome;
+use feotest::model::Defect;
+use feotest::service_contract::ServiceContract;
 use feotest::spec::explore::{ExplorationSpec, ExploreSpecWriter, FactorYamlValue};
 
 /// A factor variant for exploration. `Display` supplies the
@@ -20,8 +22,30 @@ impl fmt::Display for ConfigFactor {
     }
 }
 
-/// A minimal service contract that the factory produces from each factor.
+/// A minimal always-pass service contract that the factory produces from each
+/// factor.
 struct MockService;
+
+impl ServiceContract for MockService {
+    type Input = String;
+    type Output = String;
+
+    fn id(&self) -> &str {
+        "mock"
+    }
+
+    fn invoke(&self, input: &String, _cost: &mut Cost) -> Result<String, Defect> {
+        Ok(input.clone())
+    }
+
+    fn criteria(&self) -> Criteria<String> {
+        Criteria::of([Criteria::meeting()
+            .pass_rate(0.5)
+            .name("ok")
+            .satisfies("ok", |_: &String| Ok(()))
+            .build()])
+    }
+}
 
 fn mock_service_factory(_factor: &ConfigFactor) -> MockService {
     MockService
@@ -43,7 +67,6 @@ fn explore_writes_per_config_yaml_files() {
         .service_contract(mock_service_factory)
         .samples_per_config(5)
         .inputs(&inputs)
-        .trial(|_svc: &MockService, _input| TrialOutcome::success(Duration::from_millis(1)))
         .experiment_id("test-explore")
         .output_dir(dir.path())
         .build()
@@ -79,7 +102,6 @@ fn explore_yaml_contains_correct_content() {
         .service_contract(mock_service_factory)
         .samples_per_config(10)
         .inputs(&inputs)
-        .trial(|_svc: &MockService, _input| TrialOutcome::success(Duration::from_millis(5)))
         .output_dir(dir.path())
         .build()
         .run();
@@ -106,7 +128,6 @@ fn explore_without_output_dir_produces_no_files() {
         .service_contract(mock_service_factory)
         .samples_per_config(5)
         .inputs(&inputs)
-        .trial(|_svc: &MockService, _input| TrialOutcome::success(Duration::from_millis(1)))
         .build()
         .run();
 
@@ -127,7 +148,6 @@ fn explore_spec_writer_standalone() {
         .service_contract(mock_service_factory)
         .samples_per_config(5)
         .inputs(&inputs)
-        .trial(|_svc: &MockService, _input| TrialOutcome::success(Duration::from_millis(1)))
         .build()
         .run();
 
@@ -153,7 +173,6 @@ fn explore_yaml_is_descriptive_not_inferential() {
         .service_contract(mock_service_factory)
         .samples_per_config(5)
         .inputs(&inputs)
-        .trial(|_svc: &MockService, _input| TrialOutcome::success(Duration::from_millis(1)))
         .output_dir(dir.path())
         .build()
         .run();
