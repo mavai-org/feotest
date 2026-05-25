@@ -443,8 +443,8 @@ impl<'a, T> ProbabilisticTestBuilder<'a, T> {
     /// the best-matching baseline rather than returning the first
     /// match. If the service contract declares no covariates, this is a no-op.
     #[must_use]
-    pub fn covariate_source(mut self, service_contract: &dyn ServiceContract) -> Self {
-        self.covariate_context = CovariateContext::from_service_contract(service_contract);
+    pub fn covariate_source<C: ServiceContract>(mut self, service_contract: &C) -> Self {
+        self.covariate_context = CovariateContext::from_contract(service_contract);
         self
     }
 

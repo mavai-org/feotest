@@ -29,6 +29,9 @@ struct CovariateServiceContract {
 }
 
 impl ServiceContract for CovariateServiceContract {
+    type Input = String;
+    type Output = String;
+
     fn id(&self) -> &str {
         self.id
     }
@@ -42,6 +45,22 @@ impl ServiceContract for CovariateServiceContract {
 
     fn resolve_covariates(&self) -> CovariateProfile {
         CovariateProfile::builder().put("model", self.model).build()
+    }
+
+    fn invoke(
+        &self,
+        input: &String,
+        _cost: &mut feotest::controls::Cost,
+    ) -> Result<String, feotest::model::Defect> {
+        Ok(input.clone())
+    }
+
+    fn criteria(&self) -> feotest::criteria::Criteria<String> {
+        feotest::criteria::Criteria::of([feotest::criteria::Criteria::meeting()
+            .pass_rate(0.5)
+            .name("response received")
+            .satisfies("response received", |_: &String| Ok(()))
+            .build()])
     }
 }
 

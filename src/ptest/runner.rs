@@ -634,6 +634,16 @@ mod tests {
         TrialOutcome::success(Duration::from_millis(1))
     }
 
+    /// A single always-pass criterion for fixtures that exist to exercise
+    /// identity / covariate selection rather than response judging.
+    fn trivial_criteria() -> crate::criteria::Criteria<String> {
+        crate::criteria::Criteria::of([crate::criteria::Criteria::meeting()
+            .pass_rate(0.5)
+            .name("response received")
+            .satisfies("response received", |_: &String| Ok(()))
+            .build()])
+    }
+
     fn mostly_succeeds(input: &str) -> TrialOutcome {
         // Deterministic "failure" for specific inputs
         if input == "fail" {
@@ -768,8 +778,20 @@ mod tests {
         // Create a baseline via measure experiment
         struct SpecTestUc;
         impl crate::service_contract::ServiceContract for SpecTestUc {
+            type Input = String;
+            type Output = String;
             fn id(&self) -> &str {
                 "spec-test"
+            }
+            fn invoke(
+                &self,
+                input: &String,
+                _cost: &mut crate::controls::Cost,
+            ) -> Result<String, crate::model::Defect> {
+                Ok(input.clone())
+            }
+            fn criteria(&self) -> crate::criteria::Criteria<String> {
+                trivial_criteria()
             }
         }
         let inputs = vec!["input".to_string()];
@@ -806,8 +828,20 @@ mod tests {
 
         struct ConfTestUc;
         impl crate::service_contract::ServiceContract for ConfTestUc {
+            type Input = String;
+            type Output = String;
             fn id(&self) -> &str {
                 "conf-test"
+            }
+            fn invoke(
+                &self,
+                input: &String,
+                _cost: &mut crate::controls::Cost,
+            ) -> Result<String, crate::model::Defect> {
+                Ok(input.clone())
+            }
+            fn criteria(&self) -> crate::criteria::Criteria<String> {
+                trivial_criteria()
             }
         }
         let inputs = vec!["input".to_string()];
@@ -854,6 +888,8 @@ mod tests {
 
         struct CovUc;
         impl ServiceContract for CovUc {
+            type Input = String;
+            type Output = String;
             fn id(&self) -> &str {
                 "cov-integrity"
             }
@@ -865,6 +901,16 @@ mod tests {
             }
             fn resolve_covariates(&self) -> CovariateProfile {
                 CovariateProfile::builder().put("model", "gpt-4o").build()
+            }
+            fn invoke(
+                &self,
+                input: &String,
+                _cost: &mut crate::controls::Cost,
+            ) -> Result<String, crate::model::Defect> {
+                Ok(input.clone())
+            }
+            fn criteria(&self) -> crate::criteria::Criteria<String> {
+                trivial_criteria()
             }
         }
 
@@ -917,8 +963,20 @@ mod tests {
 
         struct SimpleUc;
         impl crate::service_contract::ServiceContract for SimpleUc {
+            type Input = String;
+            type Output = String;
             fn id(&self) -> &str {
                 "integrity-simple"
+            }
+            fn invoke(
+                &self,
+                input: &String,
+                _cost: &mut crate::controls::Cost,
+            ) -> Result<String, crate::model::Defect> {
+                Ok(input.clone())
+            }
+            fn criteria(&self) -> crate::criteria::Criteria<String> {
+                trivial_criteria()
             }
         }
 

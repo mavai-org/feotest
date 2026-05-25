@@ -61,8 +61,27 @@ impl SimpleServiceContract {
 }
 
 impl ServiceContract for SimpleServiceContract {
+    type Input = String;
+    type Output = String;
+
     fn id(&self) -> &str {
         &self.id
+    }
+
+    fn invoke(
+        &self,
+        input: &String,
+        _cost: &mut feotest::controls::Cost,
+    ) -> Result<String, feotest::model::Defect> {
+        Ok(input.clone())
+    }
+
+    fn criteria(&self) -> feotest::criteria::Criteria<String> {
+        feotest::criteria::Criteria::of([feotest::criteria::Criteria::meeting()
+            .pass_rate(0.5)
+            .name("response received")
+            .satisfies("response received", |_: &String| Ok(()))
+            .build()])
     }
 }
 

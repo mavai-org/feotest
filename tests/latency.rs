@@ -24,6 +24,16 @@ fn threshold_first(samples: u32, pass_rate: f64) -> ThresholdApproach {
     }
 }
 
+/// A single always-pass criterion for fixtures that exercise the latency path
+/// rather than response judging.
+fn trivial_criteria() -> feotest::criteria::Criteria<String> {
+    feotest::criteria::Criteria::of([feotest::criteria::Criteria::meeting()
+        .pass_rate(0.5)
+        .name("response received")
+        .satisfies("response received", |_: &String| Ok(()))
+        .build()])
+}
+
 // Scenario 1 — no latency config → dimension absent, assert_all ≡ assert_contract.
 #[test]
 fn scenario_no_latency_config_dimension_absent() {
@@ -114,8 +124,20 @@ fn build_baseline_and_run(
         id: &'static str,
     }
     impl feotest::service_contract::ServiceContract for Uc {
+        type Input = String;
+        type Output = String;
         fn id(&self) -> &str {
             self.id
+        }
+        fn invoke(
+            &self,
+            input: &String,
+            _cost: &mut feotest::controls::Cost,
+        ) -> Result<String, feotest::model::Defect> {
+            Ok(input.clone())
+        }
+        fn criteria(&self) -> feotest::criteria::Criteria<String> {
+            trivial_criteria()
         }
     }
 
@@ -191,8 +213,20 @@ fn scenario_baseline_p95_violated_strict_via_builder() {
 fn scenario_p99_with_small_baseline_is_infeasible() {
     struct Uc;
     impl feotest::service_contract::ServiceContract for Uc {
+        type Input = String;
+        type Output = String;
         fn id(&self) -> &str {
             "latency-scenario-11"
+        }
+        fn invoke(
+            &self,
+            input: &String,
+            _cost: &mut feotest::controls::Cost,
+        ) -> Result<String, feotest::model::Defect> {
+            Ok(input.clone())
+        }
+        fn criteria(&self) -> feotest::criteria::Criteria<String> {
+            trivial_criteria()
         }
     }
     let dir = tempfile::tempdir().unwrap();
@@ -241,8 +275,20 @@ fn scenario_p99_with_small_baseline_is_infeasible() {
 fn measure_round_trip_preserves_latency_block() {
     struct Uc;
     impl feotest::service_contract::ServiceContract for Uc {
+        type Input = String;
+        type Output = String;
         fn id(&self) -> &str {
             "latency-scenario-9"
+        }
+        fn invoke(
+            &self,
+            input: &String,
+            _cost: &mut feotest::controls::Cost,
+        ) -> Result<String, feotest::model::Defect> {
+            Ok(input.clone())
+        }
+        fn criteria(&self) -> feotest::criteria::Criteria<String> {
+            trivial_criteria()
         }
     }
     let dir = tempfile::tempdir().unwrap();

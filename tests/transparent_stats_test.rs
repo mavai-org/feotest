@@ -67,8 +67,24 @@ fn render_with_sample_size_first_approach() {
 
     struct Uc;
     impl feotest::service_contract::ServiceContract for Uc {
+        type Input = String;
+        type Output = String;
         fn id(&self) -> &str {
             "transparent-ssf"
+        }
+        fn invoke(
+            &self,
+            input: &String,
+            _cost: &mut feotest::controls::Cost,
+        ) -> Result<String, feotest::model::Defect> {
+            Ok(input.clone())
+        }
+        fn criteria(&self) -> feotest::criteria::Criteria<String> {
+            feotest::criteria::Criteria::of([feotest::criteria::Criteria::meeting()
+                .pass_rate(0.5)
+                .name("response received")
+                .satisfies("response received", |_: &String| Ok(()))
+                .build()])
         }
     }
     let uc = Uc;

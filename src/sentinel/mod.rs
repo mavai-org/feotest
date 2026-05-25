@@ -160,8 +160,27 @@ mod tests {
     }
 
     impl ServiceContract for TrivialServiceContract {
+        type Input = String;
+        type Output = String;
+
         fn id(&self) -> &str {
             &self.id
+        }
+
+        fn invoke(
+            &self,
+            input: &String,
+            _cost: &mut crate::controls::Cost,
+        ) -> Result<String, crate::model::Defect> {
+            Ok(input.clone())
+        }
+
+        fn criteria(&self) -> crate::criteria::Criteria<String> {
+            crate::criteria::Criteria::of([crate::criteria::Criteria::meeting()
+                .pass_rate(0.5)
+                .name("response received")
+                .satisfies("response received", |_: &String| Ok(()))
+                .build()])
         }
     }
 
@@ -246,11 +265,6 @@ mod tests {
         fn trivial(&self) -> impl ServiceContract {
             TrivialServiceContract::with_id(&format!("{}trivial", self.id_seed))
         }
-
-        #[service_contract_factory]
-        fn boxed_trivial(&self) -> Box<dyn ServiceContract> {
-            Box::new(TrivialServiceContract::with_id(&format!("{}boxed", self.id_seed)))
-        }
     }
 
     #[test]
@@ -259,7 +273,6 @@ mod tests {
             id_seed: String::new(),
         };
         assert_eq!(spec.trivial().id(), "trivial");
-        assert_eq!(spec.boxed_trivial().id(), "boxed");
         // Covariate access via the trait is unaffected by the marker macro.
         assert!(spec.trivial().covariates().is_empty());
         let profile: CovariateProfile = spec.trivial().resolve_covariates();

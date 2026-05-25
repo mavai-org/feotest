@@ -7,14 +7,28 @@
 
 use std::fmt;
 
+use crate::controls::Cost;
+use crate::criteria::Criteria;
+use crate::model::Defect;
 use crate::spec::namer::CovariateProfile;
 
-/// A named, repeatable service invocation.
+/// A named, repeatable service invocation together with how its responses are
+/// judged.
 ///
-/// Implementations define the identity and metadata of a service contract.
-/// The actual service call logic lives in trial closures passed to
-/// experiment and test builders, not in this trait.
+/// A contract carries its identity and metadata, knows how to [`invoke`] the
+/// service to produce a raw response, and exposes the [`criteria`] that judge
+/// that response. One `impl` block per contract defines the whole thing.
+///
+/// [`invoke`]: ServiceContract::invoke
+/// [`criteria`]: ServiceContract::criteria
 pub trait ServiceContract: Send + Sync {
+    /// The input fed to each invocation.
+    type Input;
+
+    /// The raw response the service returns — malformed or not. Criteria parse
+    /// and judge it; a malformed response is a contract failure, not a defect.
+    type Output;
+
     /// Unique identifier for this service contract.
     ///
     /// Used in spec filenames, reports, and CLI output.
@@ -52,6 +66,27 @@ pub trait ServiceContract: Send + Sync {
     fn resolve_covariates(&self) -> CovariateProfile {
         CovariateProfile::empty()
     }
+
+    /// Invokes the service once, producing its raw response.
+    ///
+    /// Returns `Ok(output)` whenever a response — well-formed or malformed —
+    /// comes back; the response is judged by [`criteria`](Self::criteria).
+    /// Returns `Err(Defect)` only when *no* response is obtainable (a transport
+    /// failure, or a panic-class fault): a defect aborts the run, subject to
+    /// the exception policy, rather than counting as a failed sample.
+    ///
+    /// The service call reports its token cost through `cost`.
+    ///
+    /// # Errors
+    ///
+    /// Returns `Err(Defect)` when the service yields no response at all.
+    fn invoke(&self, input: &Self::Input, cost: &mut Cost) -> Result<Self::Output, Defect>;
+
+    /// The acceptance criteria for this contract.
+    ///
+    /// Each criterion is judged independently on every sample's response — no
+    /// short-circuit across criteria — yielding a pass rate per criterion.
+    fn criteria(&self) -> Criteria<Self::Output>;
 }
 
 /// A service contract that exposes configurable factors.
@@ -255,13 +290,17 @@ impl CovariateContext {
     ///
     /// Extracts declarations and resolves the current profile. Returns
     /// `None` if the service contract declares no covariates.
+    ///
+    /// Generic over the concrete contract type: the fused [`ServiceContract`]
+    /// trait carries associated types and so is not object-safe, but covariate
+    /// selection only needs the metadata methods.
     #[must_use]
-    pub fn from_service_contract(service_contract: &dyn ServiceContract) -> Option<Self> {
-        let declarations = service_contract.covariates();
+    pub fn from_contract<C: ServiceContract>(contract: &C) -> Option<Self> {
+        let declarations = contract.covariates();
         if declarations.is_empty() {
             return None;
         }
-        let profile = service_contract.resolve_covariates();
+        let profile = contract.resolve_covariates();
         Some(Self {
             declarations,
             profile,
@@ -301,9 +340,22 @@ pub fn validate_covariates(covariates: &[CovariateDeclaration]) {
 mod tests {
     use super::*;
 
+    /// A single always-pass criterion for fixtures that exercise the trait's
+    /// metadata/identity surface rather than response judging.
+    fn trivial_criteria() -> Criteria<String> {
+        Criteria::of([Criteria::meeting()
+            .pass_rate(0.5)
+            .name("response received")
+            .satisfies("response received", |_: &String| Ok(()))
+            .build()])
+    }
+
     struct TestServiceContract;
 
     impl ServiceContract for TestServiceContract {
+        type Input = String;
+        type Output = String;
+
         fn id(&self) -> &str {
             "test.use-case"
         }
@@ -314,6 +366,14 @@ mod tests {
 
         fn warmup(&self) -> u32 {
             5
+        }
+
+        fn invoke(&self, input: &String, _cost: &mut Cost) -> Result<String, Defect> {
+            Ok(input.clone())
+        }
+
+        fn criteria(&self) -> Criteria<String> {
+            trivial_criteria()
         }
     }
 
@@ -329,8 +389,19 @@ mod tests {
     fn default_warmup_is_zero() {
         struct Minimal;
         impl ServiceContract for Minimal {
+            type Input = String;
+            type Output = String;
+
             fn id(&self) -> &str {
                 "minimal"
+            }
+
+            fn invoke(&self, input: &String, _cost: &mut Cost) -> Result<String, Defect> {
+                Ok(input.clone())
+            }
+
+            fn criteria(&self) -> Criteria<String> {
+                trivial_criteria()
             }
         }
         assert_eq!(Minimal.warmup(), 0);
@@ -360,8 +431,19 @@ mod tests {
     }
 
     impl ServiceContract for ConfigurableServiceContract {
+        type Input = String;
+        type Output = String;
+
         fn id(&self) -> &str {
             "configurable"
+        }
+
+        fn invoke(&self, input: &String, _cost: &mut Cost) -> Result<String, Defect> {
+            Ok(input.clone())
+        }
+
+        fn criteria(&self) -> Criteria<String> {
+            trivial_criteria()
         }
     }
 
@@ -500,6 +582,9 @@ mod tests {
     fn service_contract_with_covariates() {
         struct WithCovariates;
         impl ServiceContract for WithCovariates {
+            type Input = String;
+            type Output = String;
+
             fn id(&self) -> &str {
                 "with-covariates"
             }
@@ -509,6 +594,12 @@ mod tests {
                     CovariateDeclaration::time_of_day(),
                     CovariateDeclaration::new("llm_model", CovariateCategory::ExternalDependency),
                 ]
+            }
+            fn invoke(&self, input: &String, _cost: &mut Cost) -> Result<String, Defect> {
+                Ok(input.clone())
+            }
+            fn criteria(&self) -> Criteria<String> {
+                trivial_criteria()
             }
         }
 
@@ -539,6 +630,9 @@ mod tests {
     fn covariate_context_from_service_contract_with_covariates() {
         struct WithCovs;
         impl ServiceContract for WithCovs {
+            type Input = String;
+            type Output = String;
+
             fn id(&self) -> &str {
                 "ctx-test"
             }
@@ -548,15 +642,21 @@ mod tests {
             fn resolve_covariates(&self) -> CovariateProfile {
                 CovariateProfile::builder().put("region", "EU").build()
             }
+            fn invoke(&self, input: &String, _cost: &mut Cost) -> Result<String, Defect> {
+                Ok(input.clone())
+            }
+            fn criteria(&self) -> Criteria<String> {
+                trivial_criteria()
+            }
         }
 
-        let ctx = CovariateContext::from_service_contract(&WithCovs).unwrap();
+        let ctx = CovariateContext::from_contract(&WithCovs).unwrap();
         assert_eq!(ctx.declarations().len(), 1);
         assert_eq!(ctx.profile().get("region"), Some("EU"));
     }
 
     #[test]
     fn covariate_context_none_for_no_covariates() {
-        assert!(CovariateContext::from_service_contract(&TestServiceContract).is_none());
+        assert!(CovariateContext::from_contract(&TestServiceContract).is_none());
     }
 }
