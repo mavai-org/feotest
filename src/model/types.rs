@@ -584,7 +584,7 @@ impl PacingSummary {
         self.max_rpm
     }
 
-    /// Maximum concurrent requests (always 1 until RC11).
+    /// Maximum concurrent requests (always 1 until configurable concurrency lands).
     #[must_use]
     pub const fn max_concurrent(&self) -> u32 {
         self.max_concurrent
@@ -596,7 +596,7 @@ impl PacingSummary {
         self.effective_min_delay_ms
     }
 
-    /// Effective concurrency level (always 1 until RC11).
+    /// Effective concurrency level (always 1 until configurable concurrency lands).
     #[must_use]
     pub const fn effective_concurrency(&self) -> u32 {
         self.effective_concurrency

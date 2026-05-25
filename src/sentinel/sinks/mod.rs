@@ -31,7 +31,7 @@
 //!
 //! - [`ConsoleVerdictSink`] — tab-separated verdict lines on stdout. The
 //!   default when no sink is explicitly configured. Preserves the CLI
-//!   output shape SN02 established.
+//!   output shape the sentinel binary established.
 //! - [`FileVerdictSink`] — one JSON-Lines record per verdict, appended to
 //!   the configured path. Opens the file on [`initialize`] and closes it
 //!   on [`finalize`]. No rotation.

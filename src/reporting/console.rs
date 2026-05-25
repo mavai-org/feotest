@@ -1,7 +1,7 @@
 //! Console verdict renderer.
 //!
 //! Formats a [`VerdictRecord`] into a human-readable console output following
-//! the RP05 verdict output contract: header with verdict reason, body with
+//! the console verdict output contract: header with verdict reason, body with
 //! section-by-section detail, optional colour support.
 
 use std::fmt;

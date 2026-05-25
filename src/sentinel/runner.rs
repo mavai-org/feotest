@@ -1,7 +1,7 @@
 //! Sentinel runner and CLI entry point.
 //!
 //! [`SentinelRunner`] is the execution core the CLI delegates to. It
-//! enumerates registered reliability specifications (SN01) and their
+//! enumerates registered reliability specifications and their
 //! content (tests and experiments), dispatches to test or measure mode,
 //! and aggregates results into a [`SentinelResult`]. [`run_cli`] is the
 //! single public entry point downstream sentinel binaries wire into
@@ -43,8 +43,8 @@ pub enum SentinelOutcome {
 impl SentinelOutcome {
     /// Maps the summary onto a process exit code.
     ///
-    /// SN02 uses the simple `0` / `1` pairing. The richer taxonomy from
-    /// SN07 (`2` inconclusive, `3` error, `4` usage) layers on later.
+    /// The sentinel binary uses the simple `0` / `1` pairing. The richer
+    /// exit-code taxonomy (`2` inconclusive, `3` error, `4` usage) layers on later.
     #[must_use]
     pub const fn exit_code(self) -> ExitCode {
         match self {

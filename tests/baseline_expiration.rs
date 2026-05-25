@@ -1,4 +1,4 @@
-//! Integration tests for EX08 baseline expiration.
+//! Integration tests for baseline expiration.
 
 use std::time::{Duration, SystemTime};
 

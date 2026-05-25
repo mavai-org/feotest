@@ -5,8 +5,8 @@ use std::fmt;
 
 /// The set of percentiles that may be asserted on a latency dimension.
 ///
-/// Matches the levels declared in the reference oracle
-/// (`javai-R/R/latency.R`) and in punit.
+/// Matches the levels declared in the javai conformance reference
+/// (`javai-R/R/latency.R`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Percentile {
     /// 50th percentile (median).

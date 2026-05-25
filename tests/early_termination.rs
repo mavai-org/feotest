@@ -1,6 +1,5 @@
-//! Integration tests for PT09 (failure inevitable) and PT10
-//! (success guaranteed) early termination driven through the
-//! probabilistic-test runner.
+//! Integration tests for failure-inevitable and success-guaranteed
+//! early termination driven through the probabilistic-test runner.
 
 use std::time::Duration;
 
@@ -54,7 +53,7 @@ fn always_fail(_input: &str) -> TrialOutcome {
     )
 }
 
-// --- PT09: runner-driven failure-inevitable termination ---
+// --- runner-driven failure-inevitable termination ---
 
 #[test]
 fn threshold_first_terminates_on_failure_inevitable() {
@@ -116,7 +115,7 @@ fn sample_size_first_terminates_on_failure_inevitable() {
     assert!(record.execution().samples_executed() < 200);
 }
 
-// --- PT10: runner-driven success-guaranteed termination ---
+// --- runner-driven success-guaranteed termination ---
 
 #[test]
 fn threshold_first_terminates_on_success_guaranteed() {
@@ -163,7 +162,7 @@ fn validity_floor_delays_runner_success_guaranteed() {
         record.execution().termination().reason(),
         &TerminationReason::SuccessGuaranteed
     );
-    // The naive PT10 threshold would fire at sample = ceil(500 * 0.90)
+    // The naive success-guaranteed threshold would fire at sample = ceil(500 * 0.90)
     // = 450. The validity floor must push it to at least the minimum
     // required for a 95 %-confidence Wilson verdict at target 0.9,
     // which is well above that 450 figure in the general case — we

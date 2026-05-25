@@ -1,8 +1,8 @@
 //! Covariate-aware baseline selection.
 //!
 //! Given a set of candidate baselines and the current runtime covariate
-//! profile, selects the candidate that best matches. The algorithm mirrors
-//! punit's two-phase approach: hard gates first, then soft scoring.
+//! profile, selects the candidate that best matches. The algorithm is a
+//! two-phase approach: hard gates first, then soft scoring.
 
 use std::fmt;
 

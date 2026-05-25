@@ -22,8 +22,8 @@
 //!
 //! # Cross-framework compatibility
 //!
-//! This scheme matches punit's `BaselineFileNamer`. The same service contract with
-//! the same covariates produces the same filename structure in both
+//! This scheme follows the shared baseline file-naming scheme. The same service
+//! contract with the same covariates produces the same filename structure across
 //! frameworks (though hash values may differ due to implementation details).
 
 use std::fmt::Write as _;

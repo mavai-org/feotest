@@ -111,8 +111,8 @@ const fn extract_baseline(
 /// Extracts the resolved confidence level from an approach.
 ///
 /// For `SampleSizeFirst` and `ConfidenceFirst`, returns the user-supplied
-/// confidence. For `ThresholdFirst`, returns the framework default (matching
-/// punit's `resolvedConfidence` behaviour).
+/// confidence. For `ThresholdFirst`, returns the framework default (the
+/// confidence-first resolution).
 // javai-ref: JVI-2FYNHXX — do not remove (resolves in javai-orchestrator)
 pub fn resolved_confidence(approach: &ThresholdApproach) -> ConfidenceLevel {
     match approach {

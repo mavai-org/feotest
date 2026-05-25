@@ -7,7 +7,7 @@
 //! application/json`). Transport errors and non-2xx responses are
 //! captured as [`SinkError::DeliveryFailed`] — the composite sink
 //! logs them and the run continues. The sink attempts delivery once
-//! per verdict; retry/back-off is deliberately out of scope for SN03.
+//! per verdict; retry/back-off is deliberately out of scope for the verdict sinks.
 
 use std::time::Duration;
 
