@@ -7,12 +7,14 @@
 //! threshold, minimum-sample feasibility) live in `crate::statistics::latency`
 //! and are exercised by the conformance suite.
 
+pub mod criterion;
 pub mod dimension;
 pub mod enforcement;
 pub mod percentile;
 pub mod resolver;
 pub mod thresholds;
 
+pub use criterion::LatencyCriterion;
 pub use dimension::{EvaluationStatus, LatencyDimension, LatencyEvaluation};
 pub use enforcement::{LatencyEnforcementMode, resolved_mode_from_env};
 pub use percentile::Percentile;
