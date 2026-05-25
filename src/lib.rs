@@ -18,7 +18,6 @@
 //! - **`verdict`** — the logic that maps statistical results to pass/fail
 //!   decisions.
 //! - **`spec`** — baseline specifications describing expected service behaviour.
-//! - **`contract`** — success/failure criteria for individual service invocations.
 //! - **`controls`** — operational safeguards: warm-up, budgets, catastrophic
 //!   outcome handling.
 //! - **`experiment`** — experiment workflows for establishing empirical baselines.
@@ -38,7 +37,6 @@
 // both inside this crate and in downstream consumers.
 extern crate self as feotest;
 
-pub mod contract;
 pub mod controls;
 pub mod criteria;
 pub mod experiment;

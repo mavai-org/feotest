@@ -128,11 +128,14 @@ pub enum BudgetExhaustedBehavior {
     EvaluatePartial,
 }
 
-/// How the execution engine treats panics or errors during trial execution.
+/// How the execution engine treats a defect during a sample — an `Err(Defect)`
+/// from the service invocation or a caught panic.
 ///
-/// Note: per design decision, panics in trial closures are *not* caught.
-/// A panic is a defect, not a contract violation. This enum exists for
-/// future extensibility but currently only the `Abort` variant is used.
+/// The contract-driven engine wraps each sample in `catch_unwind`, so a panic
+/// is caught and treated as a defect rather than tearing down the run. A defect
+/// is not a contract violation: it aborts the run. Only the `Abort` variant
+/// exists today; a "count as a failed sample" variant is left for future
+/// extensibility.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ExceptionHandling {
     /// Abort the entire test run immediately.
