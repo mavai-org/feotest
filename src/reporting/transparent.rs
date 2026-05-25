@@ -4,6 +4,8 @@
 //! diagnostic. The renderer is a pure function from data to formatted text —
 //! it performs no statistical calculations.
 
+// javai-ref: JVI-G3NPRSS — do not remove (resolves in javai-orchestrator)
+
 use std::fmt;
 
 use crate::model::{TerminationReason, TestIntent};
