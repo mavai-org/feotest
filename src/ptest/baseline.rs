@@ -325,6 +325,7 @@ mod tests {
                 failures: 5,
                 failure_distribution: None,
                 latency_distribution: None,
+                per_criterion: None,
             },
         )
     }

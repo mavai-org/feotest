@@ -113,6 +113,41 @@ pub struct StatisticsBlock {
     /// runs that produced no successful trials.
     #[serde(default, skip_serializing_if = "Option::is_none", alias = "latency")]
     pub latency_distribution: Option<LatencyBlock>,
+
+    /// Per-criterion success-rate statistics, keyed by criterion name.
+    ///
+    /// Present when the measured contract declared more than one criterion (or
+    /// declared one by name): each `empirical()` criterion resolves *its own*
+    /// target from its entry here. The aggregate [`success_rate`] above remains
+    /// the whole-contract figure. Absent for single, unnamed-criterion
+    /// baselines and for baselines generated before per-criterion measurement
+    /// existed — those resolve every empirical criterion against the aggregate.
+    ///
+    /// [`success_rate`]: Self::success_rate
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub per_criterion: Option<std::collections::BTreeMap<String, CriterionStatistics>>,
+}
+
+/// Per-criterion success-rate statistics within a baseline spec.
+///
+/// Mirrors the whole-contract figures ([`StatisticsBlock`]) for a single
+/// named criterion, so an `empirical()` criterion can derive its target from
+/// the rate observed for *that* criterion during measurement.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CriterionStatistics {
+    /// Success rate statistics for this criterion.
+    pub success_rate: SuccessRateBlock,
+
+    /// Raw success count for this criterion.
+    pub successes: u32,
+
+    /// Raw failure count for this criterion.
+    pub failures: u32,
+
+    /// Distribution of this criterion's failures by postcondition check name.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub failure_distribution: Option<std::collections::BTreeMap<String, u32>>,
 }
 
 /// Latency block within a baseline spec.
@@ -369,6 +404,7 @@ mod tests {
                 failures: 223,
                 failure_distribution: None,
                 latency_distribution: None,
+                per_criterion: None,
             },
         )
     }
@@ -384,6 +420,46 @@ mod tests {
         assert_eq!(restored.execution.samples_executed, 1000);
         assert!((restored.requirements.min_pass_rate - 0.7512).abs() < 1e-10);
         assert_eq!(restored.statistics.successes, 777);
+    }
+
+    #[test]
+    fn per_criterion_statistics_round_trip() {
+        let mut spec = sample_spec();
+        let mut per_criterion = BTreeMap::new();
+        per_criterion.insert(
+            "non-empty".to_string(),
+            CriterionStatistics {
+                success_rate: SuccessRateBlock {
+                    observed: 0.95,
+                    standard_error: 0.0069,
+                    confidence_interval95: [0.9364, 0.9636],
+                },
+                successes: 950,
+                failures: 50,
+                failure_distribution: None,
+            },
+        );
+        spec.statistics.per_criterion = Some(per_criterion);
+
+        let yaml = spec.to_yaml().unwrap();
+        assert!(yaml.contains("perCriterion"));
+
+        let restored = BaselineSpec::parse_yaml(&yaml).unwrap();
+        let criterion = &restored.statistics.per_criterion.unwrap()["non-empty"];
+        assert_eq!(criterion.successes, 950);
+        assert_eq!(criterion.failures, 50);
+        assert!((criterion.success_rate.observed - 0.95).abs() < 1e-10);
+    }
+
+    #[test]
+    fn per_criterion_absent_by_default_and_parses_when_omitted() {
+        // A single-criterion baseline carries no per-criterion block, and a
+        // spec written without one still parses (backward compatibility).
+        let spec = sample_spec();
+        let yaml = spec.to_yaml().unwrap();
+        assert!(!yaml.contains("perCriterion"));
+        let restored = BaselineSpec::parse_yaml(&yaml).unwrap();
+        assert!(restored.statistics.per_criterion.is_none());
     }
 
     #[test]
