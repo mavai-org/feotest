@@ -20,7 +20,7 @@ pub struct CriterionCounts {
 }
 
 impl CriterionCounts {
-    fn new(criterion: String) -> Self {
+    const fn new(criterion: String) -> Self {
         Self {
             criterion,
             pass: 0,
@@ -81,7 +81,7 @@ impl CriterionCounts {
     /// order. A failed transform is keyed by the transform's check name like
     /// any other violation.
     #[must_use]
-    pub fn failure_distribution(&self) -> &BTreeMap<String, u32> {
+    pub const fn failure_distribution(&self) -> &BTreeMap<String, u32> {
         &self.failure_distribution
     }
 }

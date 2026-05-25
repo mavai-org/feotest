@@ -108,6 +108,17 @@ impl<O: 'static> Criteria<O> {
     pub fn names(&self) -> Vec<&str> {
         self.criteria.iter().map(Criterion::name).collect()
     }
+
+    /// Each criterion's name paired with the target it is judged against, in
+    /// declaration order. The verdict layer uses these to resolve a per-
+    /// criterion threshold.
+    #[must_use]
+    pub fn targets(&self) -> Vec<(&str, &CriterionTarget)> {
+        self.criteria
+            .iter()
+            .map(|c| (c.name(), c.target()))
+            .collect()
+    }
 }
 
 impl<O> std::fmt::Debug for Criteria<O> {

@@ -1,10 +1,14 @@
 //! Probabilistic test execution and verdict production.
 
-use crate::controls::{ExecutionConfig, TokenRecorder};
-use crate::experiment::ExecutionEngine;
+use crate::controls::{Cost, ExecutionConfig, TokenRecorder};
+use crate::criteria::{CriteriaCounts, CriterionCounts, CriterionTarget};
+use crate::experiment::{ExecutionEngine, SampleEvaluation};
 use crate::latency::{
-    LatencyDimension, LatencyEnforcementMode, LatencyThresholds, enforcement, resolver,
+    LatencyCriterion, LatencyDimension, LatencyEnforcementMode, LatencyThresholds, enforcement,
+    resolver,
 };
+use crate::service_contract::ServiceContract;
+use crate::statistics::types::{ConfidenceLevel, DerivationContext, OperationalApproach};
 use crate::model::{
     BudgetExhaustedBehavior, ExecutionSummary, ExpirationInfo, PacingSummary, TerminationReason,
     TestIdentity, TestIntent, ThresholdOrigin, TrialOutcome, Warning,
@@ -15,7 +19,7 @@ use crate::ptest::diagnostics;
 use crate::service_contract::CovariateContext;
 use crate::spec::{BaselineSpec, SpecResolver};
 use crate::statistics::types::{DerivedThreshold, FeasibilityResult};
-use crate::statistics::{evaluator, feasibility, proportion};
+use crate::statistics::{evaluator, feasibility, proportion, threshold};
 use crate::verdict::{
     BaselineProvenance, CriterionRow, FunctionalAssessment, SpecProvenance, StatisticalAnalysis,
     Verdict, VerdictRecord,
@@ -622,6 +626,305 @@ fn build_provenance(
         provenance = provenance.with_contract_ref(cref);
     }
     provenance
+}
+
+/// The sampling plan and provenance for a contract-driven run, assembled by
+/// the [`ContractTest`](crate::ptest::ContractTest) builder.
+pub struct ContractTestPlan {
+    /// Number of counted samples (sample-size-first plan).
+    pub samples: u32,
+    /// Confidence level applied to every criterion's verdict.
+    pub confidence: ConfidenceLevel,
+    /// Whether this is a verification or smoke test.
+    pub intent: TestIntent,
+    /// Origin recorded for the criteria's targets.
+    pub threshold_origin: ThresholdOrigin,
+    /// Baseline an empirical criterion derives its target from.
+    pub baseline: Option<BaselineSpec>,
+    /// Human-readable contract reference for provenance.
+    pub contract_ref: Option<String>,
+}
+
+/// Executes a contract-driven probabilistic test: the engine invokes the
+/// contract and judges every criterion on every sample, and the verdict
+/// decomposes per criterion with a composite over them.
+///
+/// The sampling plan is sample-size-first (`samples` at `confidence`); each
+/// criterion is judged against its own target. Latency commitments are sourced
+/// from the contract and reported as the separate latency dimension.
+///
+/// # Panics
+///
+/// Panics if `inputs` is empty, or if a service invocation yields a defect (a
+/// transport failure or a caught panic) — a defect aborts the run.
+pub fn execute_contract<C: ServiceContract>(
+    contract: &C,
+    inputs: &[C::Input],
+    plan: ContractTestPlan,
+) -> ProbabilisticTestResult
+where
+    C::Output: 'static,
+{
+    assert!(
+        !inputs.is_empty(),
+        "a probabilistic test requires at least one input"
+    );
+
+    let ContractTestPlan {
+        samples,
+        confidence,
+        intent,
+        threshold_origin,
+        baseline: baseline_spec,
+        contract_ref,
+    } = plan;
+
+    let mut warnings: Vec<Warning> = Vec::new();
+    let criteria = contract.criteria();
+    let config = ExecutionConfig::new(samples).with_warmup(contract.warmup());
+    let token_recorder = TokenRecorder::new();
+
+    let exec_result = {
+        let recorder = token_recorder.clone();
+        let criteria = &criteria;
+        ExecutionEngine::run_contract(
+            &config,
+            inputs,
+            &token_recorder,
+            crate::controls::run::current(),
+            |input: &C::Input| {
+                let mut cost = Cost::new();
+                let start = std::time::Instant::now();
+                let output = contract.invoke(input, &mut cost)?;
+                let elapsed = start.elapsed();
+                recorder.record(cost.tokens_recorded());
+                Ok(SampleEvaluation {
+                    results: criteria.evaluate(&output),
+                    elapsed,
+                })
+            },
+        )
+    };
+    let exec_result = exec_result.unwrap_or_else(|defect| {
+        panic!("\n\nservice invocation aborted the run: {defect}\n");
+    });
+
+    let summary = exec_result.summary();
+    let assessment = build_functional_assessment(
+        exec_result.criteria_counts(),
+        &criteria.targets(),
+        confidence,
+        baseline_spec.as_ref(),
+        threshold_origin,
+    );
+    let verdict = assessment.composite();
+    let analysis = assessment
+        .criteria()
+        .first()
+        .and_then(|row| row.statistical_analysis().cloned());
+
+    let latency_dimension = build_contract_latency_dimension(
+        contract.latency(),
+        exec_result.aggregate().successful_latencies(),
+        baseline_spec.as_ref(),
+        &mut warnings,
+    );
+
+    let provenance = build_provenance(
+        threshold_origin,
+        baseline_spec.as_ref(),
+        contract_ref.as_deref(),
+        None,
+    );
+    let baseline_prov = baseline_spec.as_ref().map(build_baseline_provenance);
+
+    let mut builder = VerdictRecord::builder(
+        TestIdentity::new(contract.id()),
+        verdict,
+        intent,
+        summary.clone(),
+        assessment,
+    )
+    .spec_provenance(provenance);
+    if let Some(analysis) = analysis {
+        builder = builder.statistical_analysis(analysis);
+    }
+    if let Some(bp) = baseline_prov {
+        builder = builder.baseline_provenance(bp);
+    }
+    if let Some(dim) = latency_dimension {
+        builder = builder.latency(dim);
+    }
+    for w in warnings {
+        builder = builder.warning(w);
+    }
+
+    ProbabilisticTestResult {
+        verdict_record: builder.build(),
+        approach: ThresholdApproach::SampleSizeFirst {
+            samples,
+            confidence: confidence.value(),
+        },
+    }
+}
+
+/// Builds the composite functional assessment: one row per criterion, each
+/// judged against its own target, plus the composite verdict over them.
+fn build_functional_assessment(
+    counts: &CriteriaCounts,
+    targets: &[(&str, &CriterionTarget)],
+    confidence: ConfidenceLevel,
+    baseline: Option<&BaselineSpec>,
+    threshold_origin: ThresholdOrigin,
+) -> FunctionalAssessment {
+    let rows: Vec<CriterionRow> = targets
+        .iter()
+        .map(|(name, target)| {
+            build_criterion_row(name, target, counts, confidence, baseline, threshold_origin)
+        })
+        .collect();
+    FunctionalAssessment::new(composite_verdict(&rows), rows)
+}
+
+/// The composite verdict over the criterion rows: `Inconclusive` if any row is,
+/// otherwise the conjunction (`Pass` only if every row passed).
+fn composite_verdict(rows: &[CriterionRow]) -> Verdict {
+    if rows.iter().any(|r| r.verdict() == Verdict::Inconclusive) {
+        Verdict::Inconclusive
+    } else if rows.iter().all(|r| r.verdict() == Verdict::Pass) {
+        Verdict::Pass
+    } else {
+        Verdict::Fail
+    }
+}
+
+/// Builds one criterion's verdict row. A criterion with no in-scope trials, or
+/// one whose feasibility gate fails, is `Inconclusive` (verdict-level only). A
+/// zero-failures criterion is observational — `Pass` iff it recorded no
+/// failures. Otherwise the criterion's Wilson lower bound is compared to its
+/// own target rate.
+fn build_criterion_row(
+    name: &str,
+    target: &CriterionTarget,
+    counts: &CriteriaCounts,
+    confidence: ConfidenceLevel,
+    baseline: Option<&BaselineSpec>,
+    threshold_origin: ThresholdOrigin,
+) -> CriterionRow {
+    let tally = counts.get(name);
+    let pass = tally.map_or(0, CriterionCounts::pass);
+    let fail = tally.map_or(0, CriterionCounts::fail);
+    let distribution: Vec<(String, u32)> = tally.map_or_else(Vec::new, |t: &CriterionCounts| {
+        t.failure_distribution()
+            .iter()
+            .map(|(check, count)| (check.clone(), *count))
+            .collect()
+    });
+
+    let total = pass + fail;
+    if total == 0 {
+        return CriterionRow::new(name, pass, fail, distribution, None, Verdict::Inconclusive);
+    }
+
+    if matches!(target, CriterionTarget::ZeroFailures) {
+        let verdict = if fail == 0 {
+            Verdict::Pass
+        } else {
+            Verdict::Fail
+        };
+        return CriterionRow::new(name, pass, fail, distribution, None, verdict);
+    }
+
+    let derived = match target {
+        CriterionTarget::NormativeRate(rate) => {
+            let context = DerivationContext::new(*rate, total, total, confidence);
+            DerivedThreshold::new(*rate, OperationalApproach::ThresholdFirst, context, false)
+        }
+        CriterionTarget::EmpiricalRate => {
+            let (baseline_successes, baseline_samples) = criterion_baseline(name, baseline);
+            threshold::derive_sample_size_first(
+                baseline_successes,
+                baseline_samples,
+                total,
+                confidence,
+            )
+        }
+        CriterionTarget::ZeroFailures => unreachable!("handled above"),
+    };
+
+    if !feasibility::feasibility_check(total, derived.value(), confidence).feasible() {
+        return CriterionRow::new(name, pass, fail, distribution, None, Verdict::Inconclusive);
+    }
+
+    let verdict = if evaluator::evaluate(pass, total, &derived).passed() {
+        Verdict::Pass
+    } else {
+        Verdict::Fail
+    };
+    let analysis = criterion_analysis(pass, total, &derived, threshold_origin);
+    CriterionRow::new(name, pass, fail, distribution, Some(analysis), verdict)
+}
+
+/// Resolves the baseline successes and sample count for an empirical criterion,
+/// preferring its own per-criterion measurement and falling back to the
+/// whole-contract aggregate when the baseline predates per-criterion capture.
+///
+/// # Panics
+///
+/// Panics if no baseline is available — an empirical criterion requires one.
+fn criterion_baseline(name: &str, baseline: Option<&BaselineSpec>) -> (u32, u32) {
+    let spec = baseline.expect("an empirical criterion requires a baseline");
+    match spec
+        .statistics
+        .per_criterion
+        .as_ref()
+        .and_then(|per| per.get(name))
+    {
+        Some(criterion) => (criterion.successes, criterion.successes + criterion.failures),
+        None => (spec.statistics.successes, spec.execution.samples_executed),
+    }
+}
+
+/// Builds a criterion's statistical analysis from its observed tally against
+/// its derived threshold.
+fn criterion_analysis(
+    pass: u32,
+    total: u32,
+    derived: &DerivedThreshold,
+    threshold_origin: ThresholdOrigin,
+) -> StatisticalAnalysis {
+    let confidence = derived.context().confidence();
+    let se = proportion::standard_error(pass, total);
+    let wilson_lower = proportion::lower_bound(pass, total, confidence);
+    let observed = f64::from(pass) / f64::from(total);
+    let z = proportion::z_test_statistic(observed, derived.value(), total);
+    let p = proportion::one_sided_p_value(z);
+    StatisticalAnalysis::new(
+        confidence.value(),
+        se,
+        wilson_lower,
+        derived.value(),
+        threshold_origin,
+    )
+    .with_test_results(z, p)
+}
+
+/// Builds the latency dimension for a contract-driven run, sourcing explicit
+/// percentile ceilings from the contract's latency criterion. Explicit ceilings
+/// are enforced strictly; a baseline latency block still contributes advisory
+/// (or env-configured) derived thresholds.
+fn build_contract_latency_dimension(
+    latency: Option<LatencyCriterion>,
+    successful_latencies: &[std::time::Duration],
+    baseline_spec: Option<&BaselineSpec>,
+    warnings: &mut Vec<Warning>,
+) -> Option<LatencyDimension> {
+    let config = LatencyConfig {
+        thresholds: latency.map_or_else(LatencyThresholds::new, |c| *c.thresholds()),
+        baseline_mode: None,
+        baseline_confidence: crate::latency::DEFAULT_BASELINE_CONFIDENCE,
+    };
+    build_latency_dimension(&config, successful_latencies, baseline_spec, warnings)
 }
 
 #[cfg(test)]
