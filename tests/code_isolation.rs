@@ -11,8 +11,8 @@
 //! offending `file:line`. It exempts its own file, which necessarily names the
 //! prefixes it guards against.
 //!
-//! The opaque cross-reference anchors (`javai-ref: JVI-…`) use a prefix that
-//! is not in the guarded set, so they do not trip this guard.
+//! The opaque cross-reference anchors (the `JVI-` prefix) are not in the
+//! guarded set, so they do not trip this guard.
 
 use std::fs;
 use std::path::{Path, PathBuf};
