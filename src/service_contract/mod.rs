@@ -9,6 +9,7 @@ use std::fmt;
 
 use crate::controls::Cost;
 use crate::criteria::Criteria;
+use crate::latency::LatencyCriterion;
 use crate::model::Defect;
 use crate::spec::namer::CovariateProfile;
 
@@ -88,6 +89,16 @@ pub trait ServiceContract: Send + Sync {
     /// Each criterion is judged independently on every sample's response — no
     /// short-circuit across criteria — yielding a pass rate per criterion.
     fn criteria(&self) -> Criteria<Self::Output>;
+
+    /// The contract's latency commitment, if any.
+    ///
+    /// A contract declares **at most one** latency criterion: a service has a
+    /// single latency profile, so one criterion (bounding any number of
+    /// percentiles) holds the whole commitment. `None` — the default — means
+    /// the contract makes no latency assertion.
+    fn latency(&self) -> Option<LatencyCriterion> {
+        None
+    }
 }
 
 /// A service contract that exposes configurable factors.
@@ -411,6 +422,49 @@ mod tests {
         assert_eq!(Minimal.warmup(), 0);
         assert_eq!(Minimal.description(), "");
         assert!(Minimal.covariates().is_empty());
+        assert!(Minimal.latency().is_none());
+    }
+
+    #[test]
+    fn latency_criterion_is_optional_and_overridable() {
+        use crate::latency::{LatencyCriterion, Percentile};
+        use std::time::Duration;
+
+        struct WithLatency;
+        impl ServiceContract for WithLatency {
+            type Input = String;
+            type Output = String;
+
+            fn id(&self) -> &str {
+                "with-latency"
+            }
+            fn invoke(&self, input: &String, _cost: &mut Cost) -> Result<String, Defect> {
+                Ok(input.clone())
+            }
+            fn criteria(&self) -> Criteria<String> {
+                trivial_criteria()
+            }
+            fn latency(&self) -> Option<LatencyCriterion> {
+                Some(
+                    LatencyCriterion::meeting()
+                        .at_most(Percentile::P95, Duration::from_millis(500))
+                        .at_most(Percentile::P99, Duration::from_millis(1500)),
+                )
+            }
+        }
+
+        // The default leaves a contract with no latency commitment.
+        assert!(TestServiceContract.latency().is_none());
+
+        let latency = WithLatency.latency().expect("latency criterion declared");
+        assert_eq!(
+            latency.thresholds().get(Percentile::P95),
+            Some(Duration::from_millis(500))
+        );
+        assert_eq!(
+            latency.thresholds().get(Percentile::P99),
+            Some(Duration::from_millis(1500))
+        );
     }
 
     #[test]
