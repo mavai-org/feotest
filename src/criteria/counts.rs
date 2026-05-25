@@ -10,6 +10,7 @@ use std::collections::BTreeMap;
 use crate::criteria::result::CriterionSampleResult;
 
 /// Running pass/fail tally for a single criterion across a sampling.
+// javai-ref: JVI-C5P3EQE — do not remove (resolves in javai-orchestrator)
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CriterionCounts {
     criterion: String,
