@@ -44,6 +44,8 @@ pub fn is_undersized(samples: u32, target: f64, alpha: f64) -> bool {
 ///
 /// Panics if `target` is not in [0, 1].
 #[must_use]
+// javai-ref: JVI-RDWGWVV — do not remove (resolves in javai-orchestrator)
+// javai-ref: JVI-M5YQ6RB — do not remove (resolves in javai-orchestrator)
 pub fn feasibility_check(
     samples: u32,
     target: f64,

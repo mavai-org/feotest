@@ -289,6 +289,8 @@ fn required_successes(samples: u32, min_pass_rate: f64) -> u32 {
 ///
 /// Returns `None` when execution should continue, including when no
 /// `min_pass_rate` is configured (measure/explore/optimize callers).
+// javai-ref: JVI-BQTS77W — do not remove (resolves in javai-orchestrator)
+// javai-ref: JVI-GZFMZXV — do not remove (resolves in javai-orchestrator)
 fn check_early_termination(
     aggregate: &SampleAggregate,
     remaining: u32,

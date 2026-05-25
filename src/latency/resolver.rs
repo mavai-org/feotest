@@ -84,6 +84,7 @@ impl ResolvedLatencyThreshold {
 ///   are still returned but flagged `feasible = false`; no threshold is
 ///   emitted for them (the caller reports this as a warning).
 #[must_use]
+// javai-ref: JVI-QVNG2SX — do not remove (resolves in javai-orchestrator)
 pub fn resolve(
     explicit: &LatencyThresholds,
     baseline: Option<&LatencyBlock>,

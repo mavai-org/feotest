@@ -38,6 +38,7 @@ pub struct MacroConfig {
 /// # Panics
 ///
 /// Panics if the configuration violates any validation rule.
+// javai-ref: JVI-THPVKXD — do not remove (resolves in javai-orchestrator)
 pub fn validate(config: &MacroConfig) {
     rule1_baseline_threshold_conflict(config);
     rule2_no_threshold_defined(config);

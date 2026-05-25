@@ -16,6 +16,7 @@ use crate::verdict::{CriterionRow, FunctionalAssessment, Verdict};
 /// JSON object — the wire shape consumed by file and webhook sinks.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+// javai-ref: JVI-NSB1JPC — do not remove (resolves in javai-orchestrator)
 pub struct VerdictRecord {
     identity: TestIdentity,
     verdict: Verdict,
@@ -203,6 +204,7 @@ impl VerdictRecord {
     /// Combines the functional verdict with the latency dimension when
     /// present. Advisory latency violations never affect this result.
     #[must_use]
+    // javai-ref: JVI-ZCSHQ5K — do not remove (resolves in javai-orchestrator)
     pub fn passed(&self) -> bool {
         let functional_ok = self.verdict == Verdict::Pass;
         let latency_ok = self.latency.as_ref().is_none_or(LatencyDimension::passed);
@@ -215,6 +217,7 @@ impl VerdictRecord {
     ///
     /// Panics with a diagnostic message when the functional verdict is not
     /// `Verdict::Pass`.
+    // javai-ref: JVI-Y3710A7 — do not remove (resolves in javai-orchestrator)
     pub fn assert_contract(&self) {
         assert!(
             self.verdict == Verdict::Pass,
@@ -232,6 +235,7 @@ impl VerdictRecord {
     ///
     /// Panics with a diagnostic message listing strict violations when the
     /// latency dimension has any.
+    // javai-ref: JVI-Y3710A7 — do not remove (resolves in javai-orchestrator)
     pub fn assert_latency(&self) {
         if let Some(dim) = self.latency.as_ref() {
             assert!(
@@ -244,6 +248,7 @@ impl VerdictRecord {
     }
 
     /// Panics if either dimension failed.
+    // javai-ref: JVI-Y3710A7 — do not remove (resolves in javai-orchestrator)
     pub fn assert_all(&self) {
         self.assert_contract();
         self.assert_latency();

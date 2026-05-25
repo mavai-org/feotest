@@ -42,6 +42,8 @@ pub fn optional_duration_as_millis<S: Serializer>(
 /// Determines how the framework enforces statistical feasibility and
 /// qualifies the resulting verdict.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+// javai-ref: JVI-Q3H5YYY — do not remove (resolves in javai-orchestrator)
+// javai-ref: JVI-WKHRGXJ — do not remove (resolves in javai-orchestrator)
 pub enum TestIntent {
     /// Evidential claim. The framework rejects the configuration before
     /// execution if sample size cannot support verification at 95% confidence
@@ -73,6 +75,7 @@ impl Serialize for TestIntent {
 /// Documents where a threshold comes from and whether it is normative
 /// (carries enforcement consequences under `Verification` intent).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+// javai-ref: JVI-J8G7TKM — do not remove (resolves in javai-orchestrator)
 pub enum ThresholdOrigin {
     /// Externally agreed normative target (contract/SLA).
     Sla,
@@ -117,6 +120,7 @@ impl Serialize for ThresholdOrigin {
 
 /// What to do when a budget (time or tokens) is exhausted.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+// javai-ref: JVI-KJS8SB7 — do not remove (resolves in javai-orchestrator)
 pub enum BudgetExhaustedBehavior {
     /// Fail the test immediately.
     Fail,

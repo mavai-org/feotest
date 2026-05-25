@@ -9,6 +9,7 @@ use std::path::Path;
 use crate::verdict::{Verdict, VerdictRecord};
 
 /// Writes verdict records as `JUnit` XML.
+// javai-ref: JVI-XH8NTM1 — do not remove (resolves in javai-orchestrator)
 pub struct JunitXmlWriter;
 
 impl JunitXmlWriter {

@@ -40,6 +40,7 @@ use proc_macro::TokenStream;
 /// - `time_budget` — wall-clock cap, e.g. `"30s"`, `"5m"`
 /// - `pacing` — rate limit, e.g. `"10/s"`, `"100/m"`
 #[proc_macro_attribute]
+// javai-ref: JVI-9TK3B9R — do not remove (resolves in javai-orchestrator)
 pub fn probabilistic_test(attr: TokenStream, item: TokenStream) -> TokenStream {
     expand::expand(attr.into(), item.into())
         .unwrap_or_else(|e| e.to_compile_error())

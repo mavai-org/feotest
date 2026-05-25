@@ -20,6 +20,7 @@ const NAMESPACE: &str = "http://javai.org/verdict/1.0";
 const VERSION: &str = "1.0";
 
 /// Serialises verdict records to the RP07 verdict XML interchange format.
+// javai-ref: JVI-DQWKY4Z — do not remove (resolves in javai-orchestrator)
 pub struct VerdictXmlWriter;
 
 impl VerdictXmlWriter {

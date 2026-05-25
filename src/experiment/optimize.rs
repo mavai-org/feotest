@@ -200,6 +200,7 @@ impl<F> IterationRecord<F> {
 ///     .build()
 ///     .run();
 /// ```
+// javai-ref: JVI-PS5XC2C — do not remove (resolves in javai-orchestrator)
 pub struct OptimizeExperiment<'a, F, T> {
     service_contract_id: String,
     initial_factor: F,

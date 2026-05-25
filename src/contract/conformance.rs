@@ -105,6 +105,7 @@ impl fmt::Display for MatchResult {
 /// let matcher = AlwaysMatch;
 /// assert!(matcher.verify("a", "b").is_match());
 /// ```
+// javai-ref: JVI-3P2SEQ4 — do not remove (resolves in javai-orchestrator)
 pub trait VerificationMatcher<T: ?Sized> {
     /// Compares `expected` against `actual` and returns a [`MatchResult`].
     fn verify(&self, expected: &T, actual: &T) -> MatchResult;
