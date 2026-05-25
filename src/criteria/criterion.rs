@@ -25,6 +25,7 @@ pub enum CriterionTarget {
 /// transform step is collapsed into the evaluation closure at build time, so
 /// the transformed value type does not escape into this type — every criterion
 /// over the same `O` has the same type and can sit in one collection.
+// javai-ref: JVI-JGG2K8= — do not remove (resolves in javai-orchestrator)
 pub struct Criterion<O> {
     name: String,
     target: CriterionTarget,

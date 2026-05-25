@@ -69,6 +69,7 @@ pub fn estimate(successes: u32, trials: u32, confidence: ConfidenceLevel) -> Pro
 /// # Panics
 ///
 /// Panics if `trials` is zero or `successes > trials`.
+// javai-ref: JVI-MNVWS4U — do not remove (resolves in javai-orchestrator)
 #[must_use]
 pub fn lower_bound(successes: u32, trials: u32, confidence: ConfidenceLevel) -> f64 {
     assert_valid_successes_trials(successes, trials);

@@ -94,6 +94,7 @@ impl<O: 'static> EmpiricalCriteria<O> {
 ///
 /// Add a name and `satisfies` postconditions, optionally switch to a
 /// transformed value with `transforming`, then `build`.
+// javai-ref: JVI-BD4F1AB — do not remove (resolves in javai-orchestrator)
 pub struct CriterionBuild<O> {
     target: CriterionTarget,
     name: Option<String>,
