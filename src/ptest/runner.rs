@@ -716,6 +716,7 @@ where
         confidence,
         baseline_spec.as_ref(),
         threshold_origin,
+        intent,
     );
     let verdict = assessment.composite();
     let analysis = assessment
@@ -776,11 +777,20 @@ fn build_functional_assessment(
     confidence: ConfidenceLevel,
     baseline: Option<&BaselineSpec>,
     threshold_origin: ThresholdOrigin,
+    intent: TestIntent,
 ) -> FunctionalAssessment {
     let rows: Vec<CriterionRow> = targets
         .iter()
         .map(|(name, target)| {
-            build_criterion_row(name, target, counts, confidence, baseline, threshold_origin)
+            build_criterion_row(
+                name,
+                target,
+                counts,
+                confidence,
+                baseline,
+                threshold_origin,
+                intent,
+            )
         })
         .collect();
     FunctionalAssessment::new(composite_verdict(&rows), rows)
@@ -810,6 +820,7 @@ fn build_criterion_row(
     confidence: ConfidenceLevel,
     baseline: Option<&BaselineSpec>,
     threshold_origin: ThresholdOrigin,
+    intent: TestIntent,
 ) -> CriterionRow {
     let tally = counts.get(name);
     let pass = tally.map_or(0, CriterionCounts::pass);
@@ -852,7 +863,12 @@ fn build_criterion_row(
         CriterionTarget::ZeroFailures => unreachable!("handled above"),
     };
 
-    if !feasibility::feasibility_check(total, derived.value(), confidence).feasible() {
+    // A smoke test opts into the sizing gap: it skips the feasibility gate and
+    // renders the nominal verdict. A verification test that cannot be sized to
+    // confirm its target is verdict-level Inconclusive.
+    if intent == TestIntent::Verification
+        && !feasibility::feasibility_check(total, derived.value(), confidence).feasible()
+    {
         return CriterionRow::new(name, pass, fail, distribution, None, Verdict::Inconclusive);
     }
 
