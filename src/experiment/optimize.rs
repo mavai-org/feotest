@@ -9,9 +9,9 @@
 //! iterations.
 //!
 //! The API shape mirrors [`super::ExploreExperiment`]: a `factor` is a
-//! user-defined type, a `service_contract(factory)` builds an instance from a
-//! factor, and a `trial(|uc, input| …)` closure runs against the
-//! instance. The only structural difference is how factors are
+//! user-defined type and a `service_contract(factory)` builds a contract
+//! instance from a factor, which the engine then invokes and judges. The
+//! only structural difference is how factors are
 //! supplied — optimize takes a single `initial_factor` plus a
 //! [`FactorMutator`] that drives subsequent factors from history;
 //! explore takes them all upfront as a `Vec<F>`.
@@ -21,13 +21,12 @@ use std::path::{Path, PathBuf};
 
 use serde::Serialize;
 
-use crate::controls::{ExecutionConfig, TokenRecorder};
-use crate::experiment::engine::{ExecutionEngine, ExecutionResult};
-use crate::model::TrialOutcome;
+use crate::controls::{Cost, ExecutionConfig, TokenRecorder};
+use crate::experiment::engine::{ContractExecutionResult, ExecutionEngine, SampleEvaluation};
+use crate::service_contract::ServiceContract;
 use crate::spec::optimization::{OptimizationSpec, OptimizeSpecWriter};
 
 type ServiceContractFactory<'a, F, T> = Box<dyn Fn(&F) -> T + 'a>;
-type TrialClosure<'a, T> = Box<dyn Fn(&T, &str) -> TrialOutcome + 'a>;
 
 /// A scoring function that evaluates an iteration's results.
 pub trait Scorer: Send + Sync {
@@ -35,7 +34,7 @@ pub trait Scorer: Send + Sync {
     ///
     /// Higher scores are better for [`Objective::Maximize`]; lower for
     /// [`Objective::Minimize`].
-    fn score(&self, result: &ExecutionResult) -> f64;
+    fn score(&self, result: &ContractExecutionResult) -> f64;
 }
 
 /// Generates the next factor value from the current one and the
@@ -147,10 +146,13 @@ impl<F> IterationRecord<F> {
 ///
 /// ```no_run
 /// use feotest::experiment::{
-///     ExecutionResult, FactorMutator, IterationRecord, Objective,
+///     ContractExecutionResult, FactorMutator, IterationRecord, Objective,
 ///     OptimizeExperiment, Scorer,
 /// };
-/// use feotest::model::TrialOutcome;
+/// use feotest::controls::Cost;
+/// use feotest::criteria::Criteria;
+/// use feotest::model::Defect;
+/// use feotest::service_contract::ServiceContract;
 /// use serde::Serialize;
 ///
 /// // Factor type: what varies between iterations.
@@ -159,15 +161,22 @@ impl<F> IterationRecord<F> {
 ///
 /// // Service contract type: what the factory produces from a factor.
 /// struct MyService { temperature: f64 }
-/// impl MyService {
-///     fn call(&self, _input: &str) -> TrialOutcome {
-///         TrialOutcome::success(std::time::Duration::ZERO)
+/// impl ServiceContract for MyService {
+///     type Input = String;
+///     type Output = String;
+///     fn id(&self) -> &str { "my-service" }
+///     fn invoke(&self, input: &String, _cost: &mut Cost) -> Result<String, Defect> {
+///         Ok(input.clone())
+///     }
+///     fn criteria(&self) -> Criteria<String> {
+///         Criteria::of([Criteria::meeting().pass_rate(0.9)
+///             .name("ok").satisfies("ok", |_: &String| Ok(())).build()])
 ///     }
 /// }
 ///
 /// struct PassRateScorer;
 /// impl Scorer for PassRateScorer {
-///     fn score(&self, result: &ExecutionResult) -> f64 {
+///     fn score(&self, result: &ContractExecutionResult) -> f64 {
 ///         result.summary().observed_pass_rate()
 ///     }
 /// }
@@ -193,7 +202,6 @@ impl<F> IterationRecord<F> {
 ///     .mutator(StepMutator)
 ///     .samples_per_iteration(20)
 ///     .inputs(&inputs)
-///     .trial(|uc: &MyService, input| uc.call(input))
 ///     .objective(Objective::Maximize)
 ///     .max_iterations(10)
 ///     .no_improvement_window(3)
@@ -201,7 +209,7 @@ impl<F> IterationRecord<F> {
 ///     .run();
 /// ```
 // javai-ref: JVI-PS5XC2C — do not remove (resolves in javai-orchestrator)
-pub struct OptimizeExperiment<'a, F, T> {
+pub struct OptimizeExperiment<'a, F, T: ServiceContract> {
     service_contract_id: String,
     initial_factor: F,
     factory: ServiceContractFactory<'a, F, T>,
@@ -211,14 +219,14 @@ pub struct OptimizeExperiment<'a, F, T> {
     samples_per_iteration: u32,
     max_iterations: u32,
     no_improvement_window: u32,
-    inputs: &'a [String],
-    trial: TrialClosure<'a, T>,
+    inputs: &'a [T::Input],
     experiment_id: Option<String>,
 }
 
-impl<'a, F, T> OptimizeExperiment<'a, F, T>
+impl<'a, F, T: ServiceContract> OptimizeExperiment<'a, F, T>
 where
     F: Clone,
+    T::Output: 'static,
 {
     /// Starts a new builder for an optimize experiment.
     ///
@@ -231,6 +239,11 @@ where
     }
 
     /// Runs the optimisation and returns the result.
+    ///
+    /// # Panics
+    ///
+    /// Panics if a service invocation yields a defect (a transport failure or a
+    /// caught panic) — a defect aborts the experiment.
     pub fn run(self) -> OptimizeResult<F> {
         let mut history: Vec<IterationRecord<F>> = Vec::new();
         let mut current_factor = self.initial_factor.clone();
@@ -241,19 +254,36 @@ where
 
         for iteration in 0..self.max_iterations {
             let service_contract = (self.factory)(&current_factor);
+            let criteria = service_contract.criteria();
 
             let config = ExecutionConfig::new(self.samples_per_iteration);
             let recorder = TokenRecorder::new();
 
-            let mut trial_fn = |input: &str| (self.trial)(&service_contract, input);
-
-            let result = ExecutionEngine::run(
-                &config,
-                self.inputs,
-                &recorder,
-                crate::controls::run::current(),
-                &mut trial_fn,
-            );
+            let result = {
+                let cost_recorder = recorder.clone();
+                let criteria = &criteria;
+                let service_contract = &service_contract;
+                ExecutionEngine::run_contract(
+                    &config,
+                    self.inputs,
+                    &recorder,
+                    crate::controls::run::current(),
+                    |input: &T::Input| {
+                        let mut cost = Cost::new();
+                        let start = std::time::Instant::now();
+                        let output = service_contract.invoke(input, &mut cost)?;
+                        let elapsed = start.elapsed();
+                        cost_recorder.record(cost.tokens_recorded());
+                        Ok(SampleEvaluation {
+                            results: criteria.evaluate(&output),
+                            elapsed,
+                        })
+                    },
+                )
+                .unwrap_or_else(|defect| {
+                    panic!("\n\nservice invocation aborted the optimize experiment: {defect}\n");
+                })
+            };
 
             let score = self.scorer.score(&result);
 
@@ -304,8 +334,8 @@ where
 /// Fluent builder for [`OptimizeExperiment`].
 ///
 /// Required fields — `service_contract_id`, `initial_factor`, `service_contract`
-/// (factory), `scorer`, `mutator`, `samples_per_iteration`, `inputs`,
-/// and `trial` — must be set before [`build`](Self::build) is called.
+/// (factory), `scorer`, `mutator`, `samples_per_iteration`, and `inputs`
+/// — must be set before [`build`](Self::build) is called.
 /// Missing any of them produces a panic naming the field and the
 /// setter to call.
 ///
@@ -314,7 +344,7 @@ where
 /// Setters that validate a single value (e.g., positive iteration
 /// counts, non-empty inputs) panic at the setter rather than deferring
 /// to `build`.
-pub struct OptimizeExperimentBuilder<'a, F, T> {
+pub struct OptimizeExperimentBuilder<'a, F, T: ServiceContract> {
     service_contract_id: Option<String>,
     initial_factor: Option<F>,
     factory: Option<ServiceContractFactory<'a, F, T>>,
@@ -324,12 +354,11 @@ pub struct OptimizeExperimentBuilder<'a, F, T> {
     samples_per_iteration: Option<u32>,
     max_iterations: u32,
     no_improvement_window: u32,
-    inputs: Option<&'a [String]>,
-    trial: Option<TrialClosure<'a, T>>,
+    inputs: Option<&'a [T::Input]>,
     experiment_id: Option<String>,
 }
 
-impl<F, T> Default for OptimizeExperimentBuilder<'_, F, T> {
+impl<F, T: ServiceContract> Default for OptimizeExperimentBuilder<'_, F, T> {
     fn default() -> Self {
         Self {
             service_contract_id: None,
@@ -342,13 +371,12 @@ impl<F, T> Default for OptimizeExperimentBuilder<'_, F, T> {
             max_iterations: 20,
             no_improvement_window: 5,
             inputs: None,
-            trial: None,
             experiment_id: None,
         }
     }
 }
 
-impl<'a, F, T> OptimizeExperimentBuilder<'a, F, T> {
+impl<'a, F, T: ServiceContract> OptimizeExperimentBuilder<'a, F, T> {
     // --- required fields ---
 
     /// Sets the service contract identifier.
@@ -405,27 +433,15 @@ impl<'a, F, T> OptimizeExperimentBuilder<'a, F, T> {
         self
     }
 
-    /// Sets the trial inputs.
+    /// Sets the inputs the contract is invoked against.
     ///
     /// # Panics
     ///
     /// Panics if `inputs` is empty.
     #[must_use]
-    pub fn inputs(mut self, inputs: &'a [String]) -> Self {
+    pub fn inputs(mut self, inputs: &'a [T::Input]) -> Self {
         assert!(!inputs.is_empty(), "inputs must not be empty");
         self.inputs = Some(inputs);
-        self
-    }
-
-    /// Sets the trial closure.
-    ///
-    /// The closure receives a reference to the iteration's service contract
-    /// instance and an input string, and returns a [`TrialOutcome`]. It
-    /// may borrow data that outlives the builder (the `'a` lifetime);
-    /// it is not required to be `'static`.
-    #[must_use]
-    pub fn trial(mut self, trial: impl Fn(&T, &str) -> TrialOutcome + 'a) -> Self {
-        self.trial = Some(Box::new(trial));
         self
     }
 
@@ -496,7 +512,6 @@ impl<'a, F, T> OptimizeExperimentBuilder<'a, F, T> {
             max_iterations: self.max_iterations,
             no_improvement_window: self.no_improvement_window,
             inputs: self.inputs.expect("inputs must be set via .inputs(...)"),
-            trial: self.trial.expect("trial must be set via .trial(...)"),
             experiment_id: self.experiment_id,
         }
     }
@@ -661,7 +676,6 @@ impl<F: fmt::Display> fmt::Display for OptimizeResult<F> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::time::Duration;
 
     #[derive(Clone, Serialize)]
     struct Temp(f64);
@@ -671,8 +685,38 @@ mod tests {
         }
     }
 
+    /// A contract whose single criterion passes only while the configured
+    /// temperature stays below 0.7 — the per-sample pass/fail is decided in
+    /// `invoke` and judged by the criterion.
     struct MockService {
         temperature: f64,
+    }
+
+    impl ServiceContract for MockService {
+        type Input = String;
+        type Output = bool;
+
+        fn id(&self) -> &str {
+            "mock"
+        }
+
+        fn invoke(&self, _input: &String, _cost: &mut Cost) -> Result<bool, crate::model::Defect> {
+            Ok(self.temperature < 0.7)
+        }
+
+        fn criteria(&self) -> crate::criteria::Criteria<bool> {
+            crate::criteria::Criteria::of([crate::criteria::Criteria::meeting()
+                .pass_rate(0.5)
+                .name("temperature")
+                .satisfies("temperature", |ok: &bool| -> crate::model::Outcome {
+                    if *ok {
+                        Ok(())
+                    } else {
+                        Err(crate::model::ContractViolation::new("temp", "too hot"))
+                    }
+                })
+                .build()])
+        }
     }
 
     fn build_service(t: &Temp) -> MockService {
@@ -681,7 +725,7 @@ mod tests {
 
     struct PassRateScorer;
     impl Scorer for PassRateScorer {
-        fn score(&self, result: &ExecutionResult) -> f64 {
+        fn score(&self, result: &ContractExecutionResult) -> f64 {
             result.summary().observed_pass_rate()
         }
     }
@@ -691,10 +735,6 @@ mod tests {
         fn mutate(&self, current: &Temp, _history: &[IterationRecord<Temp>]) -> Temp {
             Temp(current.0 + 0.1)
         }
-    }
-
-    fn always_succeed(_uc: &MockService, _input: &str) -> TrialOutcome {
-        TrialOutcome::success(Duration::ZERO)
     }
 
     #[test]
@@ -709,7 +749,6 @@ mod tests {
             .mutator(StepMutator)
             .samples_per_iteration(10)
             .inputs(&inputs)
-            .trial(always_succeed)
             .max_iterations(5)
             .no_improvement_window(3)
             .experiment_id("temp-tune")
@@ -736,7 +775,6 @@ mod tests {
             .mutator(StepMutator)
             .samples_per_iteration(3)
             .inputs(&inputs)
-            .trial(always_succeed)
             .max_iterations(3)
             .no_improvement_window(100)
             .build()
@@ -764,16 +802,6 @@ mod tests {
             .mutator(StepMutator)
             .samples_per_iteration(3)
             .inputs(&inputs)
-            .trial(|uc: &MockService, _input| {
-                if uc.temperature < 0.7 {
-                    TrialOutcome::success(Duration::ZERO)
-                } else {
-                    TrialOutcome::failure(
-                        crate::model::ContractViolation::new("temp", "too hot"),
-                        Duration::ZERO,
-                    )
-                }
-            })
             .max_iterations(4)
             .no_improvement_window(100)
             .build()
@@ -799,7 +827,6 @@ mod tests {
             .mutator(StepMutator)
             .samples_per_iteration(5)
             .inputs(&inputs)
-            .trial(always_succeed)
             .max_iterations(20)
             .no_improvement_window(3)
             .build()
@@ -825,7 +852,6 @@ mod tests {
             .mutator(StepMutator)
             .samples_per_iteration(5)
             .inputs(&inputs)
-            .trial(always_succeed)
             .objective(Objective::Minimize)
             .max_iterations(3)
             .build()
