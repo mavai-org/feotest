@@ -7,8 +7,9 @@
 use std::collections::BTreeMap;
 use std::fmt;
 use std::fmt::Write as _;
+use std::time::Duration;
 
-use crate::model::TrialOutcome;
+use crate::criteria::CriterionSampleResult;
 
 /// Per-sample diagnostic detail from an experiment trial.
 #[derive(Debug, Clone)]
@@ -99,27 +100,33 @@ impl PostconditionStatus {
     }
 }
 
-/// Builds a [`SampleProjection`] from a [`TrialOutcome`] and execution context.
+/// Builds a [`SampleProjection`] from one sample's per-criterion results and
+/// the measured invocation time.
 ///
-/// Extracts projection data from the outcome's metadata (content, postcondition
-/// statuses) and the outcome's structural fields (elapsed time, violation).
+/// Each criterion contributes a postcondition status (pass or fail); the first
+/// failing criterion's violation becomes the failure detail.
 #[must_use]
 pub fn build_projection(
     sample_index: u32,
     input: &str,
-    outcome: &TrialOutcome,
+    results: &[CriterionSampleResult],
+    elapsed: Duration,
 ) -> SampleProjection {
-    let execution_time_ms = u64::try_from(outcome.elapsed().as_millis()).unwrap_or(u64::MAX);
+    let execution_time_ms = u64::try_from(elapsed.as_millis()).unwrap_or(u64::MAX);
 
-    let content = outcome.projection_content().map(str::to_owned);
-
-    let failure_detail = outcome
-        .violation()
+    let failure_detail = results
+        .iter()
+        .find_map(CriterionSampleResult::reason)
         .map(|v| format!("{}: {}", v.check(), v.reason()));
 
     let mut postconditions = BTreeMap::new();
-    for (name, status) in outcome.projection_postconditions() {
-        postconditions.insert(name.to_owned(), PostconditionStatus::from_str_value(status));
+    for result in results {
+        let status = if result.passed() {
+            PostconditionStatus::Passed
+        } else {
+            PostconditionStatus::Failed
+        };
+        postconditions.insert(result.criterion().to_owned(), status);
     }
 
     let input_opt = if input.is_empty() {
@@ -133,7 +140,7 @@ pub fn build_projection(
         input: input_opt,
         postconditions,
         execution_time_ms,
-        content,
+        content: None,
         failure_detail,
     }
 }
@@ -326,19 +333,25 @@ mod tests {
         );
     }
 
+    fn pass(criterion: &str) -> CriterionSampleResult {
+        CriterionSampleResult::pass(criterion)
+    }
+
+    fn fail(criterion: &str, reason: &str) -> CriterionSampleResult {
+        CriterionSampleResult::fail(
+            criterion,
+            crate::model::ContractViolation::new(criterion, reason),
+        )
+    }
+
     #[test]
     fn build_projection_from_successful_trial() {
-        let outcome = TrialOutcome::success(Duration::from_millis(42))
-            .content("response text")
-            .postcondition("Not empty", "passed")
-            .postcondition("Valid JSON", "passed");
-
-        let proj = build_projection(0, "Add apples", &outcome);
+        let results = [pass("Not empty"), pass("Valid JSON")];
+        let proj = build_projection(0, "Add apples", &results, Duration::from_millis(42));
 
         assert_eq!(proj.sample_index(), 0);
         assert_eq!(proj.input(), Some("Add apples"));
         assert_eq!(proj.execution_time_ms(), 42);
-        assert_eq!(proj.content(), Some("response text"));
         assert!(proj.failure_detail().is_none());
         assert!(proj.is_success());
         assert_eq!(proj.postconditions().len(), 2);
@@ -350,33 +363,24 @@ mod tests {
 
     #[test]
     fn build_projection_from_failed_trial() {
-        use crate::model::ContractViolation;
-
-        let outcome = TrialOutcome::failure(
-            ContractViolation::new("parse", "invalid JSON"),
-            Duration::from_millis(10),
-        )
-        .postcondition("Not empty", "passed")
-        .postcondition("parse", "failed")
-        .postcondition("Valid actions", "skipped");
-
-        let proj = build_projection(3, "bad input", &outcome);
+        let results = [pass("Not empty"), fail("parse", "invalid JSON")];
+        let proj = build_projection(3, "bad input", &results, Duration::from_millis(10));
 
         assert_eq!(proj.sample_index(), 3);
         assert!(!proj.is_success());
         assert_eq!(proj.failure_detail(), Some("parse: invalid JSON"));
-        assert_eq!(proj.postconditions().len(), 3);
+        assert_eq!(proj.postconditions().len(), 2);
         assert_eq!(proj.postconditions()["parse"], PostconditionStatus::Failed);
         assert_eq!(
-            proj.postconditions()["Valid actions"],
-            PostconditionStatus::Skipped
+            proj.postconditions()["Not empty"],
+            PostconditionStatus::Passed
         );
     }
 
     #[test]
     fn build_projection_empty_input_becomes_none() {
-        let outcome = TrialOutcome::success(Duration::from_millis(1));
-        let proj = build_projection(0, "", &outcome);
+        let results = [pass("ok")];
+        let proj = build_projection(0, "", &results, Duration::from_millis(1));
         assert!(proj.input().is_none());
     }
 
@@ -434,9 +438,8 @@ mod tests {
         let proj = build_projection(
             0,
             "Add milk",
-            &TrialOutcome::success(Duration::from_millis(42))
-                .content("ADD MILK")
-                .postcondition("Not empty", "passed"),
+            &[pass("Not empty")],
+            Duration::from_millis(42),
         );
 
         let yaml = format_projections(&[proj]);
@@ -446,22 +449,12 @@ mod tests {
         assert!(yaml.contains("input: Add milk"));
         assert!(yaml.contains("Not empty: passed"));
         assert!(yaml.contains("executionTimeMs: 42"));
-        assert!(yaml.contains("content: |\n"));
-        assert!(yaml.contains("      ADD MILK"));
     }
 
     #[test]
     fn format_projections_multiple_samples() {
-        let p0 = build_projection(
-            0,
-            "input-a",
-            &TrialOutcome::success(Duration::from_millis(10)).content("A"),
-        );
-        let p1 = build_projection(
-            1,
-            "input-b",
-            &TrialOutcome::success(Duration::from_millis(20)).content("B"),
-        );
+        let p0 = build_projection(0, "input-a", &[pass("ok")], Duration::from_millis(10));
+        let p1 = build_projection(1, "input-b", &[pass("ok")], Duration::from_millis(20));
 
         let yaml = format_projections(&[p0, p1]);
         assert!(yaml.contains("sample[0]:"));
@@ -473,16 +466,11 @@ mod tests {
 
     #[test]
     fn format_projection_with_failure_detail() {
-        use crate::model::ContractViolation;
-
         let proj = build_projection(
             0,
             "bad input",
-            &TrialOutcome::failure(
-                ContractViolation::new("parse", "invalid JSON"),
-                Duration::from_millis(5),
-            )
-            .postcondition("parse", "failed"),
+            &[fail("parse", "invalid JSON")],
+            Duration::from_millis(5),
         );
 
         let yaml = format_projections(&[proj]);

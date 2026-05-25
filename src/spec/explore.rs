@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-use crate::experiment::{ExecutionResult, ExploreResult};
+use crate::experiment::{ContractExecutionResult, ExploreResult};
 use crate::spec::baseline::{CostBlock, ExecutionBlock};
 use crate::spec::common::{build_cost_block, build_failure_distribution, now_iso8601, round4};
 use crate::spec::projection::format_projections;
@@ -177,7 +177,7 @@ impl ExploreSpecWriter {
         service_contract_id: &str,
         experiment_id: Option<&str>,
         config_name: &str,
-        execution: &ExecutionResult,
+        execution: &ContractExecutionResult,
         factors: Option<&BTreeMap<String, FactorYamlValue>>,
     ) -> Result<PathBuf, std::io::Error> {
         let dir = self.output_dir.join(service_contract_id);
@@ -193,7 +193,7 @@ impl ExploreSpecWriter {
     fn build_spec(
         service_contract_id: &str,
         experiment_id: Option<&str>,
-        execution: &ExecutionResult,
+        execution: &ContractExecutionResult,
         factors: Option<&BTreeMap<String, FactorYamlValue>>,
     ) -> ExplorationSpec {
         let summary = execution.summary();
