@@ -70,7 +70,7 @@ impl ConfigResult {
 /// ```
 /// use feotest::experiment::ExploreExperiment;
 /// use feotest::controls::Cost;
-/// use feotest::criteria::Criteria;
+/// use feotest::criteria::{Criteria, Criterion};
 /// use feotest::model::Defect;
 /// use feotest::service_contract::ServiceContract;
 /// use std::fmt;
@@ -98,7 +98,7 @@ impl ConfigResult {
 ///         Ok(input.clone())
 ///     }
 ///     fn criteria(&self) -> Criteria<String> {
-///         Criteria::of([Criteria::meeting().pass_rate(0.9)
+///         Criteria::of([Criterion::meeting().pass_rate(0.9)
 ///             .name("non-empty")
 ///             .satisfies("non-empty", |r: &String| {
 ///                 if r.is_empty() { Err(feotest::model::ContractViolation::new("empty", "no content")) }
@@ -476,7 +476,7 @@ impl ExploreResult {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::criteria::Criteria;
+    use crate::criteria::{Criteria, Criterion};
     use crate::model::{ContractViolation, Defect, Outcome};
 
     #[derive(Clone)]
@@ -517,7 +517,7 @@ mod tests {
         }
 
         fn criteria(&self) -> Criteria<bool> {
-            Criteria::of([Criteria::meeting()
+            Criteria::of([Criterion::meeting()
                 .pass_rate(0.5)
                 .name("meets-rate")
                 .satisfies("meets-rate", |passed: &bool| -> Outcome {

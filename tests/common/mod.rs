@@ -43,7 +43,7 @@ impl ServiceContract for SimpleServiceContract {
     }
 
     fn criteria(&self) -> feotest::criteria::Criteria<String> {
-        feotest::criteria::Criteria::of([feotest::criteria::Criteria::meeting()
+        feotest::criteria::Criteria::of([feotest::criteria::Criterion::meeting()
             .pass_rate(0.5)
             .name("response received")
             .satisfies("response received", |_: &String| Ok(()))
@@ -79,7 +79,7 @@ impl ServiceContract for FailingServiceContract {
     }
 
     fn criteria(&self) -> feotest::criteria::Criteria<String> {
-        feotest::criteria::Criteria::of([feotest::criteria::Criteria::meeting()
+        feotest::criteria::Criteria::of([feotest::criteria::Criterion::meeting()
             .pass_rate(0.5)
             .name("never satisfied")
             .satisfies("never satisfied", |_: &String| {
@@ -122,7 +122,7 @@ impl ServiceContract for InputJudgedContract {
     }
 
     fn criteria(&self) -> feotest::criteria::Criteria<String> {
-        feotest::criteria::Criteria::of([feotest::criteria::Criteria::meeting()
+        feotest::criteria::Criteria::of([feotest::criteria::Criterion::meeting()
             .pass_rate(0.5)
             .name("response acceptable")
             .satisfies("response acceptable", |output: &String| {

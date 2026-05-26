@@ -20,7 +20,7 @@ fn threshold_first(samples: u32, pass_rate: f64) -> ThresholdApproach {
 /// A single always-pass criterion for fixtures that exercise the latency path
 /// rather than response judging.
 fn trivial_criteria() -> feotest::criteria::Criteria<String> {
-    feotest::criteria::Criteria::of([feotest::criteria::Criteria::meeting()
+    feotest::criteria::Criteria::of([feotest::criteria::Criterion::meeting()
         .pass_rate(0.5)
         .name("response received")
         .satisfies("response received", |_: &String| Ok(()))

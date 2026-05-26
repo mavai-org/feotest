@@ -354,11 +354,12 @@ pub fn validate_covariates(covariates: &[CovariateDeclaration]) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::criteria::Criterion;
 
     /// A single always-pass criterion for fixtures that exercise the trait's
     /// metadata/identity surface rather than response judging.
     fn trivial_criteria() -> Criteria<String> {
-        Criteria::of([Criteria::meeting()
+        Criteria::of([Criterion::meeting()
             .pass_rate(0.5)
             .name("response received")
             .satisfies("response received", |_: &String| Ok(()))

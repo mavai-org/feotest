@@ -41,7 +41,7 @@ impl feotest::service_contract::ServiceContract for LatencyContract {
     }
 
     fn criteria(&self) -> feotest::criteria::Criteria<String> {
-        feotest::criteria::Criteria::of([feotest::criteria::Criteria::meeting()
+        feotest::criteria::Criteria::of([feotest::criteria::Criterion::meeting()
             .pass_rate(0.5)
             .name("response received")
             .satisfies("response received", |_: &String| Ok(()))

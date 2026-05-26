@@ -12,7 +12,7 @@
 //!    A `Configurable` contract still drives factor get/set.
 
 use feotest::controls::Cost;
-use feotest::criteria::{Criteria, CriterionOutcome};
+use feotest::criteria::{Criteria, Criterion, CriterionOutcome};
 use feotest::model::{ContractViolation, Defect};
 use feotest::service_contract::{
     Configurable, CovariateCategory, CovariateContext, CovariateDeclaration, FactorError,
@@ -56,7 +56,7 @@ impl ServiceContract for CountingService {
     }
 
     fn criteria(&self) -> Criteria<String> {
-        Criteria::of([Criteria::empirical()
+        Criteria::of([Criterion::empirical()
             .pass_rate()
             .transforming(|r: &String| {
                 r.parse::<u32>()

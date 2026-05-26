@@ -1,7 +1,7 @@
 //! Integration tests for optimization YAML output.
 
 use feotest::controls::Cost;
-use feotest::criteria::Criteria;
+use feotest::criteria::{Criteria, Criterion};
 use feotest::experiment::{
     ContractExecutionResult, FactorMutator, IterationRecord, Objective, OptimizeExperiment, Scorer,
     TerminationReason,
@@ -37,7 +37,7 @@ impl ServiceContract for Service {
     }
 
     fn criteria(&self) -> Criteria<String> {
-        Criteria::of([Criteria::meeting()
+        Criteria::of([Criterion::meeting()
             .pass_rate(0.5)
             .name("ok")
             .satisfies("ok", |_: &String| Ok(()))

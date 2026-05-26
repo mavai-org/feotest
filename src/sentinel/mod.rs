@@ -177,7 +177,7 @@ mod tests {
         }
 
         fn criteria(&self) -> crate::criteria::Criteria<String> {
-            crate::criteria::Criteria::of([crate::criteria::Criteria::meeting()
+            crate::criteria::Criteria::of([crate::criteria::Criterion::meeting()
                 .pass_rate(0.5)
                 .name("response received")
                 .satisfies("response received", |_: &String| Ok(()))

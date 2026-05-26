@@ -150,7 +150,7 @@ impl<F> IterationRecord<F> {
 ///     OptimizeExperiment, Scorer,
 /// };
 /// use feotest::controls::Cost;
-/// use feotest::criteria::Criteria;
+/// use feotest::criteria::{Criteria, Criterion};
 /// use feotest::model::Defect;
 /// use feotest::service_contract::ServiceContract;
 /// use serde::Serialize;
@@ -169,7 +169,7 @@ impl<F> IterationRecord<F> {
 ///         Ok(input.clone())
 ///     }
 ///     fn criteria(&self) -> Criteria<String> {
-///         Criteria::of([Criteria::meeting().pass_rate(0.9)
+///         Criteria::of([Criterion::meeting().pass_rate(0.9)
 ///             .name("ok").satisfies("ok", |_: &String| Ok(())).build()])
 ///     }
 /// }
@@ -705,7 +705,7 @@ mod tests {
         }
 
         fn criteria(&self) -> crate::criteria::Criteria<bool> {
-            crate::criteria::Criteria::of([crate::criteria::Criteria::meeting()
+            crate::criteria::Criteria::of([crate::criteria::Criterion::meeting()
                 .pass_rate(0.5)
                 .name("temperature")
                 .satisfies("temperature", |ok: &bool| -> crate::model::Outcome {

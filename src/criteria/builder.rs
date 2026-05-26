@@ -1,8 +1,8 @@
 //! Builders for criteria.
 //!
 //! A criterion is authored by choosing a target origin
-//! ([`Criteria::meeting`](crate::criteria::Criteria::meeting) for a normative
-//! rate, [`Criteria::empirical`](crate::criteria::Criteria::empirical) for a
+//! ([`Criterion::meeting`](crate::criteria::Criterion::meeting) for a normative
+//! rate, [`Criterion::empirical`](crate::criteria::Criterion::empirical) for a
 //! baseline-derived one), then a kind (`pass_rate` / `zero_failures`), then a
 //! name, optionally a `transforming` step, and one or more `satisfies`
 //! postconditions. The chain ends in `build()`, which collapses the criterion
@@ -29,13 +29,27 @@ type NamedCheck<V> = (String, Check<V>);
 /// A transform from the output `O` to a value `T` the postconditions judge.
 type Transform<O, T> = Box<dyn Fn(&O) -> Result<T, ContractViolation> + Send + Sync>;
 
+impl<O: 'static> Criterion<O> {
+    /// Begins a **normative** criterion — a target asserted from a document.
+    #[must_use]
+    pub const fn meeting() -> NormativeCriterion<O> {
+        NormativeCriterion::new()
+    }
+
+    /// Begins an **empirical** criterion — a target derived from a baseline.
+    #[must_use]
+    pub const fn empirical() -> EmpiricalCriterion<O> {
+        EmpiricalCriterion::new()
+    }
+}
+
 /// Entry builder for a **normative** criterion — a target asserted from a
-/// document. Returned by [`Criteria::meeting`](crate::criteria::Criteria::meeting).
-pub struct NormativeCriteria<O> {
+/// document. Returned by [`Criterion::meeting`](crate::criteria::Criterion::meeting).
+pub struct NormativeCriterion<O> {
     marker: PhantomData<O>,
 }
 
-impl<O: 'static> NormativeCriteria<O> {
+impl<O: 'static> NormativeCriterion<O> {
     pub(crate) const fn new() -> Self {
         Self {
             marker: PhantomData,
@@ -65,12 +79,12 @@ impl<O: 'static> NormativeCriteria<O> {
 
 /// Entry builder for an **empirical** criterion — a target derived from a
 /// measured baseline. Returned by
-/// [`Criteria::empirical`](crate::criteria::Criteria::empirical).
-pub struct EmpiricalCriteria<O> {
+/// [`Criterion::empirical`](crate::criteria::Criterion::empirical).
+pub struct EmpiricalCriterion<O> {
     marker: PhantomData<O>,
 }
 
-impl<O: 'static> EmpiricalCriteria<O> {
+impl<O: 'static> EmpiricalCriterion<O> {
     pub(crate) const fn new() -> Self {
         Self {
             marker: PhantomData,

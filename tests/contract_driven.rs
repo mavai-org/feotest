@@ -6,7 +6,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
 use feotest::controls::Cost;
-use feotest::criteria::Criteria;
+use feotest::criteria::{Criteria, Criterion};
 use feotest::latency::{LatencyCriterion, Percentile};
 use feotest::model::{ContractViolation, Defect};
 use feotest::ptest::ProbabilisticTest;
@@ -42,7 +42,7 @@ impl ServiceContract for Counter {
 
     fn criteria(&self) -> Criteria<String> {
         Criteria::of([
-            Criteria::meeting()
+            Criterion::meeting()
                 .pass_rate(0.80)
                 .name("non-empty")
                 .satisfies("response not empty", |r: &String| {
@@ -53,7 +53,7 @@ impl ServiceContract for Counter {
                     }
                 })
                 .build(),
-            Criteria::meeting()
+            Criterion::meeting()
                 .pass_rate(0.80)
                 .name("parses")
                 .transforming(|r: &String| {
@@ -173,7 +173,7 @@ impl ServiceContract for Panicker {
     }
 
     fn criteria(&self) -> Criteria<String> {
-        Criteria::of([Criteria::meeting()
+        Criteria::of([Criterion::meeting()
             .pass_rate(0.9)
             .name("ok")
             .satisfies("ok", |_: &String| Ok(()))

@@ -487,7 +487,7 @@ impl MeasureResult {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::criteria::Criteria;
+    use crate::criteria::{Criteria, Criterion};
     use crate::model::{ContractViolation, Defect, Outcome};
     use std::sync::atomic::{AtomicU32, Ordering};
 
@@ -507,7 +507,7 @@ mod tests {
         }
 
         fn criteria(&self) -> Criteria<String> {
-            Criteria::of([Criteria::meeting()
+            Criteria::of([Criterion::meeting()
                 .pass_rate(0.5)
                 .name("content")
                 .satisfies("content", |_: &String| -> Outcome { Ok(()) })
@@ -535,7 +535,7 @@ mod tests {
         }
 
         fn criteria(&self) -> Criteria<String> {
-            Criteria::of([Criteria::meeting()
+            Criteria::of([Criterion::meeting()
                 .pass_rate(0.5)
                 .name("content")
                 .satisfies("parse", |r: &String| -> Outcome {

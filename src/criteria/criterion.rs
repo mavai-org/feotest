@@ -20,8 +20,8 @@ pub enum CriterionTarget {
 
 /// One assembled criterion over a contract output type `O`.
 ///
-/// Built through [`Criteria::meeting`](crate::criteria::Criteria::meeting) or
-/// [`Criteria::empirical`](crate::criteria::Criteria::empirical). Any
+/// Built through [`Criterion::meeting`](crate::criteria::Criterion::meeting) or
+/// [`Criterion::empirical`](crate::criteria::Criterion::empirical). Any
 /// transform step is collapsed into the evaluation closure at build time, so
 /// the transformed value type does not escape into this type — every criterion
 /// over the same `O` has the same type and can sit in one collection.
