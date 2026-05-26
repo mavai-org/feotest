@@ -9,7 +9,7 @@ mod sample;
 pub(crate) mod types;
 
 pub use defect::Defect;
-pub use outcome::{ContractViolation, Outcome, TrialOutcome};
+pub use outcome::{ContractViolation, Outcome};
 pub use sample::SampleAggregate;
 pub use types::{
     BudgetExhaustedBehavior, CostSummary, ExceptionHandling, ExecutionSummary, ExpirationInfo,

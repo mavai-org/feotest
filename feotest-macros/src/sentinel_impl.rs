@@ -215,9 +215,6 @@ fn emit_test(spec_ident: &syn::Ident, method: &ImplItemFn, cfg: &TestCfg) -> Res
     let method_name_str = method_name.to_string();
     let invoker_ident = format_ident!("__sentinel_invoke_{}_{}", spec_ident, method_name);
     let submit_mod = format_ident!("__sentinel_submit_{}_{}", spec_ident, method_name);
-    let approach_tokens = parsed.approach_tokens();
-    let criterion_kind = parsed.criterion_kind_tokens();
-    let baseline_resolution = parsed.baseline_resolution_tokens(&method_name_str);
     let origin_tok = parsed.origin.to_tokens();
     let threshold_tok = option_quote(parsed.threshold_val);
     let samples_val = parsed.samples_val;
@@ -230,7 +227,52 @@ fn emit_test(spec_ident: &syn::Ident, method: &ImplItemFn, cfg: &TestCfg) -> Res
         },
     );
 
+    let invoker = emit_test_invoker(&invoker_ident, spec_ident, &method_name, &parsed);
+
     Ok(quote! {
+        #invoker
+
+        #[doc(hidden)]
+        #[allow(non_snake_case, reason = "generated submission module")]
+        mod #submit_mod {
+            use super::*;
+
+            ::feotest::inventory::submit! {
+                ::feotest::sentinel::ContentDescriptor {
+                    spec_type_id: || ::core::any::TypeId::of::<#spec_ident>(),
+                    method_name: #method_name_str,
+                    kind: ::feotest::sentinel::ContentKind::ProbabilisticTest(
+                        ::feotest::sentinel::ProbabilisticTestConfig {
+                            origin: #origin_tok,
+                            threshold: #threshold_tok,
+                            samples: #samples_tok,
+                            baseline_method: #baseline_method_tok,
+                        }
+                    ),
+                    invoker: ::feotest::sentinel::ContentInvoker::Test(super::#invoker_ident),
+                }
+            }
+        }
+    })
+}
+
+/// Generates the invoker free function for a sentinel probabilistic test: it
+/// downcasts the spec, resolves any baseline, lowers the marker method to a
+/// single-criterion [`ServiceContract`] whose `invoke` calls the method, and
+/// runs the contract-driven test, returning the verdict record.
+fn emit_test_invoker(
+    invoker_ident: &syn::Ident,
+    spec_ident: &syn::Ident,
+    method_name: &syn::Ident,
+    parsed: &ParsedTestCfg,
+) -> TokenStream {
+    let method_name_str = method_name.to_string();
+    let approach_tokens = parsed.approach_tokens();
+    let criterion_kind = parsed.criterion_kind_tokens();
+    let baseline_resolution = parsed.baseline_resolution_tokens(&method_name_str);
+    let origin_tok = parsed.origin.to_tokens();
+
+    quote! {
         #[doc(hidden)]
         #[allow(non_snake_case, reason = "generated invoker follows Spec_Method naming for uniqueness")]
         fn #invoker_ident(spec_any: &dyn ::core::any::Any) -> ::feotest::verdict::VerdictRecord {
@@ -295,29 +337,7 @@ fn emit_test(spec_ident: &syn::Ident, method: &ImplItemFn, cfg: &TestCfg) -> Res
             }
             test.run().verdict_record().clone()
         }
-
-        #[doc(hidden)]
-        #[allow(non_snake_case, reason = "generated submission module")]
-        mod #submit_mod {
-            use super::*;
-
-            ::feotest::inventory::submit! {
-                ::feotest::sentinel::ContentDescriptor {
-                    spec_type_id: || ::core::any::TypeId::of::<#spec_ident>(),
-                    method_name: #method_name_str,
-                    kind: ::feotest::sentinel::ContentKind::ProbabilisticTest(
-                        ::feotest::sentinel::ProbabilisticTestConfig {
-                            origin: #origin_tok,
-                            threshold: #threshold_tok,
-                            samples: #samples_tok,
-                            baseline_method: #baseline_method_tok,
-                        }
-                    ),
-                    invoker: ::feotest::sentinel::ContentInvoker::Test(super::#invoker_ident),
-                }
-            }
-        }
-    })
+    }
 }
 
 /// Validated, parsed form of a probabilistic-test configuration.

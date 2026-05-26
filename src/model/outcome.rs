@@ -1,7 +1,6 @@
-//! Trial outcomes and contract violations.
+//! Contract violations and the per-postcondition outcome alias.
 
 use std::fmt;
-use std::time::Duration;
 
 /// A violation of a service contract postcondition.
 ///
@@ -49,174 +48,13 @@ impl std::error::Error for ContractViolation {}
 /// the framework's contract evaluation in Rust's native error handling.
 pub type Outcome = Result<(), ContractViolation>;
 
-/// The result of a single trial execution, including timing and contract evaluation.
-#[derive(Debug, Clone)]
-pub struct TrialOutcome {
-    outcome: Outcome,
-    elapsed: Duration,
-    metadata: Vec<(String, String)>,
-}
-
-impl TrialOutcome {
-    /// Creates a successful trial outcome.
-    #[must_use]
-    pub const fn success(elapsed: Duration) -> Self {
-        Self {
-            outcome: Ok(()),
-            elapsed,
-            metadata: Vec::new(),
-        }
-    }
-
-    /// Creates a failed trial outcome from a contract violation.
-    #[must_use]
-    pub const fn failure(violation: ContractViolation, elapsed: Duration) -> Self {
-        Self {
-            outcome: Err(violation),
-            elapsed,
-            metadata: Vec::new(),
-        }
-    }
-
-    /// Creates a trial outcome from a `Result`.
-    #[must_use]
-    pub const fn from_outcome(outcome: Outcome, elapsed: Duration) -> Self {
-        Self {
-            outcome,
-            elapsed,
-            metadata: Vec::new(),
-        }
-    }
-
-    /// Attaches a key-value metadata pair to this outcome.
-    #[must_use]
-    pub fn with_meta(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
-        self.metadata.push((key.into(), value.into()));
-        self
-    }
-
-    /// Well-known metadata key for response content in result projections.
-    pub const CONTENT_KEY: &str = "_projection.content";
-
-    /// Well-known metadata key prefix for postcondition status in result projections.
-    pub const POSTCONDITION_PREFIX: &str = "_projection.postcondition.";
-
-    /// Attaches response content for result projection output.
-    ///
-    /// The content is the raw service response captured for diagnostic
-    /// reporting in exploration YAML files.
-    #[must_use]
-    pub fn content(self, content: impl Into<String>) -> Self {
-        self.with_meta(Self::CONTENT_KEY, content)
-    }
-
-    /// Records a postcondition check result for result projection output.
-    ///
-    /// Status should be `"passed"`, `"failed"`, or `"skipped"`.
-    #[must_use]
-    pub fn postcondition(self, name: impl Into<String>, status: impl Into<String>) -> Self {
-        let key = format!("{}{}", Self::POSTCONDITION_PREFIX, name.into());
-        self.with_meta(key, status)
-    }
-
-    /// Extracts the projection content from metadata, if present.
-    #[must_use]
-    pub fn projection_content(&self) -> Option<&str> {
-        self.metadata
-            .iter()
-            .find(|(k, _)| k == Self::CONTENT_KEY)
-            .map(|(_, v)| v.as_str())
-    }
-
-    /// Extracts postcondition statuses from metadata as (name, status) pairs.
-    #[must_use]
-    pub fn projection_postconditions(&self) -> Vec<(&str, &str)> {
-        self.metadata
-            .iter()
-            .filter_map(|(k, v)| {
-                k.strip_prefix(Self::POSTCONDITION_PREFIX)
-                    .map(|name| (name, v.as_str()))
-            })
-            .collect()
-    }
-
-    /// Whether this trial succeeded.
-    #[must_use]
-    pub const fn is_success(&self) -> bool {
-        self.outcome.is_ok()
-    }
-
-    /// The contract violation, if any.
-    #[must_use]
-    pub fn violation(&self) -> Option<&ContractViolation> {
-        self.outcome.as_ref().err()
-    }
-
-    /// How long the trial took to execute.
-    #[must_use]
-    pub const fn elapsed(&self) -> Duration {
-        self.elapsed
-    }
-
-    /// Metadata attached to this outcome.
-    #[must_use]
-    pub fn metadata(&self) -> &[(String, String)] {
-        &self.metadata
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn successful_trial_reports_success() {
-        let trial = TrialOutcome::success(Duration::from_millis(42));
-        assert!(trial.is_success());
-        assert!(trial.violation().is_none());
-        assert_eq!(trial.elapsed(), Duration::from_millis(42));
-    }
-
-    #[test]
-    fn failed_trial_carries_violation() {
-        let violation = ContractViolation::new("content", "empty response");
-        let trial = TrialOutcome::failure(violation, Duration::from_millis(10));
-        assert!(!trial.is_success());
-        let v = trial.violation().unwrap();
-        assert_eq!(v.check(), "content");
-        assert_eq!(v.reason(), "empty response");
-    }
-
-    #[test]
-    fn metadata_can_be_attached() {
-        let trial = TrialOutcome::success(Duration::from_millis(1))
-            .with_meta("model", "gpt-4o")
-            .with_meta("tokens", "150");
-        assert_eq!(trial.metadata().len(), 2);
-        assert_eq!(
-            trial.metadata()[0],
-            ("model".to_string(), "gpt-4o".to_string())
-        );
-    }
-
-    #[test]
     fn contract_violation_displays_check_and_reason() {
         let v = ContractViolation::new("parse", "invalid JSON");
         assert_eq!(v.to_string(), "parse: invalid JSON");
-    }
-
-    #[test]
-    fn from_outcome_ok_is_success() {
-        let trial = TrialOutcome::from_outcome(Ok(()), Duration::from_millis(5));
-        assert!(trial.is_success());
-    }
-
-    #[test]
-    fn from_outcome_err_is_failure() {
-        let trial = TrialOutcome::from_outcome(
-            Err(ContractViolation::new("check", "reason")),
-            Duration::from_millis(5),
-        );
-        assert!(!trial.is_success());
     }
 }

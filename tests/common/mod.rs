@@ -5,49 +5,11 @@
 #![allow(dead_code)]
 
 use std::path::Path;
-use std::time::Duration;
 
-use feotest::model::TrialOutcome;
 use feotest::ptest::ProbabilisticTest;
 use feotest::ptest::builder::ThresholdApproach;
-use feotest::spec::SpecResolver;
 use feotest::service_contract::ServiceContract;
-
-// ---------------------------------------------------------------------------
-// Trial closures
-// ---------------------------------------------------------------------------
-
-/// A trial that always succeeds with the given latency.
-pub fn fixed_latency_trial(latency: Duration) -> impl FnMut(&str) -> TrialOutcome {
-    move |_| TrialOutcome::success(latency)
-}
-
-/// A trial that always succeeds with 1ms latency.
-pub fn always_succeeds(_input: &str) -> TrialOutcome {
-    TrialOutcome::success(Duration::from_millis(1))
-}
-
-/// A trial that fails a fixed fraction of the time (deterministic by input index).
-pub fn failing_trial(fail_rate: f64) -> impl FnMut(&str) -> TrialOutcome {
-    let mut count = 0u64;
-    move |_| {
-        count += 1;
-        #[allow(
-            clippy::cast_possible_truncation,
-            clippy::cast_sign_loss,
-            reason = "test-only: fail_rate in [0, 1] so value <= 100"
-        )]
-        let threshold = (fail_rate * 100.0) as u64;
-        if count % 100 < threshold {
-            TrialOutcome::failure(
-                feotest::model::ContractViolation::new("check", "forced"),
-                Duration::from_millis(1),
-            )
-        } else {
-            TrialOutcome::success(Duration::from_millis(1))
-        }
-    }
-}
+use feotest::spec::SpecResolver;
 
 // ---------------------------------------------------------------------------
 // Service contract helpers

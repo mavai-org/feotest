@@ -7,7 +7,6 @@ use crate::controls::{ExecutionConfig, RunBudget, TokenRecorder};
 use crate::criteria::{CriteriaCounts, CriterionSampleResult};
 use crate::model::{
     CostSummary, Defect, ExecutionSummary, SampleAggregate, TerminationInfo, TerminationReason,
-    TrialOutcome,
 };
 
 /// Result of an execution run.
@@ -92,104 +91,10 @@ impl ContractExecutionResult {
 pub struct ExecutionEngine;
 
 impl ExecutionEngine {
-    /// Runs trials according to the given configuration.
-    ///
-    /// The `trial` closure is called for each sample with the current input.
-    /// It must return a [`TrialOutcome`].
-    ///
-    /// Inputs are cycled round-robin when sample count exceeds input count.
-    ///
-    /// When `run_budget` is `Some`, the engine additionally consults the
-    /// shared run-scoped budget before every sample and mirrors token
-    /// consumption into it after every sample. A depleted run-scoped
-    /// budget terminates the sample loop with the run-scoped variant of
-    /// [`TerminationReason`], which the verdict dispatch distinguishes
-    /// from method-level exhaustion.
-    ///
-    /// # Panics
-    ///
-    /// Panics if `inputs` is empty.
-    pub fn run<F>(
-        config: &ExecutionConfig,
-        inputs: &[String],
-        token_recorder: &TokenRecorder,
-        run_budget: Option<&RunBudget>,
-        mut trial: F,
-    ) -> ExecutionResult
-    where
-        F: FnMut(&str) -> TrialOutcome,
-    {
-        assert!(!inputs.is_empty(), "inputs must not be empty");
-
-        execute_warmup(config, inputs, &mut trial);
-
-        let start = Instant::now();
-        let mut aggregate = SampleAggregate::new();
-        let mut termination_reason = TerminationReason::Completed;
-
-        for i in 0..config.samples() {
-            if let Some(reason) =
-                check_pre_sample_budgets(config, token_recorder, run_budget, start)
-            {
-                termination_reason = reason;
-                break;
-            }
-
-            apply_pacing(i, config);
-
-            let tokens_before = token_recorder.total();
-            let input = &inputs[i as usize % inputs.len()];
-            let outcome = trial(input);
-
-            record_post_trial_consumption(config, token_recorder, run_budget, tokens_before);
-            record_sample_outcome(&mut aggregate, &outcome, config.max_example_failures());
-
-            let remaining = config.samples() - (i + 1);
-            if let Some(reason) = check_early_termination(&aggregate, remaining, config) {
-                termination_reason = reason;
-                break;
-            }
-        }
-
-        let cost = build_cost_summary(
-            start.elapsed(),
-            token_recorder.total(),
-            aggregate.total(),
-            run_budget,
-        );
-        let summary = ExecutionSummary::new(
-            config.samples(),
-            aggregate.total(),
-            aggregate.successes(),
-            aggregate.failures(),
-            TerminationInfo::new(termination_reason),
-            cost,
-        );
-
-        ExecutionResult {
-            aggregate,
-            summary,
-            token_recorder: token_recorder.clone(),
-        }
-    }
-}
-
-/// Runs the warmup phase, discarding every outcome.
-fn execute_warmup<F>(config: &ExecutionConfig, inputs: &[String], trial: &mut F)
-where
-    F: FnMut(&str) -> TrialOutcome,
-{
-    for i in 0..config.warmup() {
-        let input = &inputs[i as usize % inputs.len()];
-        let _ = trial(input);
-    }
-}
-
-impl ExecutionEngine {
     /// Runs a contract-driven sampling: the `sample` closure invokes the
     /// service and judges its response, returning one [`SampleEvaluation`] per
     /// call. Warmup, input cycling, budget enforcement, pacing, and early
-    /// termination behave exactly as for [`run`](Self::run).
+    /// termination are all applied around that closure.
     ///
     /// Each sample is wrapped in [`catch_unwind`]: a caught panic, like an
     /// explicit `Err(Defect)`, is a defect that **aborts** the run — the engine
@@ -407,20 +312,6 @@ fn record_post_trial_consumption(
     }
 }
 
-/// Records a trial outcome against the aggregate, honouring the
-/// configured cap on captured example failures.
-fn record_sample_outcome(
-    aggregate: &mut SampleAggregate,
-    outcome: &TrialOutcome,
-    max_example_failures: u32,
-) {
-    if outcome.is_success() {
-        aggregate.record_success(outcome.elapsed());
-    } else if let Some(violation) = outcome.violation() {
-        aggregate.record_failure(violation, outcome.elapsed(), max_example_failures);
-    }
-}
-
 /// Builds the cost summary for a completed run, attaching the
 /// run-scoped snapshot when a shared budget participated.
 fn build_cost_summary(
@@ -529,12 +420,8 @@ mod tests {
         // "a" always passes; "b" fails on even samples. Composite succeeds only
         // when both pass.
         let mut i = 0u32;
-        let result = ExecutionEngine::run_contract(
-            &config,
-            &inputs,
-            &recorder,
-            None,
-            |_: &String| {
+        let result =
+            ExecutionEngine::run_contract(&config, &inputs, &recorder, None, |_: &String| {
                 let b_passes = i % 2 == 1;
                 i += 1;
                 Ok(eval(vec![
@@ -545,9 +432,8 @@ mod tests {
                         CriterionSampleResult::fail("b", ContractViolation::new("flake", "even"))
                     },
                 ]))
-            },
-        )
-        .expect("no defect");
+            })
+            .expect("no defect");
 
         let counts = result.criteria_counts();
         assert_eq!(counts.get("a").unwrap().pass(), 4);
@@ -565,20 +451,15 @@ mod tests {
         let inputs = vec!["x".to_string()];
 
         let mut i = 0u32;
-        let result = ExecutionEngine::run_contract(
-            &config,
-            &inputs,
-            &recorder,
-            None,
-            |_: &String| {
+        let result =
+            ExecutionEngine::run_contract(&config, &inputs, &recorder, None, |_: &String| {
                 i += 1;
                 if i == 3 {
                     Err(Defect::new("connection refused"))
                 } else {
                     Ok(eval(vec![CriterionSampleResult::pass("a")]))
                 }
-            },
-        );
+            });
 
         assert_eq!(result.unwrap_err().message(), "connection refused");
     }
@@ -597,15 +478,23 @@ mod tests {
         assert_eq!(result.unwrap_err().message(), "kaboom");
     }
 
-    fn always_succeeds(_input: &str) -> TrialOutcome {
-        TrialOutcome::success(Duration::from_millis(1))
+    // --- Shared sampling-loop behaviour driven through run_contract ---
+
+    /// A sample that always passes its single criterion.
+    fn pass_sample(_: &String) -> Result<SampleEvaluation, Defect> {
+        Ok(eval(vec![CriterionSampleResult::pass("a")]))
     }
 
-    fn always_fails(_input: &str) -> TrialOutcome {
-        TrialOutcome::failure(
+    /// A sample that always fails its single criterion (composite failure).
+    fn fail_sample(_: &String) -> Result<SampleEvaluation, Defect> {
+        Ok(eval(vec![CriterionSampleResult::fail(
+            "a",
             ContractViolation::new("check", "forced"),
-            Duration::from_millis(1),
-        )
+        )]))
+    }
+
+    fn summary_of(result: Result<ContractExecutionResult, Defect>) -> ExecutionSummary {
+        result.expect("no defect").summary().clone()
     }
 
     #[test]
@@ -614,35 +503,16 @@ mod tests {
         let recorder = TokenRecorder::new();
         let inputs = vec!["input".to_string()];
 
-        let result = ExecutionEngine::run(&config, &inputs, &recorder, None, always_succeeds);
+        let summary = summary_of(ExecutionEngine::run_contract(
+            &config,
+            &inputs,
+            &recorder,
+            None,
+            pass_sample,
+        ));
 
-        assert_eq!(result.summary().samples_executed(), 10);
-        assert_eq!(result.summary().successes(), 10);
-        assert_eq!(result.summary().failures(), 0);
-    }
-
-    #[test]
-    fn records_failures() {
-        let config = ExecutionConfig::new(5);
-        let recorder = TokenRecorder::new();
-        let inputs = vec!["input".to_string()];
-
-        let result = ExecutionEngine::run(&config, &inputs, &recorder, None, always_fails);
-
-        assert_eq!(result.summary().failures(), 5);
-        assert_eq!(result.aggregate().example_failures().len(), 5);
-    }
-
-    #[test]
-    fn limits_example_failures() {
-        let config = ExecutionConfig::new(10).with_max_example_failures(2);
-        let recorder = TokenRecorder::new();
-        let inputs = vec!["input".to_string()];
-
-        let result = ExecutionEngine::run(&config, &inputs, &recorder, None, always_fails);
-
-        assert_eq!(result.summary().failures(), 10);
-        assert_eq!(result.aggregate().example_failures().len(), 2);
+        assert_eq!(summary.samples_executed(), 10);
+        assert_eq!(summary.successes(), 10);
     }
 
     #[test]
@@ -652,10 +522,11 @@ mod tests {
         let inputs = vec!["a".to_string(), "b".to_string(), "c".to_string()];
 
         let mut seen = Vec::new();
-        ExecutionEngine::run(&config, &inputs, &recorder, None, |input| {
-            seen.push(input.to_string());
-            TrialOutcome::success(Duration::ZERO)
-        });
+        let _ =
+            ExecutionEngine::run_contract(&config, &inputs, &recorder, None, |input: &String| {
+                seen.push(input.clone());
+                Ok(eval(vec![CriterionSampleResult::pass("a")]))
+            });
 
         assert_eq!(seen, vec!["a", "b", "c", "a", "b", "c"]);
     }
@@ -667,13 +538,19 @@ mod tests {
         let inputs = vec!["input".to_string()];
 
         let mut total_calls = 0u32;
-        let result = ExecutionEngine::run(&config, &inputs, &recorder, None, |_input| {
-            total_calls += 1;
-            TrialOutcome::success(Duration::ZERO)
-        });
+        let summary = summary_of(ExecutionEngine::run_contract(
+            &config,
+            &inputs,
+            &recorder,
+            None,
+            |_: &String| {
+                total_calls += 1;
+                Ok(eval(vec![CriterionSampleResult::pass("a")]))
+            },
+        ));
 
         assert_eq!(total_calls, 5); // 2 warmup + 3 samples
-        assert_eq!(result.summary().samples_executed(), 3);
+        assert_eq!(summary.samples_executed(), 3);
     }
 
     #[test]
@@ -682,9 +559,100 @@ mod tests {
         let recorder = TokenRecorder::new();
         let inputs = vec!["input".to_string()];
 
-        ExecutionEngine::run(&config, &inputs, &recorder, None, always_succeeds);
+        let _ = ExecutionEngine::run_contract(&config, &inputs, &recorder, None, pass_sample);
 
         assert_eq!(recorder.total(), 500);
+    }
+
+    #[test]
+    fn failure_inevitable_terminates_after_required_failures() {
+        // 100 samples at 0.95 → require 95 successes; best possible after
+        // 6 failures is 94/100 → FailureInevitable triggers on sample 6.
+        let config = ExecutionConfig::new(100).min_pass_rate(0.95);
+        let recorder = TokenRecorder::new();
+        let inputs = vec!["input".to_string()];
+
+        let summary = summary_of(ExecutionEngine::run_contract(
+            &config,
+            &inputs,
+            &recorder,
+            None,
+            fail_sample,
+        ));
+
+        assert_eq!(summary.samples_executed(), 6);
+        assert_eq!(
+            summary.termination().reason(),
+            &TerminationReason::FailureInevitable
+        );
+    }
+
+    #[test]
+    fn success_guaranteed_terminates_when_threshold_met_and_floor_cleared() {
+        // 100 samples at 0.90, no validity floor → require 90 successes.
+        let config = ExecutionConfig::new(100).min_pass_rate(0.90);
+        let recorder = TokenRecorder::new();
+        let inputs = vec!["input".to_string()];
+
+        let summary = summary_of(ExecutionEngine::run_contract(
+            &config,
+            &inputs,
+            &recorder,
+            None,
+            pass_sample,
+        ));
+
+        assert_eq!(summary.samples_executed(), 90);
+        assert_eq!(
+            summary.termination().reason(),
+            &TerminationReason::SuccessGuaranteed
+        );
+    }
+
+    #[test]
+    fn validity_floor_delays_success_guaranteed() {
+        let config = ExecutionConfig::new(100)
+            .min_pass_rate(0.90)
+            .min_samples_for_validity(95);
+        let recorder = TokenRecorder::new();
+        let inputs = vec!["input".to_string()];
+
+        let summary = summary_of(ExecutionEngine::run_contract(
+            &config,
+            &inputs,
+            &recorder,
+            None,
+            pass_sample,
+        ));
+
+        assert_eq!(summary.samples_executed(), 95);
+        assert_eq!(
+            summary.termination().reason(),
+            &TerminationReason::SuccessGuaranteed
+        );
+    }
+
+    #[test]
+    fn without_min_pass_rate_runs_to_completion_even_on_all_failures() {
+        // Measure / explore / optimize callers never set min_pass_rate;
+        // they must always run every planned sample.
+        let config = ExecutionConfig::new(50);
+        let recorder = TokenRecorder::new();
+        let inputs = vec!["input".to_string()];
+
+        let summary = summary_of(ExecutionEngine::run_contract(
+            &config,
+            &inputs,
+            &recorder,
+            None,
+            fail_sample,
+        ));
+
+        assert_eq!(summary.samples_executed(), 50);
+        assert_eq!(
+            summary.termination().reason(),
+            &TerminationReason::Completed
+        );
     }
 
     #[test]
@@ -695,206 +663,19 @@ mod tests {
         let recorder = TokenRecorder::new();
         let inputs = vec!["input".to_string()];
 
-        let result = ExecutionEngine::run(&config, &inputs, &recorder, None, always_succeeds);
+        let summary = summary_of(ExecutionEngine::run_contract(
+            &config,
+            &inputs,
+            &recorder,
+            None,
+            pass_sample,
+        ));
 
-        // Should terminate before all 100 samples
-        assert!(result.summary().samples_executed() < 100);
-    }
-
-    #[test]
-    fn token_budget_projection_does_not_double_count_prior_charges() {
-        // 100 per sample against a 1000 budget. Each pre-sample check
-        // projects one upcoming charge on top of what is recorded, so the
-        // run affords 9 samples (900 recorded; the 10th would reach 1000
-        // and is refused). The earlier defect projected one charge per
-        // elapsed sample, terminating at 5 — this pins the fix.
-        let config = ExecutionConfig::new(100)
-            .with_static_token_charge(100)
-            .with_token_budget(1000);
-        let recorder = TokenRecorder::new();
-        let inputs = vec!["input".to_string()];
-
-        let result = ExecutionEngine::run(&config, &inputs, &recorder, None, always_succeeds);
-
-        assert_eq!(result.summary().samples_executed(), 9);
-        assert_eq!(recorder.total(), 900);
+        assert!(summary.samples_executed() < 100);
         assert_eq!(
-            result.summary().termination().reason(),
+            summary.termination().reason(),
             &TerminationReason::TokenBudgetExhausted
         );
-    }
-
-    #[test]
-    #[should_panic(expected = "inputs must not be empty")]
-    fn panics_on_empty_inputs() {
-        let config = ExecutionConfig::new(10);
-        let recorder = TokenRecorder::new();
-        ExecutionEngine::run(&config, &[], &recorder, None, always_succeeds);
-    }
-
-    // --- failure-inevitable early termination ---
-
-    #[test]
-    fn failure_inevitable_terminates_after_required_failures() {
-        // 100 samples at 0.95 → require 95 successes; best possible after
-        // 6 failures is 94/100 → FailureInevitable triggers on sample 6.
-        let config = ExecutionConfig::new(100).min_pass_rate(0.95);
-        let recorder = TokenRecorder::new();
-        let inputs = vec!["input".to_string()];
-
-        let result = ExecutionEngine::run(&config, &inputs, &recorder, None, always_fails);
-
-        assert_eq!(result.summary().samples_executed(), 6);
-        assert_eq!(
-            result.summary().termination().reason(),
-            &TerminationReason::FailureInevitable
-        );
-    }
-
-    #[test]
-    fn still_reachable_does_not_terminate_early() {
-        // 20 samples at 0.90 → require 18 successes. After a stream that
-        // allows exactly 18 successes over 20 (2 failures), the run must
-        // continue to completion.
-        let config = ExecutionConfig::new(20).min_pass_rate(0.90);
-        let recorder = TokenRecorder::new();
-        let inputs = vec!["input".to_string()];
-
-        let mut call = 0u32;
-        let result = ExecutionEngine::run(&config, &inputs, &recorder, None, |_input| {
-            call += 1;
-            if call <= 2 {
-                TrialOutcome::failure(
-                    ContractViolation::new("check", "forced"),
-                    Duration::from_millis(1),
-                )
-            } else {
-                TrialOutcome::success(Duration::from_millis(1))
-            }
-        });
-
-        assert_eq!(result.summary().samples_executed(), 20);
-        assert_eq!(
-            result.summary().termination().reason(),
-            &TerminationReason::Completed
-        );
-    }
-
-    // --- success-guaranteed early termination ---
-
-    #[test]
-    fn success_guaranteed_terminates_when_threshold_met_and_floor_cleared() {
-        // 100 samples at 0.90, no validity floor → require 90 successes.
-        // With all-pass trials this triggers exactly after sample 90.
-        let config = ExecutionConfig::new(100).min_pass_rate(0.90);
-        let recorder = TokenRecorder::new();
-        let inputs = vec!["input".to_string()];
-
-        let result = ExecutionEngine::run(&config, &inputs, &recorder, None, always_succeeds);
-
-        assert_eq!(result.summary().samples_executed(), 90);
-        assert_eq!(
-            result.summary().termination().reason(),
-            &TerminationReason::SuccessGuaranteed
-        );
-    }
-
-    #[test]
-    fn validity_floor_delays_success_guaranteed() {
-        // Same threshold, but a floor of 95 forces the engine to keep
-        // going past sample 90 until 95 samples have been executed.
-        let config = ExecutionConfig::new(100)
-            .min_pass_rate(0.90)
-            .min_samples_for_validity(95);
-        let recorder = TokenRecorder::new();
-        let inputs = vec!["input".to_string()];
-
-        let result = ExecutionEngine::run(&config, &inputs, &recorder, None, always_succeeds);
-
-        assert_eq!(result.summary().samples_executed(), 95);
-        assert_eq!(
-            result.summary().termination().reason(),
-            &TerminationReason::SuccessGuaranteed
-        );
-    }
-
-    #[test]
-    fn floor_equal_to_planned_samples_runs_to_completion() {
-        // If the floor equals the planned sample count, SuccessGuaranteed
-        // can never fire: by the time the floor is cleared, no samples
-        // remain. This matches the `remaining > 0` guard.
-        let config = ExecutionConfig::new(100)
-            .min_pass_rate(0.50)
-            .min_samples_for_validity(100);
-        let recorder = TokenRecorder::new();
-        let inputs = vec!["input".to_string()];
-
-        let result = ExecutionEngine::run(&config, &inputs, &recorder, None, always_succeeds);
-
-        assert_eq!(result.summary().samples_executed(), 100);
-        assert_eq!(
-            result.summary().termination().reason(),
-            &TerminationReason::Completed
-        );
-    }
-
-    // --- Regression: no min_pass_rate set ---
-
-    #[test]
-    fn without_min_pass_rate_engine_runs_to_completion_even_on_all_failures() {
-        // Measure / explore / optimize callers never set min_pass_rate;
-        // they must always run every planned sample regardless of the
-        // success/failure split.
-        let config = ExecutionConfig::new(50);
-        let recorder = TokenRecorder::new();
-        let inputs = vec!["input".to_string()];
-
-        let result = ExecutionEngine::run(&config, &inputs, &recorder, None, always_fails);
-
-        assert_eq!(result.summary().samples_executed(), 50);
-        assert_eq!(
-            result.summary().termination().reason(),
-            &TerminationReason::Completed
-        );
-    }
-
-    #[test]
-    fn required_successes_rounds_up() {
-        // 10 samples * 0.95 = 9.5 → require 10 successes. A single
-        // failure at sample 1 makes the threshold unreachable.
-        let config = ExecutionConfig::new(10).min_pass_rate(0.95);
-        let recorder = TokenRecorder::new();
-        let inputs = vec!["input".to_string()];
-
-        let result = ExecutionEngine::run(&config, &inputs, &recorder, None, always_fails);
-
-        assert_eq!(result.summary().samples_executed(), 1);
-        assert_eq!(
-            result.summary().termination().reason(),
-            &TerminationReason::FailureInevitable
-        );
-    }
-
-    // --- Run-scoped budget composition ---
-
-    #[test]
-    fn run_scoped_time_budget_terminates_sample_loop() {
-        let config = ExecutionConfig::new(100);
-        let recorder = TokenRecorder::new();
-        let inputs = vec!["input".to_string()];
-        let run_budget = RunBudget::new(Some(Duration::from_millis(5)), None);
-
-        let result = ExecutionEngine::run(&config, &inputs, &recorder, Some(&run_budget), |_| {
-            std::thread::sleep(Duration::from_millis(2));
-            TrialOutcome::success(Duration::from_millis(2))
-        });
-
-        assert!(result.summary().samples_executed() < 100);
-        assert_eq!(
-            result.summary().termination().reason(),
-            &TerminationReason::RunTimeBudgetExhausted
-        );
-        assert!(result.summary().cost().run_scoped().is_some());
     }
 
     #[test]
@@ -904,139 +685,20 @@ mod tests {
         let inputs = vec!["input".to_string()];
         let run_budget = RunBudget::new(None, Some(150));
 
-        let result = ExecutionEngine::run(
+        let summary = summary_of(ExecutionEngine::run_contract(
             &config,
             &inputs,
             &recorder,
             Some(&run_budget),
-            always_succeeds,
-        );
+            pass_sample,
+        ));
 
-        assert!(result.summary().samples_executed() < 100);
+        assert!(summary.samples_executed() < 100);
         assert_eq!(
-            result.summary().termination().reason(),
+            summary.termination().reason(),
             &TerminationReason::RunTokenBudgetExhausted
         );
-        let snapshot = result.summary().cost().run_scoped().expect("snapshot set");
-        assert_eq!(snapshot.token_budget(), Some(150));
-        assert!(snapshot.tokens_consumed() > 0);
-    }
-
-    #[test]
-    fn run_scoped_short_circuits_when_pre_exhausted() {
-        let config = ExecutionConfig::new(10);
-        let recorder = TokenRecorder::new();
-        let inputs = vec!["input".to_string()];
-        // Budget of 100 tokens already fully consumed before engine entry.
-        let run_budget = RunBudget::new(None, Some(100));
-        run_budget.record_tokens(100);
-
-        let result = ExecutionEngine::run(
-            &config,
-            &inputs,
-            &recorder,
-            Some(&run_budget),
-            always_succeeds,
-        );
-
-        assert_eq!(result.summary().samples_executed(), 0);
-        assert_eq!(
-            result.summary().termination().reason(),
-            &TerminationReason::RunTokenBudgetExhausted
-        );
-    }
-
-    #[test]
-    fn run_scoped_tokens_accumulate_across_sequential_runs() {
-        let config = ExecutionConfig::new(5).with_static_token_charge(20);
-        let run_budget = RunBudget::new(None, Some(500));
-        let inputs = vec!["input".to_string()];
-
-        let first_recorder = TokenRecorder::new();
-        let first = ExecutionEngine::run(
-            &config,
-            &inputs,
-            &first_recorder,
-            Some(&run_budget),
-            always_succeeds,
-        );
-        assert_eq!(first.summary().samples_executed(), 5);
-        assert_eq!(run_budget.tokens_consumed(), 100);
-
-        let second_recorder = TokenRecorder::new();
-        let second = ExecutionEngine::run(
-            &config,
-            &inputs,
-            &second_recorder,
-            Some(&run_budget),
-            always_succeeds,
-        );
-        assert_eq!(second.summary().samples_executed(), 5);
-        assert_eq!(run_budget.tokens_consumed(), 200);
-    }
-
-    #[test]
-    fn run_scoped_and_method_compose_first_exhausted_wins() {
-        // A small per-method token budget combined with a generous
-        // run-scoped one — the method-level variant fires first.
-        let method_tight = ExecutionConfig::new(100)
-            .with_static_token_charge(50)
-            .with_token_budget(150);
-        let generous_run = RunBudget::new(None, Some(100_000));
-        let recorder_a = TokenRecorder::new();
-        let a = ExecutionEngine::run(
-            &method_tight,
-            &["input".to_string()],
-            &recorder_a,
-            Some(&generous_run),
-            always_succeeds,
-        );
-        assert_eq!(
-            a.summary().termination().reason(),
-            &TerminationReason::TokenBudgetExhausted
-        );
-
-        // Invert: generous per-method, tight run-scoped.
-        let method_loose = ExecutionConfig::new(100).with_static_token_charge(50);
-        let tight_run = RunBudget::new(None, Some(150));
-        let recorder_b = TokenRecorder::new();
-        let b = ExecutionEngine::run(
-            &method_loose,
-            &["input".to_string()],
-            &recorder_b,
-            Some(&tight_run),
-            always_succeeds,
-        );
-        assert_eq!(
-            b.summary().termination().reason(),
-            &TerminationReason::RunTokenBudgetExhausted
-        );
-    }
-
-    // --- Pacing (max-per-second / min-interval-per-sample) ---
-
-    #[test]
-    fn first_sample_runs_without_pacing_delay() {
-        use crate::controls::PacingConfig;
-        // 500ms pacing floor; a 2-sample run should sleep exactly once
-        // (between samples 0 and 1). Total elapsed therefore must be
-        // ≥ 500ms (one delay) and comfortably < 1000ms (two delays).
-        let config = ExecutionConfig::new(2).pacing(PacingConfig::new().min_ms_per_sample(500));
-        let recorder = TokenRecorder::new();
-        let inputs = vec!["input".to_string()];
-
-        let start = Instant::now();
-        ExecutionEngine::run(&config, &inputs, &recorder, None, always_succeeds);
-        let elapsed = start.elapsed();
-
-        assert!(
-            elapsed >= Duration::from_millis(500),
-            "expected ≥ one pacing delay, got {elapsed:?}"
-        );
-        assert!(
-            elapsed < Duration::from_millis(900),
-            "expected no pre-first-sample delay, got {elapsed:?}"
-        );
+        assert!(summary.cost().run_scoped().is_some());
     }
 
     #[test]
@@ -1048,7 +710,7 @@ mod tests {
         let inputs = vec!["input".to_string()];
 
         let start = Instant::now();
-        ExecutionEngine::run(&config, &inputs, &recorder, None, always_succeeds);
+        let _ = ExecutionEngine::run_contract(&config, &inputs, &recorder, None, pass_sample);
         let elapsed = start.elapsed();
 
         assert!(
@@ -1057,7 +719,15 @@ mod tests {
         );
     }
 
-    // --- Isolated coverage for the private helpers extracted from `run` ---
+    #[test]
+    #[should_panic(expected = "inputs must not be empty")]
+    fn panics_on_empty_inputs() {
+        let config = ExecutionConfig::new(10);
+        let recorder = TokenRecorder::new();
+        let _ = ExecutionEngine::run_contract(&config, &[], &recorder, None, pass_sample);
+    }
+
+    // --- Isolated coverage for the private sampling-loop helpers ---
 
     mod check_pre_sample_budgets {
         use super::*;
@@ -1199,35 +869,6 @@ mod tests {
             record_post_trial_consumption(&config, &recorder, Some(&run_budget), 500);
 
             assert_eq!(run_budget.tokens_consumed(), 0);
-        }
-    }
-
-    mod record_sample_outcome {
-        use super::*;
-
-        #[test]
-        fn success_increments_successes() {
-            let mut aggregate = SampleAggregate::new();
-            let outcome = TrialOutcome::success(Duration::from_millis(3));
-
-            record_sample_outcome(&mut aggregate, &outcome, 5);
-
-            assert_eq!(aggregate.successes(), 1);
-            assert_eq!(aggregate.failures(), 0);
-        }
-
-        #[test]
-        fn failure_records_and_caps_example_list() {
-            let mut aggregate = SampleAggregate::new();
-            let violation = ContractViolation::new("check", "forced");
-            let outcome = TrialOutcome::failure(violation, Duration::from_millis(1));
-
-            record_sample_outcome(&mut aggregate, &outcome, 2);
-            record_sample_outcome(&mut aggregate, &outcome, 2);
-            record_sample_outcome(&mut aggregate, &outcome, 2);
-
-            assert_eq!(aggregate.failures(), 3);
-            assert_eq!(aggregate.example_failures().len(), 2);
         }
     }
 

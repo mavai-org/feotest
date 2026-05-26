@@ -49,7 +49,10 @@ impl feotest::service_contract::ServiceContract for LatencyContract {
     }
 
     fn latency(&self) -> Option<LatencyCriterion> {
-        Some(LatencyCriterion::meeting().at_most(feotest::latency::Percentile::P95, self.p95_ceiling))
+        Some(
+            LatencyCriterion::meeting()
+                .at_most(feotest::latency::Percentile::P95, self.p95_ceiling),
+        )
     }
 }
 

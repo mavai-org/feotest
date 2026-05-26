@@ -10,9 +10,9 @@ use feotest::experiment::MeasureExperiment;
 use feotest::model::ThresholdOrigin;
 use feotest::ptest::ProbabilisticTest;
 use feotest::ptest::builder::ThresholdApproach;
+use feotest::service_contract::{CovariateCategory, CovariateDeclaration, ServiceContract};
 use feotest::spec::SpecResolver;
 use feotest::spec::namer::CovariateProfile;
-use feotest::service_contract::{CovariateCategory, CovariateDeclaration, ServiceContract};
 use feotest::verdict::Verdict;
 
 // ---------------------------------------------------------------------------

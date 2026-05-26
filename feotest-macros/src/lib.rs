@@ -20,8 +20,8 @@ use proc_macro::TokenStream;
 /// Marks a function as a probabilistic test.
 ///
 /// The macro detects the operational approach from the combination of
-/// attributes and expands to a `#[test]` function that configures and
-/// runs a `ProbabilisticTestBuilder`.
+/// attributes and expands to a `#[test]` function that lowers the body to a
+/// single-criterion service contract and runs it as a probabilistic test.
 ///
 /// # Approaches
 ///

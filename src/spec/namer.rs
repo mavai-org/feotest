@@ -328,7 +328,11 @@ mod tests {
         let fp = compute_footprint("ShoppingBasketServiceContract", &[]);
         assert_eq!(fp.len(), 8);
 
-        let name = baseline_filename("ShoppingBasketServiceContract", &fp, &CovariateProfile::empty());
+        let name = baseline_filename(
+            "ShoppingBasketServiceContract",
+            &fp,
+            &CovariateProfile::empty(),
+        );
         let hash_in_name = name
             .trim_start_matches("ShoppingBasketServiceContract-")
             .trim_end_matches(".yaml");

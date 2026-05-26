@@ -38,7 +38,7 @@ const DEFAULT_APPROACH: ThresholdApproach = ThresholdApproach::ThresholdFirst {
     min_pass_rate: 0.0,
 };
 
-impl ProbabilisticTest<'_, ()> {
+impl ProbabilisticTest {
     /// Begins a contract-driven probabilistic test.
     ///
     /// The contract supplies the inputs' element type, the invocation, the
@@ -147,6 +147,7 @@ impl<'a, C: ServiceContract> ContractTest<'a, C> {
 
     /// Sets a human-readable contract reference for provenance.
     #[must_use]
+    // javai-ref: JVI-GQXC6W9 — do not remove (resolves in javai-orchestrator)
     pub fn contract_ref(mut self, contract_ref: impl Into<String>) -> Self {
         self.contract_ref = Some(contract_ref.into());
         self

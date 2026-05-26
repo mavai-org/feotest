@@ -45,9 +45,9 @@ pub mod model;
 pub mod ptest;
 pub mod reporting;
 pub mod sentinel;
+pub mod service_contract;
 pub mod spec;
 pub mod statistics;
-pub mod service_contract;
 pub mod verdict;
 
 pub use controls::RunBudget;

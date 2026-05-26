@@ -279,9 +279,7 @@ fn measure_round_trip_preserves_latency_block() {
 
     let m = feotest::experiment::MeasureExperiment::builder()
         .service_contract_id("latency-scenario-9")
-        .service_contract(|| {
-            SleepingContract::new("latency-scenario-9", Duration::from_millis(42))
-        })
+        .service_contract(|| SleepingContract::new("latency-scenario-9", Duration::from_millis(42)))
         .samples(50)
         .inputs(&inputs)
         .baseline_dir(dir.path())

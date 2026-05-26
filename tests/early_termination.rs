@@ -109,14 +109,13 @@ fn validity_floor_delays_runner_success_guaranteed() {
     // samples_executed must be at least the feasibility floor.
     let inputs = vec!["input".to_string()];
     let samples = 500;
-    let result =
-        ProbabilisticTest::for_contract(common::SimpleServiceContract::new("floor-delay"))
-            .inputs(&inputs)
-            .approach(ThresholdApproach::ThresholdFirst {
-                samples,
-                min_pass_rate: 0.90,
-            })
-            .run();
+    let result = ProbabilisticTest::for_contract(common::SimpleServiceContract::new("floor-delay"))
+        .inputs(&inputs)
+        .approach(ThresholdApproach::ThresholdFirst {
+            samples,
+            min_pass_rate: 0.90,
+        })
+        .run();
 
     let record = result.verdict_record();
     assert_eq!(record.verdict(), Verdict::Pass);

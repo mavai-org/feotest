@@ -142,8 +142,8 @@ pub fn registered_specs() -> impl Iterator<Item = &'static SpecDescriptor> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::spec::namer::CovariateProfile;
     use crate::service_contract::ServiceContract;
+    use crate::spec::namer::CovariateProfile;
     use feotest_macros::{sentinel, service_contract_factory};
 
     /// Minimal service contract used by factory-compilation tests. The implementation

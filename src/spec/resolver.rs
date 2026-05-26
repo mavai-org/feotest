@@ -5,11 +5,11 @@ use std::path::{Path, PathBuf};
 
 use sha2::{Digest, Sha256};
 
+use crate::service_contract::CovariateDeclaration;
 use crate::spec::BaselineSpec;
 use crate::spec::baseline::SpecLoadError;
 use crate::spec::namer::{CovariateProfile, baseline_filename, compute_footprint};
 use crate::spec::selector::{BaselineCandidate, SelectionError, SelectionResult};
-use crate::service_contract::CovariateDeclaration;
 
 /// Resolves baseline specs from the filesystem.
 ///
@@ -256,7 +256,9 @@ impl std::fmt::Display for SpecResolveError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::NotFound {
-                service_contract_id, path, ..
+                service_contract_id,
+                path,
+                ..
             } => write!(
                 f,
                 "no spec found for service contract '{service_contract_id}' at {}",
