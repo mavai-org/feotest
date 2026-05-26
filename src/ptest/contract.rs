@@ -286,10 +286,16 @@ impl<'a, C: ServiceContract> ContractTest<'a, C> {
             fail_on_expired_baseline: self.fail_on_expired_baseline,
             on_budget_exhausted: self.on_budget_exhausted,
         };
+        // Covariates are part of the contract's identity, so the covariate
+        // context is derived from the contract itself unless one was supplied
+        // explicitly.
+        let covariate_context = self
+            .covariate_context
+            .or_else(|| CovariateContext::from_contract(&self.contract));
         let baseline = BaselineContext {
             spec_resolver,
             pre_resolved_spec: self.baseline_spec,
-            covariate_context: self.covariate_context,
+            covariate_context,
         };
         let config_overrides = self.config_overrides.or_else(|| {
             build_config_overrides(

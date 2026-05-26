@@ -5,17 +5,10 @@
 
 use std::time::Duration;
 
-use feotest::latency::{EvaluationStatus, LatencyEnforcementMode};
-use feotest::model::TrialOutcome;
-use feotest::ptest::ProbabilisticTestBuilder;
+use feotest::latency::{EvaluationStatus, LatencyCriterion, LatencyEnforcementMode, Percentile};
+use feotest::ptest::ProbabilisticTest;
 use feotest::ptest::builder::ThresholdApproach;
 use feotest::verdict::Verdict;
-
-/// Returns a deterministic trial closure that reports a fixed latency on
-/// every call.
-fn fixed_latency_trial(latency: Duration) -> impl Fn(&str) -> TrialOutcome {
-    move |_input: &str| TrialOutcome::success(latency)
-}
 
 fn threshold_first(samples: u32, pass_rate: f64) -> ThresholdApproach {
     ThresholdApproach::ThresholdFirst {
@@ -34,11 +27,28 @@ fn trivial_criteria() -> feotest::criteria::Criteria<String> {
         .build()])
 }
 
-/// A contract that sleeps a fixed duration on every invocation, so the engine
-/// measures that latency for the baseline. (Latency is measured from real
-/// invoke-elapsed; there is no synthetic-latency seam.)
+/// A contract that sleeps a fixed (small) duration on every invocation, so the
+/// engine measures that latency from real invoke-elapsed time — there is no
+/// synthetic-latency seam. It may optionally declare a p95 ceiling.
 struct SleepingContract {
+    id: String,
     latency: Duration,
+    p95_ceiling: Option<Duration>,
+}
+
+impl SleepingContract {
+    fn new(id: impl Into<String>, latency: Duration) -> Self {
+        Self {
+            id: id.into(),
+            latency,
+            p95_ceiling: None,
+        }
+    }
+
+    const fn p95(mut self, ceiling: Duration) -> Self {
+        self.p95_ceiling = Some(ceiling);
+        self
+    }
 }
 
 impl feotest::service_contract::ServiceContract for SleepingContract {
@@ -46,7 +56,7 @@ impl feotest::service_contract::ServiceContract for SleepingContract {
     type Output = String;
 
     fn id(&self) -> &str {
-        "latency-baseline"
+        &self.id
     }
 
     fn invoke(
@@ -61,17 +71,22 @@ impl feotest::service_contract::ServiceContract for SleepingContract {
     fn criteria(&self) -> feotest::criteria::Criteria<String> {
         trivial_criteria()
     }
+
+    fn latency(&self) -> Option<LatencyCriterion> {
+        self.p95_ceiling
+            .map(|c| LatencyCriterion::meeting().at_most(Percentile::P95, c))
+    }
 }
 
 // Scenario 1 — no latency config → dimension absent, assert_all ≡ assert_contract.
 #[test]
 fn scenario_no_latency_config_dimension_absent() {
     let inputs = vec!["input".to_string()];
-    let result = ProbabilisticTestBuilder::new(
+    let result = ProbabilisticTest::for_contract(SleepingContract::new(
         "latency-scenario-1",
-        &inputs,
-        fixed_latency_trial(Duration::from_millis(10)),
-    )
+        Duration::from_millis(1),
+    ))
+    .inputs(&inputs)
     .approach(threshold_first(30, 0.80))
     .run();
 
@@ -84,13 +99,12 @@ fn scenario_no_latency_config_dimension_absent() {
 #[test]
 fn scenario_explicit_p95_met() {
     let inputs = vec!["input".to_string()];
-    let result = ProbabilisticTestBuilder::new(
-        "latency-scenario-2",
-        &inputs,
-        fixed_latency_trial(Duration::from_millis(10)),
+    let result = ProbabilisticTest::for_contract(
+        SleepingContract::new("latency-scenario-2", Duration::from_millis(10))
+            .p95(Duration::from_millis(50)),
     )
+    .inputs(&inputs)
     .approach(threshold_first(30, 0.80))
-    .latency_p95(Duration::from_millis(50))
     .run();
 
     let record = result.verdict_record();
@@ -106,13 +120,12 @@ fn scenario_explicit_p95_met() {
 #[test]
 fn scenario_explicit_p95_violated_overall_fail() {
     let inputs = vec!["input".to_string()];
-    let result = ProbabilisticTestBuilder::new(
-        "latency-scenario-3",
-        &inputs,
-        fixed_latency_trial(Duration::from_millis(500)),
+    let result = ProbabilisticTest::for_contract(
+        SleepingContract::new("latency-scenario-3", Duration::from_millis(30))
+            .p95(Duration::from_millis(5)),
     )
+    .inputs(&inputs)
     .approach(threshold_first(30, 0.80))
-    .latency_p95(Duration::from_millis(50))
     .run();
 
     let record = result.verdict_record();
@@ -127,13 +140,12 @@ fn scenario_explicit_p95_violated_overall_fail() {
 #[should_panic(expected = "latency contract failed")]
 fn scenario_explicit_p95_violated_assert_latency_panics() {
     let inputs = vec!["input".to_string()];
-    let result = ProbabilisticTestBuilder::new(
-        "latency-scenario-3b",
-        &inputs,
-        fixed_latency_trial(Duration::from_millis(500)),
+    let result = ProbabilisticTest::for_contract(
+        SleepingContract::new("latency-scenario-3b", Duration::from_millis(30))
+            .p95(Duration::from_millis(5)),
     )
+    .inputs(&inputs)
     .approach(threshold_first(30, 0.80))
-    .latency_p95(Duration::from_millis(50))
     .run();
     result.verdict_record().assert_latency();
 }
@@ -150,14 +162,14 @@ fn build_baseline_and_run(
     strict: Option<bool>,
 ) -> feotest::ptest::ProbabilisticTestResult {
     let dir = tempfile::tempdir().unwrap();
-    let uc_id: &'static str = Box::leak(test_name.to_string().into_boxed_str());
     let inputs = vec!["input".to_string()];
 
     // Establish baseline with low-latency samples (the contract sleeps so the
     // engine measures a real latency).
+    let baseline_id = test_name.to_owned();
     feotest::experiment::MeasureExperiment::builder()
-        .service_contract_id(uc_id)
-        .service_contract(move || SleepingContract { latency: baseline_latency })
+        .service_contract_id(test_name)
+        .service_contract(move || SleepingContract::new(baseline_id.clone(), baseline_latency))
         .samples(150)
         .inputs(&inputs)
         .baseline_dir(dir.path())
@@ -165,22 +177,23 @@ fn build_baseline_and_run(
         .run();
 
     let resolver = feotest::spec::SpecResolver::with_dir(dir.path());
-    let mut b = ProbabilisticTestBuilder::new(uc_id, &inputs, fixed_latency_trial(test_latency))
+    let mut test = ProbabilisticTest::for_contract(SleepingContract::new(test_name, test_latency))
+        .inputs(&inputs)
         .approach(threshold_first(30, 0.80))
         .threshold_origin(feotest::model::ThresholdOrigin::Sla)
         .spec_resolver(resolver);
     if let Some(s) = strict {
-        b = b.enforce_baseline_latency(s);
+        test = test.enforce_baseline_latency(s);
     }
-    b.run()
+    test.run()
 }
 
 #[test]
 fn scenario_baseline_p95_violated_advisory_default() {
     let result = build_baseline_and_run(
         "latency-scenario-4",
-        Duration::from_millis(10),
-        Duration::from_millis(500),
+        Duration::from_millis(3),
+        Duration::from_millis(60),
         None,
     );
     let record = result.verdict_record();
@@ -200,8 +213,8 @@ fn scenario_baseline_p95_violated_advisory_default() {
 fn scenario_baseline_p95_violated_strict_via_builder() {
     let result = build_baseline_and_run(
         "latency-scenario-5",
-        Duration::from_millis(10),
-        Duration::from_millis(500),
+        Duration::from_millis(3),
+        Duration::from_millis(60),
         Some(true),
     );
     let record = result.verdict_record();
@@ -222,7 +235,9 @@ fn scenario_p99_with_small_baseline_is_infeasible() {
 
     feotest::experiment::MeasureExperiment::builder()
         .service_contract_id("latency-scenario-11")
-        .service_contract(|| SleepingContract { latency: Duration::from_millis(10) })
+        .service_contract(|| {
+            SleepingContract::new("latency-scenario-11", Duration::from_millis(10))
+        })
         .samples(30)
         .inputs(&inputs)
         .baseline_dir(dir.path())
@@ -230,11 +245,11 @@ fn scenario_p99_with_small_baseline_is_infeasible() {
         .run();
 
     let resolver = feotest::spec::SpecResolver::with_dir(dir.path());
-    let result = ProbabilisticTestBuilder::new(
+    let result = ProbabilisticTest::for_contract(SleepingContract::new(
         "latency-scenario-11",
-        &inputs,
-        fixed_latency_trial(Duration::from_millis(10)),
-    )
+        Duration::from_millis(10),
+    ))
+    .inputs(&inputs)
     .approach(threshold_first(30, 0.80))
     .threshold_origin(feotest::model::ThresholdOrigin::Sla)
     .spec_resolver(resolver)
@@ -264,7 +279,9 @@ fn measure_round_trip_preserves_latency_block() {
 
     let m = feotest::experiment::MeasureExperiment::builder()
         .service_contract_id("latency-scenario-9")
-        .service_contract(|| SleepingContract { latency: Duration::from_millis(42) })
+        .service_contract(|| {
+            SleepingContract::new("latency-scenario-9", Duration::from_millis(42))
+        })
         .samples(50)
         .inputs(&inputs)
         .baseline_dir(dir.path())

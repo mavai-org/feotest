@@ -8,7 +8,7 @@ use std::path::Path;
 use std::time::Duration;
 
 use feotest::model::TrialOutcome;
-use feotest::ptest::ProbabilisticTestBuilder;
+use feotest::ptest::ProbabilisticTest;
 use feotest::ptest::builder::ThresholdApproach;
 use feotest::spec::SpecResolver;
 use feotest::service_contract::ServiceContract;
@@ -130,6 +130,53 @@ impl ServiceContract for FailingServiceContract {
     }
 }
 
+/// A service contract that echoes its input and whose single criterion fails
+/// whenever the echoed output is the literal `"fail"`. Driving it with an input
+/// mix of `"fail"` / `"ok"` reproduces a controlled pass rate.
+pub struct InputJudgedContract {
+    id: String,
+}
+
+impl InputJudgedContract {
+    pub fn new(id: impl Into<String>) -> Self {
+        Self { id: id.into() }
+    }
+}
+
+impl ServiceContract for InputJudgedContract {
+    type Input = String;
+    type Output = String;
+
+    fn id(&self) -> &str {
+        &self.id
+    }
+
+    fn invoke(
+        &self,
+        input: &String,
+        _cost: &mut feotest::controls::Cost,
+    ) -> Result<String, feotest::model::Defect> {
+        Ok(input.clone())
+    }
+
+    fn criteria(&self) -> feotest::criteria::Criteria<String> {
+        feotest::criteria::Criteria::of([feotest::criteria::Criteria::meeting()
+            .pass_rate(0.5)
+            .name("response acceptable")
+            .satisfies("response acceptable", |output: &String| {
+                if output == "fail" {
+                    Err(feotest::model::ContractViolation::new(
+                        "response acceptable",
+                        "forced",
+                    ))
+                } else {
+                    Ok(())
+                }
+            })
+            .build()])
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Baseline helpers
 // ---------------------------------------------------------------------------
@@ -163,10 +210,10 @@ pub fn run_against_baseline(
     baseline_dir: &Path,
     samples: u32,
     min_pass_rate: f64,
-    trial: impl FnMut(&str) -> TrialOutcome,
 ) -> feotest::ptest::ProbabilisticTestResult {
     let inputs = vec!["input".to_string()];
-    ProbabilisticTestBuilder::new(service_contract_id, &inputs, trial)
+    ProbabilisticTest::for_contract(SimpleServiceContract::new(service_contract_id))
+        .inputs(&inputs)
         .approach(ThresholdApproach::ThresholdFirst {
             samples,
             min_pass_rate,

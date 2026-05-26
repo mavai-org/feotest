@@ -8,10 +8,8 @@
 
 mod common;
 
-use std::time::Duration;
-
-use feotest::model::{TestIntent, ThresholdOrigin, TrialOutcome};
-use feotest::ptest::ProbabilisticTestBuilder;
+use feotest::model::{TestIntent, ThresholdOrigin};
+use feotest::ptest::ProbabilisticTest;
 use feotest::ptest::builder::ThresholdApproach;
 use feotest::reporting::{ConsoleRenderer, JunitXmlWriter};
 use feotest::spec::SpecResolver;
@@ -24,7 +22,8 @@ use feotest::verdict::Verdict;
 #[test]
 fn pass_verdict_has_rate_comparison_reason() {
     let inputs = vec!["input".to_string()];
-    let result = ProbabilisticTestBuilder::new("vp-pass", &inputs, common::always_succeeds)
+    let result = ProbabilisticTest::for_contract(common::SimpleServiceContract::new("vp-pass"))
+        .inputs(&inputs)
         .approach(ThresholdApproach::ThresholdFirst {
             samples: 30,
             min_pass_rate: 0.80,
@@ -47,21 +46,13 @@ fn fail_verdict_has_rate_comparison_reason() {
         .map(|i| if i < 8 { "fail".into() } else { "ok".into() })
         .collect();
 
-    let result = ProbabilisticTestBuilder::new("vp-fail", &inputs, |input| {
-        if input == "fail" {
-            TrialOutcome::failure(
-                feotest::model::ContractViolation::new("check", "forced"),
-                Duration::from_millis(1),
-            )
-        } else {
-            TrialOutcome::success(Duration::from_millis(1))
-        }
-    })
-    .approach(ThresholdApproach::ThresholdFirst {
-        samples: 100,
-        min_pass_rate: 0.90,
-    })
-    .run();
+    let result = ProbabilisticTest::for_contract(common::InputJudgedContract::new("vp-fail"))
+        .inputs(&inputs)
+        .approach(ThresholdApproach::ThresholdFirst {
+            samples: 100,
+            min_pass_rate: 0.90,
+        })
+        .run();
 
     let record = result.verdict_record();
     assert_eq!(record.verdict(), Verdict::Fail);
@@ -80,13 +71,7 @@ fn fail_verdict_has_rate_comparison_reason() {
 fn baseline_provenance_populated_from_spec() {
     let dir = common::establish_baseline("vp-baseline-prov", 200);
 
-    let result = common::run_against_baseline(
-        "vp-baseline-prov",
-        dir.path(),
-        50,
-        0.80,
-        common::always_succeeds,
-    );
+    let result = common::run_against_baseline("vp-baseline-prov", dir.path(), 50, 0.80);
 
     let record = result.verdict_record();
     let bp = record
@@ -103,7 +88,8 @@ fn baseline_provenance_populated_from_spec() {
 #[test]
 fn no_baseline_provenance_without_spec() {
     let inputs = vec!["input".to_string()];
-    let result = ProbabilisticTestBuilder::new("vp-no-bp", &inputs, common::always_succeeds)
+    let result = ProbabilisticTest::for_contract(common::SimpleServiceContract::new("vp-no-bp"))
+        .inputs(&inputs)
         .approach(ThresholdApproach::ThresholdFirst {
             samples: 30,
             min_pass_rate: 0.80,
@@ -123,12 +109,14 @@ fn no_baseline_provenance_without_spec() {
 #[test]
 fn covariate_status_aligned_by_default() {
     let inputs = vec!["input".to_string()];
-    let result = ProbabilisticTestBuilder::new("vp-cov-default", &inputs, common::always_succeeds)
-        .approach(ThresholdApproach::ThresholdFirst {
-            samples: 30,
-            min_pass_rate: 0.80,
-        })
-        .run();
+    let result =
+        ProbabilisticTest::for_contract(common::SimpleServiceContract::new("vp-cov-default"))
+            .inputs(&inputs)
+            .approach(ThresholdApproach::ThresholdFirst {
+                samples: 30,
+                min_pass_rate: 0.80,
+            })
+            .run();
 
     let cov = result.verdict_record().covariate_status();
     assert!(cov.aligned());
@@ -144,7 +132,8 @@ fn covariate_status_aligned_by_default() {
 #[test]
 fn spec_provenance_carries_origin_and_contract() {
     let inputs = vec!["input".to_string()];
-    let result = ProbabilisticTestBuilder::new("vp-prov", &inputs, common::always_succeeds)
+    let result = ProbabilisticTest::for_contract(common::SimpleServiceContract::new("vp-prov"))
+        .inputs(&inputs)
         .approach(ThresholdApproach::ThresholdFirst {
             samples: 50,
             min_pass_rate: 0.80,
@@ -165,13 +154,7 @@ fn spec_provenance_carries_origin_and_contract() {
 fn spec_provenance_includes_filename_when_baseline_used() {
     let dir = common::establish_baseline("vp-prov-file", 200);
 
-    let result = common::run_against_baseline(
-        "vp-prov-file",
-        dir.path(),
-        50,
-        0.80,
-        common::always_succeeds,
-    );
+    let result = common::run_against_baseline("vp-prov-file", dir.path(), 50, 0.80);
 
     let prov = result
         .verdict_record()
@@ -189,7 +172,8 @@ fn sample_size_first_derives_threshold_from_baseline() {
     let dir = common::establish_baseline("vp-ssf", 200);
 
     let inputs = vec!["input".to_string()];
-    let result = ProbabilisticTestBuilder::new("vp-ssf", &inputs, common::always_succeeds)
+    let result = ProbabilisticTest::for_contract(common::SimpleServiceContract::new("vp-ssf"))
+        .inputs(&inputs)
         .approach(ThresholdApproach::SampleSizeFirst {
             samples: 200,
             confidence: 0.95,
@@ -217,12 +201,13 @@ fn sample_size_first_derives_threshold_from_baseline() {
 #[test]
 fn smoke_intent_propagates_and_adds_warning() {
     let inputs = vec!["input".to_string()];
-    let result = ProbabilisticTestBuilder::new("vp-smoke", &inputs, common::always_succeeds)
+    let result = ProbabilisticTest::for_contract(common::SimpleServiceContract::new("vp-smoke"))
+        .inputs(&inputs)
         .approach(ThresholdApproach::ThresholdFirst {
             samples: 50,
             min_pass_rate: 0.80,
         })
-        .intent(TestIntent::Smoke)
+        .smoke()
         .threshold_origin(ThresholdOrigin::Sla)
         .run();
 
@@ -245,8 +230,7 @@ fn smoke_intent_propagates_and_adds_warning() {
 fn runner_produced_record_renders_through_console() {
     let dir = common::establish_baseline("vp-console", 200);
 
-    let result =
-        common::run_against_baseline("vp-console", dir.path(), 50, 0.80, common::always_succeeds);
+    let result = common::run_against_baseline("vp-console", dir.path(), 50, 0.80);
 
     let renderer = ConsoleRenderer::without_colour();
     let output = renderer.render_verdict_to_string(result.verdict_record());
@@ -261,8 +245,7 @@ fn runner_produced_record_renders_through_console() {
 fn runner_produced_record_renders_through_junit_xml() {
     let dir = common::establish_baseline("vp-junit", 200);
 
-    let result =
-        common::run_against_baseline("vp-junit", dir.path(), 50, 0.80, common::always_succeeds);
+    let result = common::run_against_baseline("vp-junit", dir.path(), 50, 0.80);
 
     let mut buf = Vec::new();
     JunitXmlWriter::write_to(&mut buf, &[result.verdict_record().clone()]).unwrap();
@@ -280,21 +263,14 @@ fn fail_record_renders_through_both_formats() {
         .map(|i| if i < 4 { "fail".into() } else { "ok".into() })
         .collect();
 
-    let result = ProbabilisticTestBuilder::new("vp-fail-render", &inputs, |input| {
-        if input == "fail" {
-            TrialOutcome::failure(
-                feotest::model::ContractViolation::new("check", "forced"),
-                Duration::from_millis(1),
-            )
-        } else {
-            TrialOutcome::success(Duration::from_millis(1))
-        }
-    })
-    .approach(ThresholdApproach::ThresholdFirst {
-        samples: 100,
-        min_pass_rate: 0.90,
-    })
-    .run();
+    let result =
+        ProbabilisticTest::for_contract(common::InputJudgedContract::new("vp-fail-render"))
+            .inputs(&inputs)
+            .approach(ThresholdApproach::ThresholdFirst {
+                samples: 100,
+                min_pass_rate: 0.90,
+            })
+            .run();
 
     // Console
     let renderer = ConsoleRenderer::without_colour();
