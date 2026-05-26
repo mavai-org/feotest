@@ -9,11 +9,11 @@
 //! reason. A failed transform is a fail, not a third state.
 //!
 //! ```
-//! use feotest::criteria::Criteria;
+//! use feotest::criteria::{Criteria, Criterion};
 //! use feotest::model::ContractViolation;
 //!
 //! let criteria = Criteria::<String>::of([
-//!     Criteria::meeting().pass_rate(0.99)
+//!     Criterion::meeting().pass_rate(0.99)
 //!         .name("non-empty")
 //!         .satisfies("response not empty", |r: &String| {
 //!             if r.is_empty() {
@@ -34,7 +34,7 @@ mod counts;
 mod criterion;
 mod result;
 
-pub use builder::{CriterionBuild, EmpiricalCriteria, NormativeCriteria, TransformingBuild};
+pub use builder::{CriterionBuild, EmpiricalCriterion, NormativeCriterion, TransformingBuild};
 pub use counts::{CriteriaCounts, CriterionCounts};
 pub use criterion::{Criterion, CriterionTarget};
 pub use result::{CriterionOutcome, CriterionSampleResult};
@@ -48,18 +48,6 @@ pub struct Criteria<O> {
 }
 
 impl<O: 'static> Criteria<O> {
-    /// Begins a **normative** criterion — a target asserted from a document.
-    #[must_use]
-    pub const fn meeting() -> NormativeCriteria<O> {
-        NormativeCriteria::new()
-    }
-
-    /// Begins an **empirical** criterion — a target derived from a baseline.
-    #[must_use]
-    pub const fn empirical() -> EmpiricalCriteria<O> {
-        EmpiricalCriteria::new()
-    }
-
     /// Assembles the criteria of a contract.
     ///
     /// # Panics
@@ -150,12 +138,12 @@ mod tests {
     fn evaluates_every_criterion_without_short_circuit() {
         // The first criterion fails; the second must still be evaluated.
         let criteria = Criteria::<String>::of([
-            Criteria::meeting()
+            Criterion::meeting()
                 .pass_rate(0.9)
                 .name("first")
                 .satisfies("a", fails("a"))
                 .build(),
-            Criteria::meeting()
+            Criterion::meeting()
                 .pass_rate(0.9)
                 .name("second")
                 .satisfies("b", passes)
@@ -173,7 +161,7 @@ mod tests {
 
     #[test]
     fn failing_postcondition_yields_fail_with_reason() {
-        let criteria = Criteria::<String>::of([Criteria::meeting()
+        let criteria = Criteria::<String>::of([Criterion::meeting()
             .pass_rate(0.9)
             .name("c")
             .satisfies("not-empty", fails("not-empty"))
@@ -189,7 +177,7 @@ mod tests {
     fn multiple_satisfies_all_must_pass() {
         // A criterion with several postconditions passes only if every clause
         // passes; a later-clause failure surfaces as that clause's reason.
-        let criteria = Criteria::<String>::of([Criteria::meeting()
+        let criteria = Criteria::<String>::of([Criterion::meeting()
             .pass_rate(0.9)
             .name("c")
             .satisfies("first", passes)
@@ -198,7 +186,7 @@ mod tests {
             .build()]);
         assert!(criteria.evaluate(&"x".to_string())[0].passed());
 
-        let with_late_failure = Criteria::<String>::of([Criteria::meeting()
+        let with_late_failure = Criteria::<String>::of([Criterion::meeting()
             .pass_rate(0.9)
             .name("c")
             .satisfies("first", passes)
@@ -212,7 +200,7 @@ mod tests {
 
     #[test]
     fn clean_pass_carries_no_reason() {
-        let criteria = Criteria::<String>::of([Criteria::meeting()
+        let criteria = Criteria::<String>::of([Criterion::meeting()
             .pass_rate(0.9)
             .name("c")
             .satisfies("ok", passes)
@@ -226,7 +214,7 @@ mod tests {
 
     #[test]
     fn first_failing_postcondition_within_a_criterion_wins() {
-        let criteria = Criteria::<String>::of([Criteria::meeting()
+        let criteria = Criteria::<String>::of([Criterion::meeting()
             .pass_rate(0.9)
             .name("c")
             .satisfies("first", fails("first"))
@@ -243,7 +231,7 @@ mod tests {
         // The transform cannot parse the output, so the criterion fails for
         // that sample (counted), carrying the transform's reason — never a
         // panic or an inconclusive per-sample state.
-        let criteria = Criteria::<String>::of([Criteria::empirical()
+        let criteria = Criteria::<String>::of([Criterion::empirical()
             .pass_rate()
             .transforming(|s: &String| {
                 s.parse::<u32>()
@@ -269,7 +257,7 @@ mod tests {
 
     #[test]
     fn transformed_postcondition_judges_the_transformed_value() {
-        let criteria = Criteria::<String>::of([Criteria::empirical()
+        let criteria = Criteria::<String>::of([Criterion::empirical()
             .pass_rate()
             .transforming(|s: &String| {
                 s.parse::<u32>()
@@ -291,7 +279,7 @@ mod tests {
 
     #[test]
     fn targets_and_postcondition_names_are_recorded() {
-        let normative = Criteria::meeting()
+        let normative = Criterion::meeting()
             .pass_rate(0.99)
             .name("n")
             .satisfies("p", passes)
@@ -299,14 +287,14 @@ mod tests {
         assert_eq!(normative.target(), &CriterionTarget::NormativeRate(0.99));
         assert_eq!(normative.postconditions(), ["p"]);
 
-        let empirical = Criteria::<String>::empirical()
+        let empirical = Criterion::<String>::empirical()
             .pass_rate()
             .name("e")
             .satisfies("p", passes)
             .build();
         assert_eq!(empirical.target(), &CriterionTarget::EmpiricalRate);
 
-        let zero = Criteria::<String>::meeting()
+        let zero = Criterion::<String>::meeting()
             .zero_failures()
             .name("z")
             .satisfies("p", passes)
@@ -318,12 +306,12 @@ mod tests {
     #[should_panic(expected = "duplicate criterion name 'dup'")]
     fn rejects_duplicate_criterion_names() {
         let _ = Criteria::<String>::of([
-            Criteria::meeting()
+            Criterion::meeting()
                 .pass_rate(0.9)
                 .name("dup")
                 .satisfies("a", passes)
                 .build(),
-            Criteria::meeting()
+            Criterion::meeting()
                 .pass_rate(0.9)
                 .name("dup")
                 .satisfies("b", passes)
@@ -340,7 +328,7 @@ mod tests {
     #[test]
     #[should_panic(expected = "requires a name")]
     fn build_requires_a_name() {
-        let _ = Criteria::<String>::meeting()
+        let _ = Criterion::<String>::meeting()
             .pass_rate(0.9)
             .satisfies("a", passes)
             .build();
@@ -349,6 +337,6 @@ mod tests {
     #[test]
     #[should_panic(expected = "pass rate must be in (0, 1)")]
     fn rejects_out_of_range_pass_rate() {
-        let _ = Criteria::<String>::meeting().pass_rate(1.5);
+        let _ = Criterion::<String>::meeting().pass_rate(1.5);
     }
 }

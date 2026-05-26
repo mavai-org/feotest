@@ -4,7 +4,7 @@ use std::collections::BTreeMap;
 use std::fmt;
 
 use feotest::controls::Cost;
-use feotest::criteria::Criteria;
+use feotest::criteria::{Criteria, Criterion};
 use feotest::experiment::ExploreExperiment;
 use feotest::model::Defect;
 use feotest::service_contract::ServiceContract;
@@ -39,7 +39,7 @@ impl ServiceContract for MockService {
     }
 
     fn criteria(&self) -> Criteria<String> {
-        Criteria::of([Criteria::meeting()
+        Criteria::of([Criterion::meeting()
             .pass_rate(0.5)
             .name("ok")
             .satisfies("ok", |_: &String| Ok(()))

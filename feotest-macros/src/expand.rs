@@ -120,10 +120,10 @@ fn build_criterion_kind(approach: Approach, attrs: &PTestAttrs) -> TokenStream {
     match approach {
         Approach::ThresholdFirst => {
             let threshold = attrs.threshold.unwrap();
-            quote! { feotest::criteria::Criteria::<String>::meeting().pass_rate(#threshold) }
+            quote! { feotest::criteria::Criterion::<String>::meeting().pass_rate(#threshold) }
         }
         Approach::SampleSizeFirst => {
-            quote! { feotest::criteria::Criteria::<String>::empirical().pass_rate() }
+            quote! { feotest::criteria::Criterion::<String>::empirical().pass_rate() }
         }
     }
 }

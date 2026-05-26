@@ -429,10 +429,10 @@ impl ParsedTestCfg {
     /// threshold as a normative rate.
     fn criterion_kind_tokens(&self) -> TokenStream {
         if matches!(self.origin, OriginToken::Empirical) {
-            quote! { ::feotest::criteria::Criteria::<bool>::empirical().pass_rate() }
+            quote! { ::feotest::criteria::Criterion::<bool>::empirical().pass_rate() }
         } else {
             let threshold = self.threshold_val.expect("validated");
-            quote! { ::feotest::criteria::Criteria::<bool>::meeting().pass_rate(#threshold) }
+            quote! { ::feotest::criteria::Criterion::<bool>::meeting().pass_rate(#threshold) }
         }
     }
 
@@ -527,7 +527,7 @@ fn emit_experiment(
                     ::core::result::Result::Ok(self.spec.#method_name())
                 }
                 fn criteria(&self) -> ::feotest::criteria::Criteria<bool> {
-                    ::feotest::criteria::Criteria::of([::feotest::criteria::Criteria::meeting()
+                    ::feotest::criteria::Criteria::of([::feotest::criteria::Criterion::meeting()
                         .pass_rate(0.5)
                         .name("sentinel measure experiment")
                         .satisfies("sentinel measure experiment", |ok: &bool| {
