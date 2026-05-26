@@ -18,7 +18,13 @@ pub struct PTestAttrs {
     pub contract_ref: Option<String>,
 }
 
-/// The detected operational approach.
+/// The operational approach a `#[probabilistic_test]` attribute selects.
+///
+/// The macro deliberately exposes only two of the methodology's three
+/// approaches. Confidence-first (power-based sample sizing) is intentionally
+/// omitted from the attribute surface — it remains available on the builder
+/// API (`ProbabilisticTest::for_contract(..).approach(ThresholdApproach::ConfidenceFirst { .. })`),
+/// which is the right home for its runtime-computed sample count.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[allow(
     clippy::enum_variant_names,

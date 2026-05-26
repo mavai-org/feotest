@@ -35,7 +35,7 @@ pub fn expand(attr: TokenStream, item: TokenStream) -> syn::Result<TokenStream> 
 
     let judge = build_judge(returns_bool);
     let criterion_kind = build_criterion_kind(approach, &attrs);
-    let samples = attrs.samples.unwrap();
+    let approach_call = build_approach_call(approach, &attrs);
     let run_options = build_run_options(&attrs);
     let (spec_load, baseline_call) = build_baseline(&attrs);
 
@@ -80,7 +80,7 @@ pub fn expand(attr: TokenStream, item: TokenStream) -> syn::Result<TokenStream> 
             let __feotest_inputs = vec!["default".to_string()];
             let __feotest_result = feotest::ptest::ProbabilisticTest::for_contract(__FeotestContract)
                 .inputs(&__feotest_inputs)
-                .samples(#samples)
+                #approach_call
                 #run_options
                 #baseline_call
                 .run();
@@ -128,34 +128,56 @@ fn build_criterion_kind(approach: Approach, attrs: &PTestAttrs) -> TokenStream {
     }
 }
 
-/// The optional builder calls (confidence, intent, threshold origin, contract
-/// reference) for the contract test, in a fixed order.
+/// The sampling-plan call: threshold-first carries the explicit threshold;
+/// sample-size-first carries the confidence and derives from the baseline.
+fn build_approach_call(approach: Approach, attrs: &PTestAttrs) -> TokenStream {
+    let samples = attrs.samples.unwrap();
+    match approach {
+        Approach::ThresholdFirst => {
+            let threshold = attrs.threshold.unwrap();
+            quote! {
+                .approach(feotest::ptest::builder::ThresholdApproach::ThresholdFirst {
+                    samples: #samples,
+                    min_pass_rate: #threshold,
+                })
+            }
+        }
+        Approach::SampleSizeFirst => {
+            let confidence = attrs.confidence.unwrap();
+            quote! {
+                .approach(feotest::ptest::builder::ThresholdApproach::SampleSizeFirst {
+                    samples: #samples,
+                    confidence: #confidence,
+                })
+            }
+        }
+    }
+}
+
+/// The optional builder calls (intent, threshold origin, contract reference)
+/// for the contract test, in a fixed order.
 fn build_run_options(attrs: &PTestAttrs) -> TokenStream {
-    let confidence = attrs
-        .confidence
-        .map(|c| quote! { .confidence(#c) })
-        .unwrap_or_default();
     let intent = match attrs.intent.as_deref() {
         Some("smoke") => quote! { .smoke() },
         _ => TokenStream::new(),
     };
-    let origin = attrs.threshold_origin.as_deref().map_or_else(
-        TokenStream::new,
-        |origin| {
+    let origin = attrs
+        .threshold_origin
+        .as_deref()
+        .map_or_else(TokenStream::new, |origin| {
             let origin_expr = threshold_origin_expr(origin);
             quote! { .threshold_origin(#origin_expr) }
-        },
-    );
+        });
     let contract_ref = attrs
         .contract_ref
         .as_ref()
         .map(|cref| quote! { .contract_ref(#cref) })
         .unwrap_or_default();
-    quote! { #confidence #intent #origin #contract_ref }
+    quote! { #intent #origin #contract_ref }
 }
 
-/// The baseline-spec load statement and the `.baseline(..)` builder call for a
-/// spec-backed test; both empty when no spec is declared.
+/// The baseline-spec load statement and the `.baseline_spec(..)` builder call
+/// for a spec-backed test; both empty when no spec is declared.
 fn build_baseline(attrs: &PTestAttrs) -> (TokenStream, TokenStream) {
     attrs.spec.as_ref().map_or_else(
         || (TokenStream::new(), TokenStream::new()),
@@ -166,7 +188,7 @@ fn build_baseline(attrs: &PTestAttrs) -> (TokenStream, TokenStream) {
                         concat!(env!("CARGO_MANIFEST_DIR"), "/", #spec_path)
                     ).expect("failed to load baseline spec");
                 },
-                quote! { .baseline(__feotest_spec) },
+                quote! { .baseline_spec(__feotest_spec) },
             )
         },
     )

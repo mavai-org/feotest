@@ -628,39 +628,27 @@ fn build_provenance(
     provenance
 }
 
-/// The sampling plan and provenance for a contract-driven run, assembled by
-/// the [`ContractTest`](crate::ptest::ContractTest) builder.
-pub struct ContractTestPlan {
-    /// Number of counted samples (sample-size-first plan).
-    pub samples: u32,
-    /// Confidence level applied to every criterion's verdict.
-    pub confidence: ConfidenceLevel,
-    /// Whether this is a verification or smoke test.
-    pub intent: TestIntent,
-    /// Origin recorded for the criteria's targets.
-    pub threshold_origin: ThresholdOrigin,
-    /// Baseline an empirical criterion derives its target from.
-    pub baseline: Option<BaselineSpec>,
-    /// Human-readable contract reference for provenance.
-    pub contract_ref: Option<String>,
-}
-
 /// Executes a contract-driven probabilistic test: the engine invokes the
 /// contract and judges every criterion on every sample, and the verdict
 /// decomposes per criterion with a composite over them.
 ///
-/// The sampling plan is sample-size-first (`samples` at `confidence`); each
-/// criterion is judged against its own target. Latency commitments are sourced
-/// from the contract and reported as the separate latency dimension.
+/// Mirrors [`execute`] — baseline resolution, threshold derivation, feasibility
+/// enforcement, budget/expiration policy, and provenance are identical — but
+/// drives the fused [`ServiceContract`] (`invoke` → `criteria().evaluate`)
+/// instead of a trial closure, builds a per-criterion composite verdict, and
+/// sources latency commitments from [`ServiceContract::latency`].
 ///
 /// # Panics
 ///
-/// Panics if `inputs` is empty, or if a service invocation yields a defect (a
-/// transport failure or a caught panic) — a defect aborts the run.
+/// Panics if `inputs` is empty, if the configuration is statistically
+/// infeasible under verification intent, or if a service invocation yields a
+/// defect (a transport failure or a caught panic) — a defect aborts the run.
 pub fn execute_contract<C: ServiceContract>(
     contract: &C,
     inputs: &[C::Input],
-    plan: ContractTestPlan,
+    criteria: &AssessmentCriteria,
+    baseline: BaselineContext,
+    config_overrides: Option<&ExecutionConfig>,
 ) -> ProbabilisticTestResult
 where
     C::Output: 'static,
@@ -670,23 +658,43 @@ where
         "a probabilistic test requires at least one input"
     );
 
-    let ContractTestPlan {
-        samples,
-        confidence,
-        intent,
-        threshold_origin,
-        baseline: baseline_spec,
-        contract_ref,
-    } = plan;
-
     let mut warnings: Vec<Warning> = Vec::new();
-    let criteria = contract.criteria();
-    let config = ExecutionConfig::new(samples).with_warmup(contract.warmup());
-    let token_recorder = TokenRecorder::new();
+    let service_contract_id = contract.id().to_owned();
 
+    let baseline_spec = resolve_baseline(baseline, &service_contract_id, &mut warnings);
+
+    let (samples, derived_threshold) = approach::resolve_threshold(
+        &criteria.approach,
+        baseline_spec.as_ref().map(|s| &s.statistics),
+        baseline_spec.as_ref().map(|s| &s.execution),
+    );
+    let resolved_confidence = approach::resolved_confidence(&criteria.approach);
+    let feas =
+        feasibility::feasibility_check(samples, derived_threshold.value(), resolved_confidence);
+    enforce_feasibility(&service_contract_id, criteria.intent, &feas, &mut warnings);
+
+    // Early termination only applies under a meaningful threshold; a `0.0`
+    // floor (the bare-samples plan) runs every sample and lets the
+    // per-criterion targets decide the verdict.
+    let mut config = config_overrides.cloned().unwrap_or_else(|| {
+        let mut c = ExecutionConfig::new(samples);
+        if let Some(behaviour) = criteria.on_budget_exhausted {
+            c = c.with_on_budget_exhausted(behaviour);
+        }
+        c
+    });
+    if derived_threshold.value() > 0.0 {
+        config = config
+            .min_pass_rate(derived_threshold.value())
+            .min_samples_for_validity(feas.minimum_samples());
+    }
+    let config = config.with_warmup(contract.warmup());
+
+    let token_recorder = TokenRecorder::new();
+    let contract_criteria = contract.criteria();
     let exec_result = {
         let recorder = token_recorder.clone();
-        let criteria = &criteria;
+        let contract_criteria = &contract_criteria;
         ExecutionEngine::run_contract(
             &config,
             inputs,
@@ -699,50 +707,67 @@ where
                 let elapsed = start.elapsed();
                 recorder.record(cost.tokens_recorded());
                 Ok(SampleEvaluation {
-                    results: criteria.evaluate(&output),
+                    results: contract_criteria.evaluate(&output),
                     elapsed,
                 })
             },
         )
-    };
-    let exec_result = exec_result.unwrap_or_else(|defect| {
+    }
+    .unwrap_or_else(|defect| {
         panic!("\n\nservice invocation aborted the run: {defect}\n");
     });
 
     let summary = exec_result.summary();
-    let assessment = build_functional_assessment(
+
+    let rows = build_criterion_rows(
         exec_result.criteria_counts(),
-        &criteria.targets(),
-        confidence,
+        &contract_criteria.targets(),
+        resolved_confidence,
         baseline_spec.as_ref(),
-        threshold_origin,
-        intent,
+        criteria.threshold_origin,
+        criteria.intent,
     );
-    let verdict = assessment.composite();
-    let analysis = assessment
-        .criteria()
+    let analysis = rows
         .first()
         .and_then(|row| row.statistical_analysis().cloned());
 
+    // Budget exhaustion and baseline expiration adjust the overall (composite)
+    // verdict, exactly as for the legacy single-criterion path.
+    let mut verdict = composite_verdict(&rows);
+    verdict = apply_budget_exhaustion_policy(summary, &config, verdict, &mut warnings);
+    let expiration_info = baseline_spec
+        .as_ref()
+        .map(crate::spec::expiration::evaluate);
+    verdict = apply_expiration_policy(
+        expiration_info.as_ref(),
+        criteria.fail_on_expired_baseline,
+        verdict,
+        &mut warnings,
+    );
+    record_smoke_normative_warning(criteria, &mut warnings);
+
+    let assessment = FunctionalAssessment::new(verdict, rows);
+
     let latency_dimension = build_contract_latency_dimension(
         contract.latency(),
+        &criteria.latency,
         exec_result.aggregate().successful_latencies(),
         baseline_spec.as_ref(),
         &mut warnings,
     );
 
     let provenance = build_provenance(
-        threshold_origin,
+        criteria.threshold_origin,
         baseline_spec.as_ref(),
-        contract_ref.as_deref(),
-        None,
+        criteria.contract_ref.as_deref(),
+        expiration_info,
     );
     let baseline_prov = baseline_spec.as_ref().map(build_baseline_provenance);
 
     let mut builder = VerdictRecord::builder(
-        TestIdentity::new(contract.id()),
+        TestIdentity::new(service_contract_id),
         verdict,
-        intent,
+        criteria.intent,
         summary.clone(),
         assessment,
     )
@@ -753,6 +778,9 @@ where
     if let Some(bp) = baseline_prov {
         builder = builder.baseline_provenance(bp);
     }
+    if let Some(pacing) = config.pacing_config() {
+        builder = builder.pacing(PacingSummary::from_config(pacing));
+    }
     if let Some(dim) = latency_dimension {
         builder = builder.latency(dim);
     }
@@ -762,24 +790,20 @@ where
 
     ProbabilisticTestResult {
         verdict_record: builder.build(),
-        approach: ThresholdApproach::SampleSizeFirst {
-            samples,
-            confidence: confidence.value(),
-        },
+        approach: criteria.approach.clone(),
     }
 }
 
-/// Builds the composite functional assessment: one row per criterion, each
-/// judged against its own target, plus the composite verdict over them.
-fn build_functional_assessment(
+/// Builds one verdict row per criterion, each judged against its own target.
+fn build_criterion_rows(
     counts: &CriteriaCounts,
     targets: &[(&str, &CriterionTarget)],
     confidence: ConfidenceLevel,
     baseline: Option<&BaselineSpec>,
     threshold_origin: ThresholdOrigin,
     intent: TestIntent,
-) -> FunctionalAssessment {
-    let rows: Vec<CriterionRow> = targets
+) -> Vec<CriterionRow> {
+    targets
         .iter()
         .map(|(name, target)| {
             build_criterion_row(
@@ -792,8 +816,7 @@ fn build_functional_assessment(
                 intent,
             )
         })
-        .collect();
-    FunctionalAssessment::new(composite_verdict(&rows), rows)
+        .collect()
 }
 
 /// The composite verdict over the criterion rows: `Inconclusive` if any row is,
@@ -931,14 +954,18 @@ fn criterion_analysis(
 /// (or env-configured) derived thresholds.
 fn build_contract_latency_dimension(
     latency: Option<LatencyCriterion>,
+    latency_config: &LatencyConfig,
     successful_latencies: &[std::time::Duration],
     baseline_spec: Option<&BaselineSpec>,
     warnings: &mut Vec<Warning>,
 ) -> Option<LatencyDimension> {
+    // Explicit ceilings come from the contract's latency criterion; the
+    // baseline-derived enforcement mode and confidence carry over from the
+    // test's latency configuration.
     let config = LatencyConfig {
         thresholds: latency.map_or_else(LatencyThresholds::new, |c| *c.thresholds()),
-        baseline_mode: None,
-        baseline_confidence: crate::latency::DEFAULT_BASELINE_CONFIDENCE,
+        baseline_mode: latency_config.baseline_mode,
+        baseline_confidence: latency_config.baseline_confidence,
     };
     build_latency_dimension(&config, successful_latencies, baseline_spec, warnings)
 }
