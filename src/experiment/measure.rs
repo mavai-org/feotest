@@ -408,7 +408,7 @@ impl<'a, T: ServiceContract> MeasureExperimentBuilder<'a, T> {
     /// via the [`crate::spec::expiration`] evaluator; expired
     /// baselines render a warning by default and can be escalated to a
     /// test failure via
-    /// [`crate::ptest::ProbabilisticTestBuilder::fail_on_expired_baseline`].
+    /// [`ContractTest::fail_on_expired_baseline`](crate::ptest::ContractTest::fail_on_expired_baseline).
     ///
     /// A value of `0` (the default) disables expiration entirely: no
     /// block is written, no checks are performed.

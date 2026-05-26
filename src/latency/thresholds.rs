@@ -1,4 +1,4 @@
-//! Explicit latency thresholds declared on the builder.
+//! Explicit per-percentile latency thresholds.
 
 use std::time::Duration;
 
@@ -6,9 +6,9 @@ use crate::latency::percentile::Percentile;
 
 /// A set of explicit per-percentile latency thresholds.
 ///
-/// Constructed via the builder methods on `ProbabilisticTestBuilder`
-/// (`latency_p50`, `latency_p90`, `latency_p95`, `latency_p99`). Each entry
-/// is optional; unset percentiles are not asserted.
+/// Built up from a [`LatencyCriterion`](crate::latency::LatencyCriterion)'s
+/// `at_most` ceilings. Each entry is optional; unset percentiles are not
+/// asserted.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 // javai-ref: JVI-MPAYH0Q — do not remove (resolves in javai-orchestrator)
 pub struct LatencyThresholds {

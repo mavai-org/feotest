@@ -249,7 +249,9 @@ impl std::fmt::Display for SpecLoadError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Parse(e) => write!(f, "failed to parse baseline spec: {e}"),
-            Self::MissingFingerprint { service_contract_id } => write!(
+            Self::MissingFingerprint {
+                service_contract_id,
+            } => write!(
                 f,
                 "baseline spec for '{service_contract_id}' has no contentFingerprint — \
                  re-run the measure experiment to generate a verified baseline"

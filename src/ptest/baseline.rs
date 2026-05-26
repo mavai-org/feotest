@@ -5,10 +5,10 @@
 //! a tampered spec is a hard failure.
 
 use crate::model::Warning;
+use crate::service_contract::CovariateContext;
 use crate::spec::baseline::SpecLoadError;
 use crate::spec::selector::SelectionResult;
 use crate::spec::{BaselineSpec, SpecResolveError, SpecResolver};
-use crate::service_contract::CovariateContext;
 
 /// Resolves a baseline spec, using covariate-aware selection when context is available.
 ///
@@ -28,7 +28,8 @@ pub fn resolve(
         return interpret_resolve_result(result, warnings);
     };
 
-    let result = resolver.resolve_with_covariates(service_contract_id, ctx.profile(), ctx.declarations());
+    let result =
+        resolver.resolve_with_covariates(service_contract_id, ctx.profile(), ctx.declarations());
     interpret_covariate_result(result, warnings)
 }
 

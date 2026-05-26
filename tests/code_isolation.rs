@@ -42,10 +42,7 @@ fn no_internal_tracking_codes_in_source() {
         let mut files = Vec::new();
         collect_rs_files(&dir, &mut files);
         for file in files {
-            if file
-                .file_name()
-                .is_some_and(|name| name == SELF_FILE)
-            {
+            if file.file_name().is_some_and(|name| name == SELF_FILE) {
                 continue;
             }
             scan_file(&file, crate_root, &mut offenders);
@@ -61,8 +58,7 @@ fn no_internal_tracking_codes_in_source() {
 
 /// Recursively collects every `.rs` file under `dir`.
 fn collect_rs_files(dir: &Path, out: &mut Vec<PathBuf>) {
-    let entries =
-        fs::read_dir(dir).unwrap_or_else(|e| panic!("read_dir {}: {e}", dir.display()));
+    let entries = fs::read_dir(dir).unwrap_or_else(|e| panic!("read_dir {}: {e}", dir.display()));
     for entry in entries {
         let entry = entry.expect("dir entry");
         let path = entry.path();

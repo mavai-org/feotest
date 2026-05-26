@@ -3,34 +3,20 @@
 
 mod common;
 
-use std::time::Duration;
-
 use feotest::experiment::MeasureExperiment;
-use feotest::model::{ContractViolation, TerminationReason, ThresholdOrigin, TrialOutcome};
-use feotest::ptest::ProbabilisticTestBuilder;
+use feotest::model::{TerminationReason, ThresholdOrigin};
+use feotest::ptest::ProbabilisticTest;
 use feotest::ptest::builder::ThresholdApproach;
 use feotest::spec::SpecResolver;
 use feotest::verdict::Verdict;
-
-// --- Fixtures ---
-
-const fn always_succeed(_input: &str) -> TrialOutcome {
-    TrialOutcome::success(Duration::from_millis(1))
-}
-
-fn always_fail(_input: &str) -> TrialOutcome {
-    TrialOutcome::failure(
-        ContractViolation::new("forced", "always-fail"),
-        Duration::from_millis(1),
-    )
-}
 
 // --- runner-driven failure-inevitable termination ---
 
 #[test]
 fn threshold_first_terminates_on_failure_inevitable() {
     let inputs = vec!["input".to_string()];
-    let result = ProbabilisticTestBuilder::new("fail-inev", &inputs, always_fail)
+    let result = ProbabilisticTest::for_contract(common::FailingServiceContract::new("fail-inev"))
+        .inputs(&inputs)
         .approach(ThresholdApproach::ThresholdFirst {
             samples: 200,
             min_pass_rate: 0.90,
@@ -67,14 +53,16 @@ fn sample_size_first_terminates_on_failure_inevitable() {
         .run();
 
     let resolver = SpecResolver::with_dir(dir.path());
-    let result = ProbabilisticTestBuilder::new("ssf-fail-inev", &inputs, always_fail)
-        .approach(ThresholdApproach::SampleSizeFirst {
-            samples: 200,
-            confidence: 0.95,
-        })
-        .spec_resolver(resolver)
-        .threshold_origin(ThresholdOrigin::Empirical)
-        .run();
+    let result =
+        ProbabilisticTest::for_contract(common::FailingServiceContract::new("ssf-fail-inev"))
+            .inputs(&inputs)
+            .approach(ThresholdApproach::SampleSizeFirst {
+                samples: 200,
+                confidence: 0.95,
+            })
+            .spec_resolver(resolver)
+            .threshold_origin(ThresholdOrigin::Empirical)
+            .run();
 
     let record = result.verdict_record();
     assert_eq!(record.verdict(), Verdict::Fail);
@@ -90,12 +78,14 @@ fn sample_size_first_terminates_on_failure_inevitable() {
 #[test]
 fn threshold_first_terminates_on_success_guaranteed() {
     let inputs = vec!["input".to_string()];
-    let result = ProbabilisticTestBuilder::new("success-guaranteed", &inputs, always_succeed)
-        .approach(ThresholdApproach::ThresholdFirst {
-            samples: 200,
-            min_pass_rate: 0.50,
-        })
-        .run();
+    let result =
+        ProbabilisticTest::for_contract(common::SimpleServiceContract::new("success-guaranteed"))
+            .inputs(&inputs)
+            .approach(ThresholdApproach::ThresholdFirst {
+                samples: 200,
+                min_pass_rate: 0.50,
+            })
+            .run();
 
     let record = result.verdict_record();
     assert_eq!(record.verdict(), Verdict::Pass);
@@ -119,7 +109,8 @@ fn validity_floor_delays_runner_success_guaranteed() {
     // samples_executed must be at least the feasibility floor.
     let inputs = vec!["input".to_string()];
     let samples = 500;
-    let result = ProbabilisticTestBuilder::new("floor-delay", &inputs, always_succeed)
+    let result = ProbabilisticTest::for_contract(common::SimpleServiceContract::new("floor-delay"))
+        .inputs(&inputs)
         .approach(ThresholdApproach::ThresholdFirst {
             samples,
             min_pass_rate: 0.90,

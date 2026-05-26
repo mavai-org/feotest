@@ -6,22 +6,16 @@
 
 mod common;
 
-use std::time::Duration;
-
-use feotest::model::TrialOutcome;
-use feotest::ptest::ProbabilisticTestBuilder;
+use feotest::ptest::ProbabilisticTest;
 use feotest::ptest::builder::ThresholdApproach;
 use feotest::reporting::render_transparent_stats;
 use feotest::verdict::Verdict;
 
-fn always_succeeds(_input: &str) -> TrialOutcome {
-    TrialOutcome::success(Duration::from_millis(1))
-}
-
 #[test]
 fn builder_result_carries_approach() {
     let inputs = vec!["input".to_string()];
-    let result = ProbabilisticTestBuilder::new("wiring-test", &inputs, always_succeeds)
+    let result = ProbabilisticTest::for_contract(common::SimpleServiceContract::new("wiring-test"))
+        .inputs(&inputs)
         .approach(ThresholdApproach::ThresholdFirst {
             samples: 30,
             min_pass_rate: 0.80,
@@ -39,12 +33,14 @@ fn builder_result_carries_approach() {
 #[test]
 fn render_produces_all_sections() {
     let inputs = vec!["input".to_string()];
-    let result = ProbabilisticTestBuilder::new("section-test", &inputs, always_succeeds)
-        .approach(ThresholdApproach::ThresholdFirst {
-            samples: 50,
-            min_pass_rate: 0.80,
-        })
-        .run();
+    let result =
+        ProbabilisticTest::for_contract(common::SimpleServiceContract::new("section-test"))
+            .inputs(&inputs)
+            .approach(ThresholdApproach::ThresholdFirst {
+                samples: 50,
+                min_pass_rate: 0.80,
+            })
+            .run();
 
     let mut buf = String::new();
     render_transparent_stats(result.verdict_record(), result.approach(), &mut buf)
@@ -80,13 +76,15 @@ fn render_with_sample_size_first_approach() {
 
     // Run a probabilistic test using the baseline
     let resolver = feotest::spec::SpecResolver::with_dir(dir.path());
-    let result = ProbabilisticTestBuilder::new("transparent-ssf", &inputs, always_succeeds)
-        .approach(ThresholdApproach::SampleSizeFirst {
-            samples: 200,
-            confidence: 0.95,
-        })
-        .spec_resolver(resolver)
-        .run();
+    let result =
+        ProbabilisticTest::for_contract(common::SimpleServiceContract::new("transparent-ssf"))
+            .inputs(&inputs)
+            .approach(ThresholdApproach::SampleSizeFirst {
+                samples: 200,
+                confidence: 0.95,
+            })
+            .spec_resolver(resolver)
+            .run();
 
     let mut buf = String::new();
     render_transparent_stats(result.verdict_record(), result.approach(), &mut buf).unwrap();
@@ -108,21 +106,13 @@ fn render_fail_verdict_includes_rejection() {
         })
         .collect();
 
-    let result = ProbabilisticTestBuilder::new("fail-test", &inputs, |input| {
-        if input == "fail" {
-            TrialOutcome::failure(
-                feotest::model::ContractViolation::new("check", "forced"),
-                Duration::from_millis(1),
-            )
-        } else {
-            TrialOutcome::success(Duration::from_millis(1))
-        }
-    })
-    .approach(ThresholdApproach::ThresholdFirst {
-        samples: 100,
-        min_pass_rate: 0.90,
-    })
-    .run();
+    let result = ProbabilisticTest::for_contract(common::InputJudgedContract::new("fail-test"))
+        .inputs(&inputs)
+        .approach(ThresholdApproach::ThresholdFirst {
+            samples: 100,
+            min_pass_rate: 0.90,
+        })
+        .run();
 
     let mut buf = String::new();
     render_transparent_stats(result.verdict_record(), result.approach(), &mut buf).unwrap();
@@ -134,7 +124,8 @@ fn render_fail_verdict_includes_rejection() {
 #[test]
 fn render_output_has_consistent_box_width() {
     let inputs = vec!["input".to_string()];
-    let result = ProbabilisticTestBuilder::new("box-test", &inputs, always_succeeds)
+    let result = ProbabilisticTest::for_contract(common::SimpleServiceContract::new("box-test"))
+        .inputs(&inputs)
         .approach(ThresholdApproach::ThresholdFirst {
             samples: 30,
             min_pass_rate: 0.80,

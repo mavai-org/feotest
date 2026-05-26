@@ -5,17 +5,13 @@ mod common;
 use std::time::{Duration, SystemTime};
 
 use feotest::experiment::MeasureExperiment;
-use feotest::model::{ExpirationStatus, TrialOutcome};
-use feotest::ptest::ProbabilisticTestBuilder;
+use feotest::model::ExpirationStatus;
+use feotest::ptest::ProbabilisticTest;
 use feotest::ptest::builder::ThresholdApproach;
 use feotest::spec::common::{iso8601_plus_days, parse_iso8601};
 use feotest::spec::expiration;
 use feotest::spec::{BaselineSpec, SpecResolver};
 use feotest::verdict::Verdict;
-
-const fn always_succeed(_input: &str) -> TrialOutcome {
-    TrialOutcome::success(Duration::from_millis(1))
-}
 
 #[test]
 fn measure_writes_expiration_block_that_round_trips_through_resolver() {
@@ -120,7 +116,8 @@ fn ptest_with_expired_baseline_warns_by_default_and_still_passes() {
         expiration_date: iso8601_plus_days(&end, 1).unwrap(),
     });
 
-    let result = ProbabilisticTestBuilder::new("warn-only", &inputs, always_succeed)
+    let result = ProbabilisticTest::for_contract(common::SimpleServiceContract::new("warn-only"))
+        .inputs(&inputs)
         .approach(ThresholdApproach::SampleSizeFirst {
             samples: 50,
             confidence: 0.95,
@@ -166,7 +163,8 @@ fn ptest_with_fail_on_expired_produces_fail_verdict() {
     // Suppress unused-variable lint.
     let _ = &mut spec;
 
-    let result = ProbabilisticTestBuilder::new("strict", &inputs, always_succeed)
+    let result = ProbabilisticTest::for_contract(common::SimpleServiceContract::new("strict"))
+        .inputs(&inputs)
         .approach(ThresholdApproach::SampleSizeFirst {
             samples: 50,
             confidence: 0.95,
@@ -202,7 +200,8 @@ fn ptest_with_no_expiration_block_attaches_no_info() {
         .run();
 
     let resolver = SpecResolver::with_dir(dir.path());
-    let result = ProbabilisticTestBuilder::new("no-block", &inputs, always_succeed)
+    let result = ProbabilisticTest::for_contract(common::SimpleServiceContract::new("no-block"))
+        .inputs(&inputs)
         .approach(ThresholdApproach::SampleSizeFirst {
             samples: 50,
             confidence: 0.95,

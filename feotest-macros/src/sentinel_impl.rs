@@ -215,8 +215,6 @@ fn emit_test(spec_ident: &syn::Ident, method: &ImplItemFn, cfg: &TestCfg) -> Res
     let method_name_str = method_name.to_string();
     let invoker_ident = format_ident!("__sentinel_invoke_{}_{}", spec_ident, method_name);
     let submit_mod = format_ident!("__sentinel_submit_{}_{}", spec_ident, method_name);
-    let approach_tokens = parsed.approach_tokens();
-    let baseline_resolution = parsed.baseline_resolution_tokens(&method_name_str);
     let origin_tok = parsed.origin.to_tokens();
     let threshold_tok = option_quote(parsed.threshold_val);
     let samples_val = parsed.samples_val;
@@ -229,46 +227,10 @@ fn emit_test(spec_ident: &syn::Ident, method: &ImplItemFn, cfg: &TestCfg) -> Res
         },
     );
 
+    let invoker = emit_test_invoker(&invoker_ident, spec_ident, &method_name, &parsed);
+
     Ok(quote! {
-        #[doc(hidden)]
-        #[allow(non_snake_case, reason = "generated invoker follows Spec_Method naming for uniqueness")]
-        fn #invoker_ident(spec_any: &dyn ::core::any::Any) -> ::feotest::verdict::VerdictRecord {
-            use ::feotest::sentinel::ReliabilitySpec as _;
-            let spec = spec_any
-                .downcast_ref::<#spec_ident>()
-                .expect("sentinel invoker: spec type mismatch");
-            let baseline: ::core::option::Option<::feotest::spec::BaselineSpec> =
-                #baseline_resolution;
-            let inputs: ::std::vec::Vec<::std::string::String> =
-                ::std::vec!["default".to_string()];
-            let trial = |_input: &str| -> ::feotest::model::TrialOutcome {
-                let start = ::std::time::Instant::now();
-                let success = spec.#method_name();
-                if success {
-                    ::feotest::model::TrialOutcome::success(start.elapsed())
-                } else {
-                    ::feotest::model::TrialOutcome::failure(
-                        ::feotest::model::ContractViolation::new(
-                            "sentinel_probabilistic_test",
-                            "trial method returned false",
-                        ),
-                        start.elapsed(),
-                    )
-                }
-            };
-            let service_contract_id = ::std::format!("{}.{}", spec.name(), #method_name_str);
-            let mut builder = ::feotest::ptest::ProbabilisticTestBuilder::new(
-                service_contract_id,
-                &inputs,
-                trial,
-            )
-            .approach(#approach_tokens)
-            .threshold_origin(#origin_tok);
-            if let Some(b) = baseline {
-                builder = builder.baseline_spec(b);
-            }
-            builder.run().verdict_record().clone()
-        }
+        #invoker
 
         #[doc(hidden)]
         #[allow(non_snake_case, reason = "generated submission module")]
@@ -292,6 +254,90 @@ fn emit_test(spec_ident: &syn::Ident, method: &ImplItemFn, cfg: &TestCfg) -> Res
             }
         }
     })
+}
+
+/// Generates the invoker free function for a sentinel probabilistic test: it
+/// downcasts the spec, resolves any baseline, lowers the marker method to a
+/// single-criterion [`ServiceContract`] whose `invoke` calls the method, and
+/// runs the contract-driven test, returning the verdict record.
+fn emit_test_invoker(
+    invoker_ident: &syn::Ident,
+    spec_ident: &syn::Ident,
+    method_name: &syn::Ident,
+    parsed: &ParsedTestCfg,
+) -> TokenStream {
+    let method_name_str = method_name.to_string();
+    let approach_tokens = parsed.approach_tokens();
+    let criterion_kind = parsed.criterion_kind_tokens();
+    let baseline_resolution = parsed.baseline_resolution_tokens(&method_name_str);
+    let origin_tok = parsed.origin.to_tokens();
+
+    quote! {
+        #[doc(hidden)]
+        #[allow(non_snake_case, reason = "generated invoker follows Spec_Method naming for uniqueness")]
+        fn #invoker_ident(spec_any: &dyn ::core::any::Any) -> ::feotest::verdict::VerdictRecord {
+            use ::feotest::sentinel::ReliabilitySpec as _;
+            let spec = spec_any
+                .downcast_ref::<#spec_ident>()
+                .expect("sentinel invoker: spec type mismatch");
+            let baseline: ::core::option::Option<::feotest::spec::BaselineSpec> =
+                #baseline_resolution;
+            let inputs: ::std::vec::Vec<::std::string::String> =
+                ::std::vec!["default".to_string()];
+            let service_contract_id = ::std::format!("{}.{}", spec.name(), #method_name_str);
+
+            // Lower the marker method to a single-criterion contract: the method
+            // is invoked per sample and its boolean result judged.
+            struct __SentinelTestContract<'s> {
+                spec: &'s #spec_ident,
+                id: ::std::string::String,
+            }
+            impl ::feotest::service_contract::ServiceContract for __SentinelTestContract<'_> {
+                type Input = ::std::string::String;
+                type Output = bool;
+                fn id(&self) -> &str {
+                    &self.id
+                }
+                fn invoke(
+                    &self,
+                    _input: &::std::string::String,
+                    _cost: &mut ::feotest::controls::Cost,
+                ) -> ::core::result::Result<bool, ::feotest::model::Defect> {
+                    ::core::result::Result::Ok(self.spec.#method_name())
+                }
+                fn criteria(&self) -> ::feotest::criteria::Criteria<bool> {
+                    ::feotest::criteria::Criteria::of([
+                        #criterion_kind
+                            .name("result")
+                            .satisfies("result", |ok: &bool| -> ::feotest::model::Outcome {
+                                if *ok {
+                                    ::core::result::Result::Ok(())
+                                } else {
+                                    ::core::result::Result::Err(
+                                        ::feotest::model::ContractViolation::new(
+                                            "result",
+                                            "trial method returned false",
+                                        ),
+                                    )
+                                }
+                            })
+                            .build(),
+                    ])
+                }
+            }
+
+            let mut test = ::feotest::ptest::ProbabilisticTest::for_contract(
+                __SentinelTestContract { spec, id: service_contract_id },
+            )
+            .inputs(&inputs)
+            .approach(#approach_tokens)
+            .threshold_origin(#origin_tok);
+            if let Some(b) = baseline {
+                test = test.baseline_spec(b);
+            }
+            test.run().verdict_record().clone()
+        }
+    }
 }
 
 /// Validated, parsed form of a probabilistic-test configuration.
@@ -375,6 +421,18 @@ impl ParsedTestCfg {
                     min_pass_rate: #threshold,
                 }
             }
+        }
+    }
+
+    /// The single criterion's target: an empirical origin derives it from the
+    /// resolved baseline; a normative / unspecified origin pins the declared
+    /// threshold as a normative rate.
+    fn criterion_kind_tokens(&self) -> TokenStream {
+        if matches!(self.origin, OriginToken::Empirical) {
+            quote! { ::feotest::criteria::Criteria::<bool>::empirical().pass_rate() }
+        } else {
+            let threshold = self.threshold_val.expect("validated");
+            quote! { ::feotest::criteria::Criteria::<bool>::meeting().pass_rate(#threshold) }
         }
     }
 

@@ -6,20 +6,14 @@
 
 mod common;
 
-use std::time::Duration;
-
 use feotest::experiment::MeasureExperiment;
-use feotest::model::{ThresholdOrigin, TrialOutcome};
-use feotest::ptest::ProbabilisticTestBuilder;
+use feotest::model::ThresholdOrigin;
+use feotest::ptest::ProbabilisticTest;
 use feotest::ptest::builder::ThresholdApproach;
+use feotest::service_contract::{CovariateCategory, CovariateDeclaration, ServiceContract};
 use feotest::spec::SpecResolver;
 use feotest::spec::namer::CovariateProfile;
-use feotest::service_contract::{CovariateCategory, CovariateDeclaration, ServiceContract};
 use feotest::verdict::Verdict;
-
-fn always_succeeds(_input: &str) -> TrialOutcome {
-    TrialOutcome::success(Duration::from_millis(1))
-}
 
 // ---------------------------------------------------------------------------
 // Service contract with covariates
@@ -92,14 +86,14 @@ fn matching_covariates_resolves_cleanly() {
 
     // Run test with same covariate profile
     let resolver = SpecResolver::with_dir(dir.path());
-    let result = ProbabilisticTestBuilder::new("cov-match", &inputs, always_succeeds)
+    let result = ProbabilisticTest::for_contract(uc)
+        .inputs(&inputs)
         .approach(ThresholdApproach::SampleSizeFirst {
             samples: 200,
             confidence: 0.95,
         })
         .spec_resolver(resolver)
         .threshold_origin(ThresholdOrigin::Empirical)
-        .covariate_source(&uc)
         .run();
 
     let record = result.verdict_record();
@@ -144,14 +138,14 @@ fn mismatched_covariates_produce_warnings() {
         model: "gpt-4o-mini",
     };
     let resolver = SpecResolver::with_dir(dir.path());
-    let result = ProbabilisticTestBuilder::new("cov-mismatch", &inputs, always_succeeds)
+    let result = ProbabilisticTest::for_contract(test_uc)
+        .inputs(&inputs)
         .approach(ThresholdApproach::SampleSizeFirst {
             samples: 200,
             confidence: 0.95,
         })
         .spec_resolver(resolver)
         .threshold_origin(ThresholdOrigin::Empirical)
-        .covariate_source(&test_uc)
         .run();
 
     let record = result.verdict_record();
@@ -190,14 +184,14 @@ fn baseline_provenance_present_with_covariates() {
         .run();
 
     let resolver = SpecResolver::with_dir(dir.path());
-    let result = ProbabilisticTestBuilder::new("cov-prov", &inputs, always_succeeds)
+    let result = ProbabilisticTest::for_contract(uc)
+        .inputs(&inputs)
         .approach(ThresholdApproach::SampleSizeFirst {
             samples: 200,
             confidence: 0.95,
         })
         .spec_resolver(resolver)
         .threshold_origin(ThresholdOrigin::Empirical)
-        .covariate_source(&uc)
         .run();
 
     let bp = result
@@ -232,14 +226,14 @@ fn threshold_first_with_covariates_loads_baseline() {
         .run();
 
     let resolver = SpecResolver::with_dir(dir.path());
-    let result = ProbabilisticTestBuilder::new("cov-tf", &inputs, always_succeeds)
+    let result = ProbabilisticTest::for_contract(uc)
+        .inputs(&inputs)
         .approach(ThresholdApproach::ThresholdFirst {
             samples: 50,
             min_pass_rate: 0.80,
         })
         .threshold_origin(ThresholdOrigin::Sla)
         .spec_resolver(resolver)
-        .covariate_source(&uc)
         .run();
 
     let record = result.verdict_record();
@@ -276,14 +270,14 @@ fn console_renders_covariate_warnings() {
         model: "claude-3-opus",
     };
     let resolver = SpecResolver::with_dir(dir.path());
-    let result = ProbabilisticTestBuilder::new("cov-render", &inputs, always_succeeds)
+    let result = ProbabilisticTest::for_contract(test_uc)
+        .inputs(&inputs)
         .approach(ThresholdApproach::SampleSizeFirst {
             samples: 200,
             confidence: 0.95,
         })
         .spec_resolver(resolver)
         .threshold_origin(ThresholdOrigin::Empirical)
-        .covariate_source(&test_uc)
         .run();
 
     let renderer = feotest::reporting::ConsoleRenderer::without_colour();

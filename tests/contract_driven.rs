@@ -104,7 +104,10 @@ fn composite_decomposes_per_criterion_with_independent_rates() {
 
     // The empty-response failures are attributed to their own check name.
     let non_empty_dist = rows[0].failure_distribution();
-    assert_eq!(non_empty_dist.first().map(|(k, _)| k.as_str()), Some("empty"));
+    assert_eq!(
+        non_empty_dist.first().map(|(k, _)| k.as_str()),
+        Some("empty")
+    );
 }
 
 #[test]

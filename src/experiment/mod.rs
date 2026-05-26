@@ -14,9 +14,7 @@ mod explore;
 mod measure;
 mod optimize;
 
-pub use engine::{
-    ContractExecutionResult, ExecutionEngine, ExecutionResult, SampleEvaluation,
-};
+pub use engine::{ContractExecutionResult, ExecutionEngine, ExecutionResult, SampleEvaluation};
 pub use explore::{ConfigResult, ExploreExperiment, ExploreResult};
 pub use measure::MeasureExperiment;
 pub use optimize::{

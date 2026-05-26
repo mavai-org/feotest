@@ -6,10 +6,10 @@
 
 use std::fmt;
 
+use crate::service_contract::CovariateDeclaration;
 use crate::spec::BaselineSpec;
 use crate::spec::matching::{ConformanceDetail, MatchResult, match_covariate};
 use crate::spec::namer::CovariateProfile;
-use crate::service_contract::CovariateDeclaration;
 
 /// A parsed baseline spec together with its source filename.
 #[derive(Debug, Clone)]
@@ -124,7 +124,9 @@ pub enum SelectionError {
 impl fmt::Display for SelectionError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::NoCandidates { service_contract_id } => {
+            Self::NoCandidates {
+                service_contract_id,
+            } => {
                 write!(
                     f,
                     "no baseline candidates found for service contract '{service_contract_id}'"
@@ -383,10 +385,10 @@ fn format_kv_pairs(pairs: &[(String, String)]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::service_contract::CovariateCategory;
     use crate::spec::baseline::{
         BaselineSpec, ExecutionBlock, RequirementsBlock, StatisticsBlock, SuccessRateBlock,
     };
-    use crate::service_contract::CovariateCategory;
     use std::collections::BTreeMap;
 
     fn make_spec(

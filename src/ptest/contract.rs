@@ -38,7 +38,7 @@ const DEFAULT_APPROACH: ThresholdApproach = ThresholdApproach::ThresholdFirst {
     min_pass_rate: 0.0,
 };
 
-impl ProbabilisticTest<'_, ()> {
+impl ProbabilisticTest {
     /// Begins a contract-driven probabilistic test.
     ///
     /// The contract supplies the inputs' element type, the invocation, the
@@ -147,6 +147,7 @@ impl<'a, C: ServiceContract> ContractTest<'a, C> {
 
     /// Sets a human-readable contract reference for provenance.
     #[must_use]
+    // javai-ref: JVI-GQXC6W9 — do not remove (resolves in javai-orchestrator)
     pub fn contract_ref(mut self, contract_ref: impl Into<String>) -> Self {
         self.contract_ref = Some(contract_ref.into());
         self
@@ -286,10 +287,16 @@ impl<'a, C: ServiceContract> ContractTest<'a, C> {
             fail_on_expired_baseline: self.fail_on_expired_baseline,
             on_budget_exhausted: self.on_budget_exhausted,
         };
+        // Covariates are part of the contract's identity, so the covariate
+        // context is derived from the contract itself unless one was supplied
+        // explicitly.
+        let covariate_context = self
+            .covariate_context
+            .or_else(|| CovariateContext::from_contract(&self.contract));
         let baseline = BaselineContext {
             spec_resolver,
             pre_resolved_spec: self.baseline_spec,
-            covariate_context: self.covariate_context,
+            covariate_context,
         };
         let config_overrides = self.config_overrides.or_else(|| {
             build_config_overrides(
