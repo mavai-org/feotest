@@ -20,7 +20,7 @@ use feotest::spec::SpecResolver;
 
 #[test]
 fn pass_with_baseline_renders_all_sections() {
-    let dir = common::establish_baseline("cr-pass-full", 200, common::always_succeeds);
+    let dir = common::establish_baseline("cr-pass-full", 200);
 
     let result = common::run_against_baseline(
         "cr-pass-full",
@@ -193,7 +193,7 @@ fn suite_summary_from_real_results() {
 
 #[test]
 fn sample_size_first_renders_baseline_provenance() {
-    let dir = common::establish_baseline("cr-ssf", 200, common::always_succeeds);
+    let dir = common::establish_baseline("cr-ssf", 200);
 
     let inputs = vec!["input".to_string()];
     let result = ProbabilisticTestBuilder::new("cr-ssf", &inputs, common::always_succeeds)

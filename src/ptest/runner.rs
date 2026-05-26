@@ -963,6 +963,26 @@ mod tests {
             .build()])
     }
 
+    /// An always-pass contract for establishing baselines in these tests.
+    struct BaselineUc;
+    impl crate::service_contract::ServiceContract for BaselineUc {
+        type Input = String;
+        type Output = String;
+        fn id(&self) -> &str {
+            "baseline"
+        }
+        fn invoke(
+            &self,
+            input: &String,
+            _cost: &mut crate::controls::Cost,
+        ) -> Result<String, crate::model::Defect> {
+            Ok(input.clone())
+        }
+        fn criteria(&self) -> crate::criteria::Criteria<String> {
+            trivial_criteria()
+        }
+    }
+
     fn mostly_succeeds(input: &str) -> TrialOutcome {
         // Deterministic "failure" for specific inputs
         if input == "fail" {
@@ -1095,31 +1115,12 @@ mod tests {
         let resolver = crate::spec::SpecResolver::with_dir(dir.path());
 
         // Create a baseline via measure experiment
-        struct SpecTestUc;
-        impl crate::service_contract::ServiceContract for SpecTestUc {
-            type Input = String;
-            type Output = String;
-            fn id(&self) -> &str {
-                "spec-test"
-            }
-            fn invoke(
-                &self,
-                input: &String,
-                _cost: &mut crate::controls::Cost,
-            ) -> Result<String, crate::model::Defect> {
-                Ok(input.clone())
-            }
-            fn criteria(&self) -> crate::criteria::Criteria<String> {
-                trivial_criteria()
-            }
-        }
         let inputs = vec!["input".to_string()];
         let measure_result = crate::experiment::MeasureExperiment::builder()
             .service_contract_id("spec-test")
-            .service_contract(|| ())
+            .service_contract(|| BaselineUc)
             .samples(200)
             .inputs(&inputs)
-            .trial(|(): &(), input| always_succeeds(input))
             .baseline_dir(dir.path())
             .build()
             .run();
@@ -1145,31 +1146,12 @@ mod tests {
     fn confidence_first_with_spec() {
         let dir = tempfile::tempdir().unwrap();
 
-        struct ConfTestUc;
-        impl crate::service_contract::ServiceContract for ConfTestUc {
-            type Input = String;
-            type Output = String;
-            fn id(&self) -> &str {
-                "conf-test"
-            }
-            fn invoke(
-                &self,
-                input: &String,
-                _cost: &mut crate::controls::Cost,
-            ) -> Result<String, crate::model::Defect> {
-                Ok(input.clone())
-            }
-            fn criteria(&self) -> crate::criteria::Criteria<String> {
-                trivial_criteria()
-            }
-        }
         let inputs = vec!["input".to_string()];
         crate::experiment::MeasureExperiment::builder()
             .service_contract_id("conf-test")
-            .service_contract(|| ())
+            .service_contract(|| BaselineUc)
             .samples(200)
             .inputs(&inputs)
-            .trial(|(): &(), input| always_succeeds(input))
             .baseline_dir(dir.path())
             .build()
             .run();
@@ -1239,10 +1221,9 @@ mod tests {
 
         crate::experiment::MeasureExperiment::builder()
             .service_contract_id("cov-integrity")
-            .service_contract(|| ())
+            .service_contract(|| BaselineUc)
             .samples(100)
             .inputs(&inputs)
-            .trial(|(): &(), input| always_succeeds(input))
             .baseline_dir(dir.path())
             .covariates(vec!["model".to_string()], profile)
             .build()
@@ -1280,32 +1261,12 @@ mod tests {
         // non-covariate path. The integrity error must still panic.
         let dir = tempfile::tempdir().unwrap();
 
-        struct SimpleUc;
-        impl crate::service_contract::ServiceContract for SimpleUc {
-            type Input = String;
-            type Output = String;
-            fn id(&self) -> &str {
-                "integrity-simple"
-            }
-            fn invoke(
-                &self,
-                input: &String,
-                _cost: &mut crate::controls::Cost,
-            ) -> Result<String, crate::model::Defect> {
-                Ok(input.clone())
-            }
-            fn criteria(&self) -> crate::criteria::Criteria<String> {
-                trivial_criteria()
-            }
-        }
-
         let inputs = vec!["input".to_string()];
         crate::experiment::MeasureExperiment::builder()
             .service_contract_id("integrity-simple")
-            .service_contract(|| ())
+            .service_contract(|| BaselineUc)
             .samples(100)
             .inputs(&inputs)
-            .trial(|(): &(), input| always_succeeds(input))
             .baseline_dir(dir.path())
             .build()
             .run();

@@ -449,26 +449,48 @@ fn emit_experiment(
             let inputs: ::std::vec::Vec<::std::string::String> =
                 ::std::vec!["default".to_string()];
             let service_contract_id = ::std::format!("{}.{}", spec.name(), #target_service_contract);
+
+            // Lower the marker method to a single-criterion contract: the method
+            // is invoked per sample and its boolean result judged.
+            struct __SentinelMeasureContract<'s> {
+                spec: &'s #spec_ident,
+            }
+            impl ::feotest::service_contract::ServiceContract for __SentinelMeasureContract<'_> {
+                type Input = ::std::string::String;
+                type Output = bool;
+                fn id(&self) -> &str {
+                    "sentinel-measure"
+                }
+                fn invoke(
+                    &self,
+                    _input: &::std::string::String,
+                    _cost: &mut ::feotest::controls::Cost,
+                ) -> ::core::result::Result<bool, ::feotest::model::Defect> {
+                    ::core::result::Result::Ok(self.spec.#method_name())
+                }
+                fn criteria(&self) -> ::feotest::criteria::Criteria<bool> {
+                    ::feotest::criteria::Criteria::of([::feotest::criteria::Criteria::meeting()
+                        .pass_rate(0.5)
+                        .name("sentinel measure experiment")
+                        .satisfies("sentinel measure experiment", |ok: &bool| {
+                            if *ok {
+                                ::core::result::Result::Ok(())
+                            } else {
+                                ::core::result::Result::Err(::feotest::model::ContractViolation::new(
+                                    "sentinel measure experiment",
+                                    "trial method returned false",
+                                ))
+                            }
+                        })
+                        .build()])
+                }
+            }
+
             ::feotest::experiment::MeasureExperiment::builder()
                 .service_contract_id(service_contract_id)
-                .service_contract(|| ())
+                .service_contract(|| __SentinelMeasureContract { spec })
                 .samples(#samples)
                 .inputs(&inputs)
-                .trial(|(): &(), _input: &str| -> ::feotest::model::TrialOutcome {
-                    let start = ::std::time::Instant::now();
-                    let success = spec.#method_name();
-                    if success {
-                        ::feotest::model::TrialOutcome::success(start.elapsed())
-                    } else {
-                        ::feotest::model::TrialOutcome::failure(
-                            ::feotest::model::ContractViolation::new(
-                                "sentinel_measure_experiment",
-                                "trial method returned false",
-                            ),
-                            start.elapsed(),
-                        )
-                    }
-                })
                 .build()
                 .run()
                 .spec()

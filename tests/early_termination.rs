@@ -1,6 +1,8 @@
 //! Integration tests for failure-inevitable and success-guaranteed
 //! early termination driven through the probabilistic-test runner.
 
+mod common;
+
 use std::time::Duration;
 
 use feotest::experiment::MeasureExperiment;
@@ -8,39 +10,9 @@ use feotest::model::{ContractViolation, TerminationReason, ThresholdOrigin, Tria
 use feotest::ptest::ProbabilisticTestBuilder;
 use feotest::ptest::builder::ThresholdApproach;
 use feotest::spec::SpecResolver;
-use feotest::service_contract::ServiceContract;
 use feotest::verdict::Verdict;
 
 // --- Fixtures ---
-
-struct TestUc(&'static str);
-impl ServiceContract for TestUc {
-    type Input = String;
-    type Output = String;
-    fn id(&self) -> &str {
-        self.0
-    }
-    fn invoke(
-        &self,
-        input: &String,
-        _cost: &mut feotest::controls::Cost,
-    ) -> Result<String, feotest::model::Defect> {
-        Ok(input.clone())
-    }
-    fn criteria(&self) -> feotest::criteria::Criteria<String> {
-        trivial_criteria()
-    }
-}
-
-/// A single always-pass criterion for fixtures that exercise identity and the
-/// runner path rather than response judging.
-fn trivial_criteria() -> feotest::criteria::Criteria<String> {
-    feotest::criteria::Criteria::of([feotest::criteria::Criteria::meeting()
-        .pass_rate(0.5)
-        .name("response received")
-        .satisfies("response received", |_: &String| Ok(()))
-        .build()])
-}
 
 const fn always_succeed(_input: &str) -> TrialOutcome {
     TrialOutcome::success(Duration::from_millis(1))
@@ -84,14 +56,12 @@ fn sample_size_first_terminates_on_failure_inevitable() {
     // derive a threshold from. The baseline itself runs to completion
     // (measure uses no min_pass_rate).
     let dir = tempfile::tempdir().unwrap();
-    let baseline_uc = TestUc("ssf-fail-inev");
     let inputs = vec!["input".to_string()];
     MeasureExperiment::builder()
         .service_contract_id("ssf-fail-inev")
-        .service_contract(|| ())
+        .service_contract(|| common::SimpleServiceContract::new("baseline"))
         .samples(200)
         .inputs(&inputs)
-        .trial(|(): &(), input| always_succeed(input))
         .baseline_dir(dir.path())
         .build()
         .run();
@@ -182,14 +152,12 @@ fn validity_floor_delays_runner_success_guaranteed() {
 
 #[test]
 fn measure_experiment_runs_all_samples_regardless_of_failures() {
-    let uc = TestUc("measure-non-reg");
     let inputs = vec!["input".to_string()];
     let result = MeasureExperiment::builder()
         .service_contract_id("measure-non-reg")
-        .service_contract(|| ())
+        .service_contract(|| common::FailingServiceContract::new("baseline"))
         .samples(30)
         .inputs(&inputs)
-        .trial(|(): &(), input| always_fail(input))
         .build()
         .run();
     assert_eq!(result.execution().summary().samples_executed(), 30);

@@ -3,11 +3,16 @@
 use std::path::PathBuf;
 use std::time::Duration;
 
-use crate::controls::{ExecutionConfig, PacingConfig, TokenRecorder};
-use crate::experiment::engine::{ExecutionEngine, ExecutionResult};
-use crate::model::TrialOutcome;
+use std::collections::BTreeMap;
+
+use crate::controls::{Cost, ExecutionConfig, PacingConfig, TokenRecorder};
+use crate::criteria::CriterionCounts;
+use crate::experiment::engine::{ContractExecutionResult, ExecutionEngine, SampleEvaluation};
+use crate::service_contract::ServiceContract;
 use crate::spec::SpecResolver;
-use crate::spec::baseline::{BaselineSpec, ExpirationBlock, RequirementsBlock, StatisticsBlock};
+use crate::spec::baseline::{
+    BaselineSpec, CriterionStatistics, ExpirationBlock, RequirementsBlock, StatisticsBlock,
+};
 use crate::spec::common::{
     build_cost_block, build_execution_block, build_failure_distribution,
     build_latency_distribution, build_success_rate_block, iso8601_plus_days, now_iso8601, round4,
@@ -16,7 +21,6 @@ use crate::spec::common::{
 use crate::spec::namer::CovariateProfile;
 
 type ServiceContractFactory<'a, T> = Box<dyn Fn() -> T + 'a>;
-type TrialClosure<'a, T> = Box<dyn Fn(&T, &str) -> TrialOutcome + 'a>;
 
 /// Default directory for baseline spec output.
 const DEFAULT_BASELINE_DIR: &str = "tests/baselines";
@@ -34,8 +38,7 @@ const DEFAULT_BASELINE_DIR: &str = "tests/baselines";
 /// [`super::OptimizeExperiment`]: the service contract id is explicit via
 /// [`service_contract_id`](MeasureExperimentBuilder::service_contract_id), the instance
 /// is produced by a factory closure set via
-/// [`service_contract`](MeasureExperimentBuilder::service_contract), and the trial
-/// closure receives a reference to the produced instance. Measure's
+/// [`service_contract`](MeasureExperimentBuilder::service_contract). Measure's
 /// factory takes no arguments because the experiment measures a single
 /// condition; explore and optimize pass a factor into theirs.
 ///
@@ -43,33 +46,23 @@ const DEFAULT_BASELINE_DIR: &str = "tests/baselines";
 ///
 /// ```no_run
 /// use feotest::experiment::MeasureExperiment;
-/// use feotest::model::TrialOutcome;
-/// use std::time::Duration;
-///
-/// struct MyService;
-/// impl MyService {
-///     fn call(&self, _instruction: &str) -> TrialOutcome {
-///         TrialOutcome::success(Duration::from_millis(10))
-///     }
-/// }
-///
-/// let inputs = vec!["input-1".to_string()];
+/// # fn run<C>(contract_factory: impl Fn() -> C, inputs: &[String])
+/// # where C: feotest::service_contract::ServiceContract<Input = String, Output = String> {
 /// let result = MeasureExperiment::builder()
 ///     .service_contract_id("my-service")
-///     .service_contract(|| MyService)
+///     .service_contract(contract_factory)
 ///     .samples(1000)
-///     .inputs(&inputs)
-///     .trial(|uc: &MyService, input| uc.call(input))
+///     .inputs(inputs)
 ///     .build()
 ///     .run();
+/// # }
 /// ```
 // javai-ref: JVI-315MNJX — do not remove (resolves in javai-orchestrator)
-pub struct MeasureExperiment<'a, T> {
+pub struct MeasureExperiment<'a, T: ServiceContract> {
     service_contract_id: String,
     factory: ServiceContractFactory<'a, T>,
     config: ExecutionConfig,
-    inputs: &'a [String],
-    trial: TrialClosure<'a, T>,
+    inputs: &'a [T::Input],
     experiment_id: Option<String>,
     spec_resolver: Option<SpecResolver>,
     covariate_keys: Vec<String>,
@@ -77,11 +70,14 @@ pub struct MeasureExperiment<'a, T> {
     expires_in_days: u32,
 }
 
-impl<'a, T> MeasureExperiment<'a, T> {
+impl<'a, T: ServiceContract> MeasureExperiment<'a, T>
+where
+    T::Output: 'static,
+{
     /// Starts a new builder for a measure experiment.
     ///
-    /// Required fields (`service_contract_id`, `service_contract` factory, `samples`,
-    /// `inputs`, `trial`) must be set via their corresponding setters
+    /// Required fields (`service_contract_id`, `service_contract` factory,
+    /// `samples`, `inputs`) must be set via their corresponding setters
     /// before [`build`](MeasureExperimentBuilder::build) is called.
     /// Optional fields carry documented defaults.
     #[must_use]
@@ -94,20 +90,40 @@ impl<'a, T> MeasureExperiment<'a, T> {
     /// The result is often discarded — callers commonly want only the
     /// side effect of writing the baseline spec to disk — so this
     /// method is deliberately **not** `#[must_use]`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if a service invocation yields a defect (a transport failure or a
+    /// caught panic) — a defect aborts the experiment.
     pub fn run(self) -> MeasureResult {
         let service_contract = (self.factory)();
+        let criteria = service_contract.criteria();
 
         let token_recorder = TokenRecorder::new();
-        let trial = self.trial;
-        let mut trial_fn = |input: &str| (trial)(&service_contract, input);
-
-        let result = ExecutionEngine::run(
-            &self.config,
-            self.inputs,
-            &token_recorder,
-            crate::controls::run::current(),
-            &mut trial_fn,
-        );
+        let result = {
+            let cost_recorder = token_recorder.clone();
+            let criteria = &criteria;
+            ExecutionEngine::run_contract(
+                &self.config,
+                self.inputs,
+                &token_recorder,
+                crate::controls::run::current(),
+                |input: &T::Input| {
+                    let mut cost = Cost::new();
+                    let start = std::time::Instant::now();
+                    let output = service_contract.invoke(input, &mut cost)?;
+                    let elapsed = start.elapsed();
+                    cost_recorder.record(cost.tokens_recorded());
+                    Ok(SampleEvaluation {
+                        results: criteria.evaluate(&output),
+                        elapsed,
+                    })
+                },
+            )
+            .unwrap_or_else(|defect| {
+                panic!("\n\nservice invocation aborted the measure experiment: {defect}\n");
+            })
+        };
 
         let spec = build_spec(
             &self.service_contract_id,
@@ -135,7 +151,7 @@ impl<'a, T> MeasureExperiment<'a, T> {
 fn build_spec(
     service_contract_id: &str,
     config: &ExecutionConfig,
-    result: &ExecutionResult,
+    result: &ContractExecutionResult,
     experiment_id: Option<&str>,
     expires_in_days: u32,
 ) -> BaselineSpec {
@@ -159,10 +175,9 @@ fn build_spec(
             latency_distribution: build_latency_distribution(
                 result.aggregate().successful_latencies(),
             ),
-            // Per-criterion measurement emission lands with the contract-driven
-            // measure path; the aggregate figures describe today's single
-            // criterion.
-            per_criterion: None,
+            // Each criterion's own measured rate, so an empirical criterion can
+            // later derive its target from its own baseline.
+            per_criterion: build_per_criterion(result),
         },
     );
 
@@ -183,22 +198,49 @@ fn build_spec(
     spec
 }
 
+/// Builds the per-criterion baseline statistics from the run's tallies.
+///
+/// Emitted only for multi-criterion contracts: with a single criterion the
+/// aggregate figures already describe it, and an empirical criterion testing
+/// against such a baseline falls back to the aggregate rate.
+fn build_per_criterion(
+    result: &ContractExecutionResult,
+) -> Option<BTreeMap<String, CriterionStatistics>> {
+    let per = result.criteria_counts().per_criterion();
+    if per.len() <= 1 {
+        return None;
+    }
+    let map = per
+        .iter()
+        .map(|counts: &CriterionCounts| {
+            let stats = CriterionStatistics {
+                success_rate: build_success_rate_block(counts.pass(), counts.total()),
+                successes: counts.pass(),
+                failures: counts.fail(),
+                failure_distribution: (!counts.failure_distribution().is_empty())
+                    .then(|| counts.failure_distribution().clone()),
+            };
+            (counts.criterion().to_string(), stats)
+        })
+        .collect();
+    Some(map)
+}
+
 /// Fluent builder for [`MeasureExperiment`].
 ///
-/// Required fields — `service_contract_id`, `service_contract` (factory), `samples`,
-/// `inputs`, and `trial` — must be set before [`build`](Self::build)
+/// Required fields — `service_contract_id`, `service_contract` (factory),
+/// `samples`, and `inputs` — must be set before [`build`](Self::build)
 /// is called. Missing any of them produces a panic naming the field
 /// and the setter to call.
 ///
 /// Optional fields carry documented defaults. Setters that validate a
 /// single value (e.g., positive sample count, non-empty inputs) panic
 /// at the setter rather than deferring to `build`.
-pub struct MeasureExperimentBuilder<'a, T> {
+pub struct MeasureExperimentBuilder<'a, T: ServiceContract> {
     service_contract_id: Option<String>,
     factory: Option<ServiceContractFactory<'a, T>>,
     samples: Option<u32>,
-    inputs: Option<&'a [String]>,
-    trial: Option<TrialClosure<'a, T>>,
+    inputs: Option<&'a [T::Input]>,
     experiment_id: Option<String>,
     spec_resolver: SpecResolver,
     covariate_keys: Vec<String>,
@@ -209,14 +251,13 @@ pub struct MeasureExperimentBuilder<'a, T> {
     pacing: Option<PacingConfig>,
 }
 
-impl<T> Default for MeasureExperimentBuilder<'_, T> {
+impl<T: ServiceContract> Default for MeasureExperimentBuilder<'_, T> {
     fn default() -> Self {
         Self {
             service_contract_id: None,
             factory: None,
             samples: None,
             inputs: None,
-            trial: None,
             experiment_id: None,
             spec_resolver: SpecResolver::new(DEFAULT_BASELINE_DIR),
             covariate_keys: Vec::new(),
@@ -229,7 +270,7 @@ impl<T> Default for MeasureExperimentBuilder<'_, T> {
     }
 }
 
-impl<'a, T> MeasureExperimentBuilder<'a, T> {
+impl<'a, T: ServiceContract> MeasureExperimentBuilder<'a, T> {
     // --- required fields ---
 
     /// Sets the service contract identifier.
@@ -247,8 +288,8 @@ impl<'a, T> MeasureExperimentBuilder<'a, T> {
     /// The factory is called once at the start of
     /// [`run`](MeasureExperiment::run) to produce the service contract instance
     /// the experiment measures. The instance is owned by the
-    /// experiment, referenced by the trial closure on every sample,
-    /// and dropped when the run completes.
+    /// experiment, invoked and judged on every sample, and dropped when the
+    /// run completes.
     #[must_use]
     pub fn service_contract(mut self, factory: impl Fn() -> T + 'a) -> Self {
         self.factory = Some(Box::new(factory));
@@ -267,27 +308,15 @@ impl<'a, T> MeasureExperimentBuilder<'a, T> {
         self
     }
 
-    /// Sets the trial inputs.
+    /// Sets the inputs the contract is invoked against.
     ///
     /// # Panics
     ///
     /// Panics if `inputs` is empty.
     #[must_use]
-    pub fn inputs(mut self, inputs: &'a [String]) -> Self {
+    pub fn inputs(mut self, inputs: &'a [T::Input]) -> Self {
         assert!(!inputs.is_empty(), "inputs must not be empty");
         self.inputs = Some(inputs);
-        self
-    }
-
-    /// Sets the trial closure.
-    ///
-    /// The closure receives a reference to the service contract instance
-    /// produced by the factory and an input string, and returns a
-    /// [`TrialOutcome`]. It may borrow data that outlives the builder
-    /// (the `'a` lifetime); it is not required to be `'static`.
-    #[must_use]
-    pub fn trial(mut self, trial: impl Fn(&T, &str) -> TrialOutcome + 'a) -> Self {
-        self.trial = Some(Box::new(trial));
         self
     }
 
@@ -394,7 +423,7 @@ impl<'a, T> MeasureExperimentBuilder<'a, T> {
     /// # Panics
     ///
     /// Panics if any required field (`service_contract_id`, `service_contract` factory,
-    /// `samples`, `inputs`, `trial`) is missing.
+    /// `samples`, `inputs`) is missing.
     #[must_use]
     pub fn build(self) -> MeasureExperiment<'a, T> {
         let samples = self.samples.expect("samples must be set via .samples(...)");
@@ -418,7 +447,6 @@ impl<'a, T> MeasureExperimentBuilder<'a, T> {
                 .expect("service_contract factory must be set via .service_contract(...)"),
             config,
             inputs: self.inputs.expect("inputs must be set via .inputs(...)"),
-            trial: self.trial.expect("trial must be set via .trial(...)"),
             experiment_id: self.experiment_id,
             spec_resolver: Some(self.spec_resolver),
             covariate_keys: self.covariate_keys,
@@ -431,7 +459,7 @@ impl<'a, T> MeasureExperimentBuilder<'a, T> {
 /// Result of a measure experiment.
 #[derive(Debug)]
 pub struct MeasureResult {
-    execution: ExecutionResult,
+    execution: ContractExecutionResult,
     spec: BaselineSpec,
     spec_path: Option<PathBuf>,
 }
@@ -439,7 +467,7 @@ pub struct MeasureResult {
 impl MeasureResult {
     /// The execution result.
     #[must_use]
-    pub const fn execution(&self) -> &ExecutionResult {
+    pub const fn execution(&self) -> &ContractExecutionResult {
         &self.execution
     }
 
@@ -459,12 +487,66 @@ impl MeasureResult {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::time::Duration;
+    use crate::criteria::Criteria;
+    use crate::model::{ContractViolation, Defect, Outcome};
+    use std::sync::atomic::{AtomicU32, Ordering};
 
+    /// A contract whose single criterion always passes.
     struct TestService;
 
-    fn succeeding_trial(_uc: &TestService, _input: &str) -> TrialOutcome {
-        TrialOutcome::success(Duration::from_millis(1))
+    impl ServiceContract for TestService {
+        type Input = String;
+        type Output = String;
+
+        fn id(&self) -> &str {
+            "test-service"
+        }
+
+        fn invoke(&self, input: &String, _cost: &mut Cost) -> Result<String, Defect> {
+            Ok(input.clone())
+        }
+
+        fn criteria(&self) -> Criteria<String> {
+            Criteria::of([Criteria::meeting()
+                .pass_rate(0.5)
+                .name("content")
+                .satisfies("content", |_: &String| -> Outcome { Ok(()) })
+                .build()])
+        }
+    }
+
+    /// A contract whose response — and so its single criterion — fails on every
+    /// third invocation, giving a deterministic failure mix.
+    struct MixedService {
+        calls: AtomicU32,
+    }
+
+    impl ServiceContract for MixedService {
+        type Input = String;
+        type Output = String;
+
+        fn id(&self) -> &str {
+            "mixed-service"
+        }
+
+        fn invoke(&self, _input: &String, _cost: &mut Cost) -> Result<String, Defect> {
+            let n = self.calls.fetch_add(1, Ordering::Relaxed) + 1;
+            Ok(if n % 3 == 0 { "fail" } else { "ok" }.to_string())
+        }
+
+        fn criteria(&self) -> Criteria<String> {
+            Criteria::of([Criteria::meeting()
+                .pass_rate(0.5)
+                .name("content")
+                .satisfies("parse", |r: &String| -> Outcome {
+                    if r == "fail" {
+                        Err(ContractViolation::new("parse", "bad json"))
+                    } else {
+                        Ok(())
+                    }
+                })
+                .build()])
+        }
     }
 
     #[test]
@@ -475,7 +557,6 @@ mod tests {
             .service_contract(|| TestService)
             .samples(100)
             .inputs(&inputs)
-            .trial(succeeding_trial)
             .experiment_id("baseline-v1")
             .build()
             .run();
@@ -499,7 +580,6 @@ mod tests {
             .service_contract(|| TestService)
             .samples(50)
             .inputs(&inputs)
-            .trial(succeeding_trial)
             .baseline_dir(dir.path())
             .build()
             .run();
@@ -511,23 +591,13 @@ mod tests {
     #[test]
     fn tracks_failure_distribution() {
         let inputs = vec!["input".to_string()];
-        let call_count = std::cell::Cell::new(0u32);
         let result = MeasureExperiment::builder()
             .service_contract_id("mixed-service")
-            .service_contract(|| TestService)
+            .service_contract(|| MixedService {
+                calls: AtomicU32::new(0),
+            })
             .samples(10)
             .inputs(&inputs)
-            .trial(|_uc: &TestService, _input| {
-                call_count.set(call_count.get() + 1);
-                if call_count.get() % 3 == 0 {
-                    TrialOutcome::failure(
-                        crate::model::ContractViolation::new("parse", "bad json"),
-                        Duration::from_millis(1),
-                    )
-                } else {
-                    TrialOutcome::success(Duration::from_millis(1))
-                }
-            })
             .build()
             .run();
 
@@ -544,7 +614,6 @@ mod tests {
             .service_contract(|| TestService)
             .samples(10)
             .inputs(&inputs)
-            .trial(succeeding_trial)
             .build()
             .run();
         assert!(result.spec().experiment_id.is_none());
@@ -558,7 +627,6 @@ mod tests {
             .service_contract(|| TestService)
             .samples(10)
             .inputs(&inputs)
-            .trial(succeeding_trial)
             .experiment_id("v1")
             .build()
             .run();
@@ -574,7 +642,6 @@ mod tests {
             .service_contract(|| TestService)
             .samples(10)
             .inputs(&inputs)
-            .trial(succeeding_trial)
             .baseline_dir(dir.path())
             .build()
             .run();
@@ -590,7 +657,6 @@ mod tests {
             .service_contract(|| TestService)
             .samples(20)
             .inputs(&inputs)
-            .trial(succeeding_trial)
             .build()
             .run();
 
@@ -615,7 +681,6 @@ mod tests {
             .service_contract(|| TestService)
             .samples(10)
             .inputs(&inputs)
-            .trial(succeeding_trial)
             .build()
             .run();
         let cost = result.spec().cost.as_ref().unwrap();
@@ -630,7 +695,6 @@ mod tests {
             .service_contract(|| TestService)
             .samples(20)
             .inputs(&inputs)
-            .trial(succeeding_trial)
             .build()
             .run();
         let latency = result.spec().statistics.latency_distribution.as_ref();
@@ -646,7 +710,6 @@ mod tests {
             .service_contract(|| TestService)
             .samples(10)
             .inputs(&inputs)
-            .trial(succeeding_trial)
             .build()
             .run();
         assert_eq!(result.execution().summary().successes(), 10);
@@ -660,7 +723,6 @@ mod tests {
             .service_contract(|| TestService)
             .samples(10)
             .inputs(&inputs)
-            .trial(succeeding_trial)
             .build()
             .run();
         assert!(result.spec().expiration.is_none());
@@ -674,7 +736,6 @@ mod tests {
             .service_contract(|| TestService)
             .samples(10)
             .inputs(&inputs)
-            .trial(succeeding_trial)
             .expires_in_days(30)
             .build()
             .run();

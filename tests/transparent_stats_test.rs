@@ -4,6 +4,8 @@
 //! produces output containing the expected section markers, without
 //! asserting the full formatted layout (unit tests cover that).
 
+mod common;
+
 use std::time::Duration;
 
 use feotest::model::TrialOutcome;
@@ -64,39 +66,14 @@ fn render_produces_all_sections() {
 #[test]
 fn render_with_sample_size_first_approach() {
     let dir = tempfile::tempdir().unwrap();
-
-    struct Uc;
-    impl feotest::service_contract::ServiceContract for Uc {
-        type Input = String;
-        type Output = String;
-        fn id(&self) -> &str {
-            "transparent-ssf"
-        }
-        fn invoke(
-            &self,
-            input: &String,
-            _cost: &mut feotest::controls::Cost,
-        ) -> Result<String, feotest::model::Defect> {
-            Ok(input.clone())
-        }
-        fn criteria(&self) -> feotest::criteria::Criteria<String> {
-            feotest::criteria::Criteria::of([feotest::criteria::Criteria::meeting()
-                .pass_rate(0.5)
-                .name("response received")
-                .satisfies("response received", |_: &String| Ok(()))
-                .build()])
-        }
-    }
-    let uc = Uc;
     let inputs = vec!["input".to_string()];
 
     // Establish a baseline
     feotest::experiment::MeasureExperiment::builder()
         .service_contract_id("transparent-ssf")
-        .service_contract(|| ())
+        .service_contract(|| common::SimpleServiceContract::new("baseline"))
         .samples(200)
         .inputs(&inputs)
-        .trial(|(): &(), input| always_succeeds(input))
         .baseline_dir(dir.path())
         .build()
         .run();

@@ -1,4 +1,8 @@
 //! Shared helpers for integration tests.
+//!
+//! Each integration-test binary compiles this module independently and uses a
+//! different subset of the helpers, so unused items are expected per binary.
+#![allow(dead_code)]
 
 use std::path::Path;
 use std::time::Duration;
@@ -85,25 +89,63 @@ impl ServiceContract for SimpleServiceContract {
     }
 }
 
+/// A service contract whose single criterion fails on every sample.
+pub struct FailingServiceContract {
+    id: String,
+}
+
+impl FailingServiceContract {
+    pub fn new(id: impl Into<String>) -> Self {
+        Self { id: id.into() }
+    }
+}
+
+impl ServiceContract for FailingServiceContract {
+    type Input = String;
+    type Output = String;
+
+    fn id(&self) -> &str {
+        &self.id
+    }
+
+    fn invoke(
+        &self,
+        input: &String,
+        _cost: &mut feotest::controls::Cost,
+    ) -> Result<String, feotest::model::Defect> {
+        Ok(input.clone())
+    }
+
+    fn criteria(&self) -> feotest::criteria::Criteria<String> {
+        feotest::criteria::Criteria::of([feotest::criteria::Criteria::meeting()
+            .pass_rate(0.5)
+            .name("never satisfied")
+            .satisfies("never satisfied", |_: &String| {
+                Err(feotest::model::ContractViolation::new(
+                    "forced",
+                    "always fails",
+                ))
+            })
+            .build()])
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Baseline helpers
 // ---------------------------------------------------------------------------
 
-/// Runs a measure experiment and returns the temp directory (keeps it alive).
-pub fn establish_baseline(
-    service_contract_id: &str,
-    samples: u32,
-    trial: impl Fn(&str) -> TrialOutcome + 'static,
-) -> tempfile::TempDir {
+/// Runs a measure experiment against an always-pass contract and returns the
+/// temp directory (keeps it alive).
+pub fn establish_baseline(service_contract_id: &str, samples: u32) -> tempfile::TempDir {
     let dir = tempfile::tempdir().unwrap();
     let inputs = vec!["input".to_string()];
+    let id = service_contract_id.to_owned();
 
     feotest::experiment::MeasureExperiment::builder()
         .service_contract_id(service_contract_id)
-        .service_contract(|| ())
+        .service_contract(move || SimpleServiceContract::new(id.clone()))
         .samples(samples)
         .inputs(&inputs)
-        .trial(move |(): &(), input| trial(input))
         .baseline_dir(dir.path())
         .build()
         .run();

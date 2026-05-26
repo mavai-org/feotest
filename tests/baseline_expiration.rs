@@ -1,5 +1,7 @@
 //! Integration tests for baseline expiration.
 
+mod common;
+
 use std::time::{Duration, SystemTime};
 
 use feotest::experiment::MeasureExperiment;
@@ -9,31 +11,7 @@ use feotest::ptest::builder::ThresholdApproach;
 use feotest::spec::common::{iso8601_plus_days, parse_iso8601};
 use feotest::spec::expiration;
 use feotest::spec::{BaselineSpec, SpecResolver};
-use feotest::service_contract::ServiceContract;
 use feotest::verdict::Verdict;
-
-struct TestUc(&'static str);
-impl ServiceContract for TestUc {
-    type Input = String;
-    type Output = String;
-    fn id(&self) -> &str {
-        self.0
-    }
-    fn invoke(
-        &self,
-        input: &String,
-        _cost: &mut feotest::controls::Cost,
-    ) -> Result<String, feotest::model::Defect> {
-        Ok(input.clone())
-    }
-    fn criteria(&self) -> feotest::criteria::Criteria<String> {
-        feotest::criteria::Criteria::of([feotest::criteria::Criteria::meeting()
-            .pass_rate(0.5)
-            .name("response received")
-            .satisfies("response received", |_: &String| Ok(()))
-            .build()])
-    }
-}
 
 const fn always_succeed(_input: &str) -> TrialOutcome {
     TrialOutcome::success(Duration::from_millis(1))
@@ -46,10 +24,9 @@ fn measure_writes_expiration_block_that_round_trips_through_resolver() {
 
     let measure_result = MeasureExperiment::builder()
         .service_contract_id("expiry-uc")
-        .service_contract(|| ())
+        .service_contract(|| common::SimpleServiceContract::new("baseline"))
         .samples(30)
         .inputs(&inputs)
-        .trial(|(): &(), input| always_succeed(input))
         .baseline_dir(dir.path())
         .expires_in_days(1)
         .build()
@@ -76,10 +53,9 @@ fn evaluate_at_future_time_crosses_expiry_boundary() {
 
     MeasureExperiment::builder()
         .service_contract_id("boundary-uc")
-        .service_contract(|| ())
+        .service_contract(|| common::SimpleServiceContract::new("baseline"))
         .samples(30)
         .inputs(&inputs)
-        .trial(|(): &(), input| always_succeed(input))
         .baseline_dir(dir.path())
         .expires_in_days(1)
         .build()
@@ -121,10 +97,9 @@ fn ptest_with_expired_baseline_warns_by_default_and_still_passes() {
     // end-to-end rather than patching the YAML directly.
     MeasureExperiment::builder()
         .service_contract_id("warn-only")
-        .service_contract(|| ())
+        .service_contract(|| common::SimpleServiceContract::new("baseline"))
         .samples(30)
         .inputs(&inputs)
-        .trial(|(): &(), input| always_succeed(input))
         .baseline_dir(dir.path())
         .expires_in_days(1)
         .build()
@@ -177,10 +152,9 @@ fn ptest_with_fail_on_expired_produces_fail_verdict() {
     let end = "2020-01-01T00:00:00Z".to_string();
     let mut spec = MeasureExperiment::builder()
         .service_contract_id("strict")
-        .service_contract(|| ())
+        .service_contract(|| common::SimpleServiceContract::new("baseline"))
         .samples(30)
         .inputs(&inputs)
-        .trial(|(): &(), input| always_succeed(input))
         .build()
         .run();
     let mut spec_with_expiry = spec.spec().clone();
@@ -220,10 +194,9 @@ fn ptest_with_no_expiration_block_attaches_no_info() {
     // No expires_in_days: the block is omitted.
     MeasureExperiment::builder()
         .service_contract_id("no-block")
-        .service_contract(|| ())
+        .service_contract(|| common::SimpleServiceContract::new("baseline"))
         .samples(30)
         .inputs(&inputs)
-        .trial(|(): &(), input| always_succeed(input))
         .baseline_dir(dir.path())
         .build()
         .run();
@@ -252,10 +225,9 @@ fn evaluate_at_now_matches_evaluate() {
 
     MeasureExperiment::builder()
         .service_contract_id("matches-now")
-        .service_contract(|| ())
+        .service_contract(|| common::SimpleServiceContract::new("baseline"))
         .samples(30)
         .inputs(&inputs)
-        .trial(|(): &(), input| always_succeed(input))
         .baseline_dir(dir.path())
         .expires_in_days(30)
         .build()

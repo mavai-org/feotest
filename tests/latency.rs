@@ -34,6 +34,35 @@ fn trivial_criteria() -> feotest::criteria::Criteria<String> {
         .build()])
 }
 
+/// A contract that sleeps a fixed duration on every invocation, so the engine
+/// measures that latency for the baseline. (Latency is measured from real
+/// invoke-elapsed; there is no synthetic-latency seam.)
+struct SleepingContract {
+    latency: Duration,
+}
+
+impl feotest::service_contract::ServiceContract for SleepingContract {
+    type Input = String;
+    type Output = String;
+
+    fn id(&self) -> &str {
+        "latency-baseline"
+    }
+
+    fn invoke(
+        &self,
+        input: &String,
+        _cost: &mut feotest::controls::Cost,
+    ) -> Result<String, feotest::model::Defect> {
+        std::thread::sleep(self.latency);
+        Ok(input.clone())
+    }
+
+    fn criteria(&self) -> feotest::criteria::Criteria<String> {
+        trivial_criteria()
+    }
+}
+
 // Scenario 1 — no latency config → dimension absent, assert_all ≡ assert_contract.
 #[test]
 fn scenario_no_latency_config_dimension_absent() {
@@ -120,40 +149,17 @@ fn build_baseline_and_run(
     test_latency: Duration,
     strict: Option<bool>,
 ) -> feotest::ptest::ProbabilisticTestResult {
-    struct Uc {
-        id: &'static str,
-    }
-    impl feotest::service_contract::ServiceContract for Uc {
-        type Input = String;
-        type Output = String;
-        fn id(&self) -> &str {
-            self.id
-        }
-        fn invoke(
-            &self,
-            input: &String,
-            _cost: &mut feotest::controls::Cost,
-        ) -> Result<String, feotest::model::Defect> {
-            Ok(input.clone())
-        }
-        fn criteria(&self) -> feotest::criteria::Criteria<String> {
-            trivial_criteria()
-        }
-    }
-
     let dir = tempfile::tempdir().unwrap();
     let uc_id: &'static str = Box::leak(test_name.to_string().into_boxed_str());
-    let uc = Uc { id: uc_id };
     let inputs = vec!["input".to_string()];
 
-    // Establish baseline with low-latency samples.
-    let baseline_trial = fixed_latency_trial(baseline_latency);
+    // Establish baseline with low-latency samples (the contract sleeps so the
+    // engine measures a real latency).
     feotest::experiment::MeasureExperiment::builder()
         .service_contract_id(uc_id)
-        .service_contract(|| ())
+        .service_contract(move || SleepingContract { latency: baseline_latency })
         .samples(150)
         .inputs(&inputs)
-        .trial(move |(): &(), input| baseline_trial(input))
         .baseline_dir(dir.path())
         .build()
         .run();
@@ -211,34 +217,14 @@ fn scenario_baseline_p95_violated_strict_via_builder() {
 // Scenario 11 — feasibility gate on small baseline + high percentile.
 #[test]
 fn scenario_p99_with_small_baseline_is_infeasible() {
-    struct Uc;
-    impl feotest::service_contract::ServiceContract for Uc {
-        type Input = String;
-        type Output = String;
-        fn id(&self) -> &str {
-            "latency-scenario-11"
-        }
-        fn invoke(
-            &self,
-            input: &String,
-            _cost: &mut feotest::controls::Cost,
-        ) -> Result<String, feotest::model::Defect> {
-            Ok(input.clone())
-        }
-        fn criteria(&self) -> feotest::criteria::Criteria<String> {
-            trivial_criteria()
-        }
-    }
     let dir = tempfile::tempdir().unwrap();
     let inputs = vec!["input".to_string()];
 
-    let trial_fn = fixed_latency_trial(Duration::from_millis(10));
     feotest::experiment::MeasureExperiment::builder()
         .service_contract_id("latency-scenario-11")
-        .service_contract(|| ())
+        .service_contract(|| SleepingContract { latency: Duration::from_millis(10) })
         .samples(30)
         .inputs(&inputs)
-        .trial(move |(): &(), input| trial_fn(input))
         .baseline_dir(dir.path())
         .build()
         .run();
@@ -273,34 +259,14 @@ fn scenario_p99_with_small_baseline_is_infeasible() {
 // Scenario 9 — MEASURE round-trip: vector persists, content fingerprint stable.
 #[test]
 fn measure_round_trip_preserves_latency_block() {
-    struct Uc;
-    impl feotest::service_contract::ServiceContract for Uc {
-        type Input = String;
-        type Output = String;
-        fn id(&self) -> &str {
-            "latency-scenario-9"
-        }
-        fn invoke(
-            &self,
-            input: &String,
-            _cost: &mut feotest::controls::Cost,
-        ) -> Result<String, feotest::model::Defect> {
-            Ok(input.clone())
-        }
-        fn criteria(&self) -> feotest::criteria::Criteria<String> {
-            trivial_criteria()
-        }
-    }
     let dir = tempfile::tempdir().unwrap();
     let inputs = vec!["input".to_string()];
 
-    let trial_fn = fixed_latency_trial(Duration::from_millis(42));
     let m = feotest::experiment::MeasureExperiment::builder()
         .service_contract_id("latency-scenario-9")
-        .service_contract(|| ())
+        .service_contract(|| SleepingContract { latency: Duration::from_millis(42) })
         .samples(50)
         .inputs(&inputs)
-        .trial(move |(): &(), input| trial_fn(input))
         .baseline_dir(dir.path())
         .build()
         .run();
@@ -313,8 +279,12 @@ fn measure_round_trip_preserves_latency_block() {
         .expect("MEASURE populates latency block");
     assert_eq!(original.latencies_ms.len(), 50);
     assert!(original.latencies_ms.windows(2).all(|w| w[0] <= w[1]));
-    assert_eq!(original.mean_ms, 42);
-    assert_eq!(original.max_ms, 42);
+    assert!(
+        (42..=200).contains(&original.mean_ms),
+        "mean {} should be at/above the 42ms sleep floor",
+        original.mean_ms
+    );
+    assert!(original.max_ms >= 42);
 
     // Reload via integrity-verifying path; fingerprint must match.
     let yaml = std::fs::read_to_string(m.spec_path().unwrap()).unwrap();
