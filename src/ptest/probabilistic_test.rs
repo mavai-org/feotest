@@ -169,7 +169,7 @@ fn resolve_spec_resolver<T>(test: &ProbabilisticTest<'_, T>) -> Option<SpecResol
 
 /// Builds optional execution config overrides from the simplified
 /// budget/pacing setters.
-fn build_config_overrides(
+pub(crate) fn build_config_overrides(
     approach: &ThresholdApproach,
     time_budget: Option<Duration>,
     token_budget: Option<u64>,
