@@ -78,7 +78,7 @@ fn fail_verdict_has_rate_comparison_reason() {
 
 #[test]
 fn baseline_provenance_populated_from_spec() {
-    let dir = common::establish_baseline("vp-baseline-prov", 200, common::always_succeeds);
+    let dir = common::establish_baseline("vp-baseline-prov", 200);
 
     let result = common::run_against_baseline(
         "vp-baseline-prov",
@@ -163,7 +163,7 @@ fn spec_provenance_carries_origin_and_contract() {
 
 #[test]
 fn spec_provenance_includes_filename_when_baseline_used() {
-    let dir = common::establish_baseline("vp-prov-file", 200, common::always_succeeds);
+    let dir = common::establish_baseline("vp-prov-file", 200);
 
     let result = common::run_against_baseline(
         "vp-prov-file",
@@ -186,7 +186,7 @@ fn spec_provenance_includes_filename_when_baseline_used() {
 
 #[test]
 fn sample_size_first_derives_threshold_from_baseline() {
-    let dir = common::establish_baseline("vp-ssf", 200, common::always_succeeds);
+    let dir = common::establish_baseline("vp-ssf", 200);
 
     let inputs = vec!["input".to_string()];
     let result = ProbabilisticTestBuilder::new("vp-ssf", &inputs, common::always_succeeds)
@@ -243,7 +243,7 @@ fn smoke_intent_propagates_and_adds_warning() {
 
 #[test]
 fn runner_produced_record_renders_through_console() {
-    let dir = common::establish_baseline("vp-console", 200, common::always_succeeds);
+    let dir = common::establish_baseline("vp-console", 200);
 
     let result =
         common::run_against_baseline("vp-console", dir.path(), 50, 0.80, common::always_succeeds);
@@ -259,7 +259,7 @@ fn runner_produced_record_renders_through_console() {
 
 #[test]
 fn runner_produced_record_renders_through_junit_xml() {
-    let dir = common::establish_baseline("vp-junit", 200, common::always_succeeds);
+    let dir = common::establish_baseline("vp-junit", 200);
 
     let result =
         common::run_against_baseline("vp-junit", dir.path(), 50, 0.80, common::always_succeeds);

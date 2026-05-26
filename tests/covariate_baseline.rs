@@ -4,6 +4,8 @@
 //! resolve with matching/mismatched covariates → verify warnings and
 //! verdict record fields.
 
+mod common;
+
 use std::time::Duration;
 
 use feotest::experiment::MeasureExperiment;
@@ -80,10 +82,9 @@ fn matching_covariates_resolves_cleanly() {
     // Establish baseline with model=gpt-4o
     MeasureExperiment::builder()
         .service_contract_id(uc.id().to_owned())
-        .service_contract(|| ())
+        .service_contract(|| common::SimpleServiceContract::new("baseline"))
         .samples(200)
         .inputs(&inputs)
-        .trial(|(): &(), input| always_succeeds(input))
         .baseline_dir(dir.path())
         .covariates(vec!["model".to_owned()], uc.resolve_covariates())
         .build()
@@ -129,10 +130,9 @@ fn mismatched_covariates_produce_warnings() {
     // Establish baseline with model=gpt-4o
     MeasureExperiment::builder()
         .service_contract_id(baseline_uc.id().to_owned())
-        .service_contract(|| ())
+        .service_contract(|| common::SimpleServiceContract::new("baseline"))
         .samples(200)
         .inputs(&inputs)
-        .trial(|(): &(), input| always_succeeds(input))
         .baseline_dir(dir.path())
         .covariates(vec!["model".to_owned()], baseline_uc.resolve_covariates())
         .build()
@@ -181,10 +181,9 @@ fn baseline_provenance_present_with_covariates() {
 
     MeasureExperiment::builder()
         .service_contract_id(uc.id().to_owned())
-        .service_contract(|| ())
+        .service_contract(|| common::SimpleServiceContract::new("baseline"))
         .samples(200)
         .inputs(&inputs)
-        .trial(|(): &(), input| always_succeeds(input))
         .baseline_dir(dir.path())
         .covariates(vec!["model".to_owned()], uc.resolve_covariates())
         .build()
@@ -224,10 +223,9 @@ fn threshold_first_with_covariates_loads_baseline() {
 
     MeasureExperiment::builder()
         .service_contract_id(uc.id().to_owned())
-        .service_contract(|| ())
+        .service_contract(|| common::SimpleServiceContract::new("baseline"))
         .samples(200)
         .inputs(&inputs)
-        .trial(|(): &(), input| always_succeeds(input))
         .baseline_dir(dir.path())
         .covariates(vec!["model".to_owned()], uc.resolve_covariates())
         .build()
@@ -265,10 +263,9 @@ fn console_renders_covariate_warnings() {
 
     MeasureExperiment::builder()
         .service_contract_id(baseline_uc.id().to_owned())
-        .service_contract(|| ())
+        .service_contract(|| common::SimpleServiceContract::new("baseline"))
         .samples(200)
         .inputs(&inputs)
-        .trial(|(): &(), input| always_succeeds(input))
         .baseline_dir(dir.path())
         .covariates(vec!["model".to_owned()], baseline_uc.resolve_covariates())
         .build()
