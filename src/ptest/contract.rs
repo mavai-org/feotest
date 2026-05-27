@@ -77,6 +77,7 @@ pub struct ContractTest<'a, C: ServiceContract> {
     baseline_latency_confidence: Option<f64>,
     fail_on_expired_baseline: bool,
     transparent_stats: bool,
+    early_termination_disabled: bool,
 }
 
 impl<'a, C: ServiceContract> ContractTest<'a, C> {
@@ -102,6 +103,7 @@ impl<'a, C: ServiceContract> ContractTest<'a, C> {
             baseline_latency_confidence: None,
             fail_on_expired_baseline: false,
             transparent_stats: false,
+            early_termination_disabled: false,
         }
     }
 
@@ -256,6 +258,21 @@ impl<'a, C: ServiceContract> ContractTest<'a, C> {
         self
     }
 
+    /// Disables early termination for this test: every declared sample runs
+    /// even once the verdict is statistically determined.
+    ///
+    /// Early termination (failure-inevitable / success-guaranteed) is on by
+    /// default. Disable it when a run needs the full sample set regardless
+    /// of the outcome — e.g. to emit a complete latency distribution, capture
+    /// every failure exemplar, or feed downstream baseline emission. With the
+    /// override active the run reports `TerminationReason::Completed`; the
+    /// verdict is unchanged (it depends only on the final pass count).
+    #[must_use]
+    pub const fn disable_early_termination(mut self) -> Self {
+        self.early_termination_disabled = true;
+        self
+    }
+
     /// Executes the test and produces the verdict.
     ///
     /// # Panics
@@ -286,6 +303,7 @@ impl<'a, C: ServiceContract> ContractTest<'a, C> {
             },
             fail_on_expired_baseline: self.fail_on_expired_baseline,
             on_budget_exhausted: self.on_budget_exhausted,
+            early_termination_disabled: self.early_termination_disabled,
         };
         // Covariates are part of the contract's identity, so the covariate
         // context is derived from the contract itself unless one was supplied

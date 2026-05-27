@@ -157,3 +157,53 @@ fn measure_experiment_runs_all_samples_regardless_of_failures() {
         &TerminationReason::Completed
     );
 }
+
+// --- developer override: disable early termination ---
+
+#[test]
+fn override_runs_all_samples_despite_inevitable_failure() {
+    // Always-fail at a 0.90 target would normally terminate on
+    // FailureInevitable after a handful of samples; the override runs them all.
+    let inputs = vec!["input".to_string()];
+    let result =
+        ProbabilisticTest::for_contract(common::FailingServiceContract::new("override-fail"))
+            .inputs(&inputs)
+            .approach(ThresholdApproach::ThresholdFirst {
+                samples: 200,
+                min_pass_rate: 0.90,
+            })
+            .disable_early_termination()
+            .run();
+
+    let record = result.verdict_record();
+    assert_eq!(record.verdict(), Verdict::Fail);
+    assert_eq!(record.execution().samples_executed(), 200);
+    assert_eq!(
+        record.execution().termination().reason(),
+        &TerminationReason::Completed
+    );
+}
+
+#[test]
+fn override_runs_all_samples_despite_guaranteed_success() {
+    // Always-pass at a low target would normally terminate on
+    // SuccessGuaranteed; the override runs every declared sample.
+    let inputs = vec!["input".to_string()];
+    let result =
+        ProbabilisticTest::for_contract(common::SimpleServiceContract::new("override-success"))
+            .inputs(&inputs)
+            .approach(ThresholdApproach::ThresholdFirst {
+                samples: 200,
+                min_pass_rate: 0.50,
+            })
+            .disable_early_termination()
+            .run();
+
+    let record = result.verdict_record();
+    assert_eq!(record.verdict(), Verdict::Pass);
+    assert_eq!(record.execution().samples_executed(), 200);
+    assert_eq!(
+        record.execution().termination().reason(),
+        &TerminationReason::Completed
+    );
+}
