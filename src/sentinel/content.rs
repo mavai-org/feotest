@@ -99,7 +99,7 @@ pub struct MeasureExperimentConfig {
 ///
 /// The variants close over method-specific configuration at code-generation
 /// time, so the runner only needs to hand over the spec reference. The spec
-/// is passed as `&dyn Any` via [`crate::sentinel::ReliabilitySpec::as_any`];
+/// is passed as `&dyn Any` via [`crate::sentinel::Sentinel::as_any`];
 /// the invoker downcasts to the concrete type before invoking.
 pub enum ContentInvoker {
     /// Runs a probabilistic test and returns its verdict.

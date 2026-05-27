@@ -48,7 +48,7 @@ pub fn probabilistic_test(attr: TokenStream, item: TokenStream) -> TokenStream {
 
 /// Marks a struct as a reliability specification.
 ///
-/// The macro emits an `impl ReliabilitySpec` for the struct and registers
+/// The macro emits an `impl Sentinel` for the struct and registers
 /// a `SpecDescriptor` into the sentinel inventory at link time. The struct
 /// must implement `Default` (derive or hand-written); the generated
 /// constructor calls `Default::default()` to produce instances on demand.

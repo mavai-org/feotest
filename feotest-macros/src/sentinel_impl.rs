@@ -276,7 +276,7 @@ fn emit_test_invoker(
         #[doc(hidden)]
         #[allow(non_snake_case, reason = "generated invoker follows Spec_Method naming for uniqueness")]
         fn #invoker_ident(spec_any: &dyn ::core::any::Any) -> ::feotest::verdict::VerdictRecord {
-            use ::feotest::sentinel::ReliabilitySpec as _;
+            use ::feotest::sentinel::Sentinel as _;
             let spec = spec_any
                 .downcast_ref::<#spec_ident>()
                 .expect("sentinel invoker: spec type mismatch");
@@ -500,7 +500,7 @@ fn emit_experiment(
         #[doc(hidden)]
         #[allow(non_snake_case, reason = "generated invoker follows Spec_Method naming for uniqueness")]
         fn #invoker_ident(spec_any: &dyn ::core::any::Any) -> ::feotest::spec::BaselineSpec {
-            use ::feotest::sentinel::ReliabilitySpec as _;
+            use ::feotest::sentinel::Sentinel as _;
             let spec = spec_any
                 .downcast_ref::<#spec_ident>()
                 .expect("sentinel invoker: spec type mismatch");

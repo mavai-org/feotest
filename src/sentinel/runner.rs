@@ -126,7 +126,7 @@ impl SentinelRunner {
     /// Runs probabilistic tests for the selected specs.
     ///
     /// An empty `specs` slice runs every registered spec; non-empty
-    /// filters by stable name (matching [`ReliabilitySpec::name`]).
+    /// filters by stable name (matching [`Sentinel::name`]).
     ///
     /// Every produced verdict is dispatched to each attached sink
     /// before being pushed onto the returned [`SentinelResult`], so

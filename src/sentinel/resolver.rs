@@ -58,7 +58,7 @@ pub(crate) fn parse_file_location(raw: &str) -> Option<PathBuf> {
 
 /// Inputs for one baseline lookup.
 pub struct BaselineQuery<'a> {
-    /// Stable name of the owning spec (matches `ReliabilitySpec::name()`).
+    /// Stable name of the owning spec (matches `Sentinel::name()`).
     pub spec_name: &'a str,
     /// Stable name of the test method.
     pub method_name: &'a str,
