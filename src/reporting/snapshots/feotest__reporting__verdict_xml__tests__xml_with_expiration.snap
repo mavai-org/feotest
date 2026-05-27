@@ -1,9 +1,10 @@
 ---
 source: src/reporting/verdict_xml.rs
+assertion_line: 964
 expression: xml
 ---
 <?xml version="1.0" encoding="UTF-8"?>
-<verdict-record xmlns="http://javai.org/verdict/1.0" version="1.0" timestamp="2026-04-19T10:00:00Z" generator="feotest/0.1.0">
+<verdict-record xmlns="http://javai.org/verdict/1.0" version="1.2" timestamp="2026-04-19T10:00:00Z" generator="feotest/0.1.0">
   <identity use-case-id="aging-service"/>
   <execution planned-samples="100" samples-executed="100" successes="92" failures="8" elapsed-ms="500" intent="VERIFICATION"/>
   <functional successes="92" failures="8" pass-rate="0.9200"/>
@@ -13,5 +14,9 @@ expression: xml
   </provenance>
   <termination reason="COMPLETED"/>
   <cost total-time-ms="500" total-tokens="1000" avg-time-per-sample-ms="5" avg-tokens-per-sample="10"/>
+  <per-criterion>
+    <criterion id="result" verdict="PASS" pass="92" fail="8" inconclusive="0" total="100" observed-rate="0.9200"/>
+    <composite value="PASS"/>
+  </per-criterion>
   <verdict value="PASS" reason="0.9200 &gt;= 0.0000"/>
 </verdict-record>

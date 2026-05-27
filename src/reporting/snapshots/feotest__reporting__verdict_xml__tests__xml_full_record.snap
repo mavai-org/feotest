@@ -1,9 +1,10 @@
 ---
 source: src/reporting/verdict_xml.rs
+assertion_line: 1011
 expression: xml
 ---
 <?xml version="1.0" encoding="UTF-8"?>
-<verdict-record xmlns="http://javai.org/verdict/1.0" version="1.0" timestamp="2026-04-19T10:00:00Z" correlation-id="suite-run-42" generator="feotest/0.1.0">
+<verdict-record xmlns="http://javai.org/verdict/1.0" version="1.2" timestamp="2026-04-19T10:00:00Z" correlation-id="suite-run-42" generator="feotest/0.1.0">
   <identity use-case-id="full-service" test-name="test_everything"/>
   <execution planned-samples="200" samples-executed="200" successes="192" failures="8" elapsed-ms="500" intent="VERIFICATION" confidence="0.95"/>
   <functional successes="192" failures="8" pass-rate="0.9600"/>
@@ -23,5 +24,9 @@ expression: xml
     <entry key="runtime" value="tokio"/>
     <entry key="region" value="us-east-1"/>
   </environment>
+  <per-criterion>
+    <criterion id="result" verdict="PASS" pass="192" fail="8" inconclusive="0" total="200" observed-rate="0.9600"/>
+    <composite value="PASS"/>
+  </per-criterion>
   <verdict value="PASS" reason="0.9600 &gt;= 0.9000"/>
 </verdict-record>
