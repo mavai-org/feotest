@@ -50,6 +50,11 @@ pub struct AssessmentCriteria {
     /// explicit `ExecutionConfig`. An explicit config carries its own
     /// setting and is respected as-is.
     pub on_budget_exhausted: Option<BudgetExhaustedBehavior>,
+    /// When true, the per-sample early-termination check is disabled: every
+    /// declared sample runs even once the verdict is determined. The runner
+    /// then leaves `min_pass_rate` / `min_samples_for_validity` unset, so the
+    /// engine reports `TerminationReason::Completed`.
+    pub early_termination_disabled: bool,
 }
 
 /// How to find and interpret empirical reference data.
@@ -446,7 +451,7 @@ where
         }
         c
     });
-    if derived_threshold.value() > 0.0 {
+    if derived_threshold.value() > 0.0 && !criteria.early_termination_disabled {
         config = config
             .min_pass_rate(derived_threshold.value())
             .min_samples_for_validity(feas.minimum_samples());
