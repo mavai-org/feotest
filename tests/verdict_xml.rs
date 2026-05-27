@@ -78,9 +78,10 @@ fn full_record() -> VerdictRecord {
 fn full_verdict_contains_all_rp07_elements() {
     let xml = VerdictXmlWriter::write_record(&full_record(), Some("2026-04-19T10:00:00Z"));
 
-    // Root structure
+    // Root structure. The namespace is stable across schema revisions; the
+    // per-criterion bundle a contract-driven record carries lifts it to 1.2.
     assert!(xml.contains("xmlns=\"http://javai.org/verdict/1.0\""));
-    assert!(xml.contains("version=\"1.0\""));
+    assert!(xml.contains("version=\"1.2\""));
     assert!(xml.contains("generator=\"feotest/"));
 
     // All verdict XML elements present
@@ -101,6 +102,9 @@ fn full_verdict_contains_all_rp07_elements() {
     assert!(xml.contains("<warnings>"));
     assert!(xml.contains("<pacing "));
     assert!(xml.contains("<environment>"));
+    assert!(xml.contains("<per-criterion>"));
+    assert!(xml.contains("<criterion "));
+    assert!(xml.contains("<composite "));
     assert!(xml.contains("<verdict "));
 
     // New elements specific to this implementation

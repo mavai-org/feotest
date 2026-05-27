@@ -1,9 +1,10 @@
 ---
 source: src/reporting/verdict_xml.rs
+assertion_line: 942
 expression: xml
 ---
 <?xml version="1.0" encoding="UTF-8"?>
-<verdict-record xmlns="http://javai.org/verdict/1.0" version="1.0" timestamp="2026-04-19T10:00:00Z" generator="feotest/0.1.0">
+<verdict-record xmlns="http://javai.org/verdict/1.0" version="1.2" timestamp="2026-04-19T10:00:00Z" generator="feotest/0.1.0">
   <identity use-case-id="env-service"/>
   <execution planned-samples="50" samples-executed="50" successes="50" failures="0" elapsed-ms="500" intent="VERIFICATION"/>
   <functional successes="50" failures="0" pass-rate="1.0000"/>
@@ -15,5 +16,9 @@ expression: xml
     <entry key="region" value="eu-west-1"/>
     <entry key="instance_type" value="m5.large"/>
   </environment>
+  <per-criterion>
+    <criterion id="result" verdict="PASS" pass="50" fail="0" inconclusive="0" total="50" observed-rate="1.0000"/>
+    <composite value="PASS"/>
+  </per-criterion>
   <verdict value="PASS" reason="1.0000 &gt;= 0.0000"/>
 </verdict-record>

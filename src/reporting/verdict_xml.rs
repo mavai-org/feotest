@@ -16,8 +16,11 @@ use crate::verdict::{Verdict, VerdictRecord};
 /// The XML namespace for the verdict interchange format.
 const NAMESPACE: &str = "http://javai.org/verdict/1.0";
 
-/// The schema version.
-const VERSION: &str = "1.0";
+/// Schema version emitted when the per-criterion bundle is absent.
+const VERSION_1_0: &str = "1.0";
+
+/// Schema version emitted when the per-criterion bundle is populated.
+const VERSION_1_2: &str = "1.2";
 
 /// Serialises verdict records to the verdict XML interchange format.
 // javai-ref: JVI-DQWKY4Z — do not remove (resolves in javai-orchestrator)
@@ -33,9 +36,18 @@ impl VerdictXmlWriter {
     pub fn write_record(record: &VerdictRecord, timestamp: Option<&str>) -> String {
         let mut xml = String::with_capacity(4096);
 
+        // The per-criterion bundle lifts the record to schema 1.2; a record
+        // with no criteria (none evaluated) stays at 1.0 so a consumer
+        // inspecting the attribute knows which shape to expect.
+        let version = if record.functional_assessment().criteria().is_empty() {
+            VERSION_1_0
+        } else {
+            VERSION_1_2
+        };
+
         writeln!(xml, "<?xml version=\"1.0\" encoding=\"UTF-8\"?>").unwrap();
         write!(xml, "<verdict-record xmlns=\"{NAMESPACE}\"").unwrap();
-        write!(xml, " version=\"{VERSION}\"").unwrap();
+        write!(xml, " version=\"{version}\"").unwrap();
         if let Some(ts) = timestamp {
             write!(xml, " timestamp=\"{}\"", escape_attr(ts)).unwrap();
         }
@@ -57,6 +69,7 @@ impl VerdictXmlWriter {
         write_warnings(&mut xml, record);
         write_pacing(&mut xml, record);
         write_environment(&mut xml, record);
+        write_per_criterion(&mut xml, record);
         write_verdict(&mut xml, record);
 
         writeln!(xml, "</verdict-record>").unwrap();
@@ -445,14 +458,57 @@ fn write_environment(w: &mut String, record: &VerdictRecord) {
     writeln!(w, "  </environment>").unwrap();
 }
 
-fn write_verdict(w: &mut String, record: &VerdictRecord) {
-    let verdict_str = match record.verdict() {
+/// The verdict's wire form for the verdict XML `VerdictEnum`.
+const fn verdict_str(verdict: Verdict) -> &'static str {
+    match verdict {
         Verdict::Pass => "PASS",
         Verdict::Fail => "FAIL",
         Verdict::Inconclusive => "INCONCLUSIVE",
-    };
+    }
+}
 
-    write!(w, "  <verdict value=\"{verdict_str}\"").unwrap();
+/// Emits the `<per-criterion>` bundle: one `<criterion>` row per criterion
+/// plus the `<composite>` verdict over them. Present whenever the run
+/// evaluated criteria (the normal case for a contract-driven run), which is
+/// what lifts the record to schema version 1.2.
+fn write_per_criterion(w: &mut String, record: &VerdictRecord) {
+    let assessment = record.functional_assessment();
+    if assessment.criteria().is_empty() {
+        return;
+    }
+
+    writeln!(w, "  <per-criterion>").unwrap();
+    for row in assessment.criteria() {
+        write!(w, "    <criterion").unwrap();
+        write!(w, " id=\"{}\"", escape_attr(row.name())).unwrap();
+        write!(w, " verdict=\"{}\"", verdict_str(row.verdict())).unwrap();
+        write!(w, " pass=\"{}\"", row.pass()).unwrap();
+        write!(w, " fail=\"{}\"", row.fail()).unwrap();
+        // The per-trial outcome is two-valued; inconclusive is a
+        // verdict-level state, never a per-sample tally.
+        write!(w, " inconclusive=\"0\"").unwrap();
+        write!(w, " total=\"{}\"", row.total()).unwrap();
+        // observed-rate is undefined for a zero-trial criterion; threshold is
+        // absent for an observational criterion (it carries none).
+        if row.total() > 0 {
+            write!(w, " observed-rate=\"{:.4}\"", row.pass_rate()).unwrap();
+        }
+        if let Some(analysis) = row.statistical_analysis() {
+            write!(w, " threshold=\"{:.4}\"", analysis.threshold()).unwrap();
+        }
+        writeln!(w, "/>").unwrap();
+    }
+    writeln!(
+        w,
+        "    <composite value=\"{}\"/>",
+        verdict_str(assessment.composite())
+    )
+    .unwrap();
+    writeln!(w, "  </per-criterion>").unwrap();
+}
+
+fn write_verdict(w: &mut String, record: &VerdictRecord) {
+    write!(w, "  <verdict value=\"{}\"", verdict_str(record.verdict())).unwrap();
     let reason = record.verdict_reason();
     if !reason.is_empty() {
         write!(w, " reason=\"{}\"", escape_attr(reason)).unwrap();
@@ -706,6 +762,69 @@ mod tests {
     fn xml_contains_generator() {
         let xml = VerdictXmlWriter::write_record(&pass_record(), Some("2026-04-01T12:00:00Z"));
         assert!(xml.contains("generator=\"feotest/"));
+    }
+
+    #[test]
+    fn single_criterion_record_emits_per_criterion_at_1_2() {
+        let xml = VerdictXmlWriter::write_record(&pass_record(), Some("2026-04-01T12:00:00Z"));
+
+        // The per-criterion bundle lifts the record to 1.2.
+        assert!(xml.contains("version=\"1.2\""));
+        assert!(xml.contains("<per-criterion>"));
+        // The conventional single row has no separate analysis, so it carries
+        // observed-rate but no threshold.
+        assert!(xml.contains(
+            "<criterion id=\"result\" verdict=\"PASS\" pass=\"96\" fail=\"4\" \
+             inconclusive=\"0\" total=\"100\" observed-rate=\"0.9600\"/>"
+        ));
+        assert!(xml.contains("<composite value=\"PASS\"/>"));
+    }
+
+    #[test]
+    fn per_criterion_emits_threshold_only_for_inferential_rows() {
+        let assessment = FunctionalAssessment::new(
+            Verdict::Pass,
+            vec![
+                // Inferential: carries an analysis, so threshold is emitted.
+                CriterionRow::new(
+                    "accuracy",
+                    90,
+                    10,
+                    vec![],
+                    Some(StatisticalAnalysis::new(
+                        0.95,
+                        0.03,
+                        0.85,
+                        0.90,
+                        ThresholdOrigin::Empirical,
+                    )),
+                    Verdict::Pass,
+                ),
+                // Observational: no analysis, so no threshold attribute.
+                CriterionRow::new("no-error", 100, 0, vec![], None, Verdict::Pass),
+            ],
+        );
+        let record = VerdictRecord::builder(
+            TestIdentity::new("svc").with_test_name("t"),
+            Verdict::Pass,
+            TestIntent::Verification,
+            sample_execution(100, 100, 90, 10),
+            assessment,
+        )
+        .build();
+
+        let xml = VerdictXmlWriter::write_record(&record, Some("2026-04-01T12:00:00Z"));
+
+        assert!(xml.contains(
+            "<criterion id=\"accuracy\" verdict=\"PASS\" pass=\"90\" fail=\"10\" \
+             inconclusive=\"0\" total=\"100\" observed-rate=\"0.9000\" threshold=\"0.9000\"/>"
+        ));
+        // The observational row closes right after observed-rate — no threshold.
+        assert!(xml.contains(
+            "<criterion id=\"no-error\" verdict=\"PASS\" pass=\"100\" fail=\"0\" \
+             inconclusive=\"0\" total=\"100\" observed-rate=\"1.0000\"/>"
+        ));
+        assert!(xml.contains("<composite value=\"PASS\"/>"));
     }
 
     // -----------------------------------------------------------------------

@@ -1,10 +1,11 @@
 ---
 source: src/reporting/verdict_xml.rs
+assertion_line: 874
 expression: suite
 ---
 <?xml version="1.0" encoding="UTF-8"?>
 <verdict-suite xmlns="http://javai.org/verdict/1.0" timestamp="2026-04-01T12:00:00Z">
-<verdict-record xmlns="http://javai.org/verdict/1.0" version="1.0" timestamp="2026-04-01T12:00:00Z" generator="feotest/0.1.0">
+<verdict-record xmlns="http://javai.org/verdict/1.0" version="1.2" timestamp="2026-04-01T12:00:00Z" generator="feotest/0.1.0">
   <identity use-case-id="my-service" test-name="test_translation"/>
   <execution planned-samples="100" samples-executed="100" successes="96" failures="4" elapsed-ms="500" intent="VERIFICATION" confidence="0.95"/>
   <functional successes="96" failures="4" pass-rate="0.9600"/>
@@ -14,10 +15,14 @@ expression: suite
   <baseline source-file="my-service.yaml" generated-at="2026-03-27T10:00:00Z" samples="200" baseline-rate="0.9500" derived-threshold="0.9000"/>
   <termination reason="COMPLETED"/>
   <cost total-time-ms="500" total-tokens="1000" avg-time-per-sample-ms="5" avg-tokens-per-sample="10"/>
+  <per-criterion>
+    <criterion id="result" verdict="PASS" pass="96" fail="4" inconclusive="0" total="100" observed-rate="0.9600"/>
+    <composite value="PASS"/>
+  </per-criterion>
   <verdict value="PASS" reason="0.9600 &gt;= 0.9000"/>
 </verdict-record>
 
-<verdict-record xmlns="http://javai.org/verdict/1.0" version="1.0" timestamp="2026-04-01T12:00:00Z" generator="feotest/0.1.0">
+<verdict-record xmlns="http://javai.org/verdict/1.0" version="1.2" timestamp="2026-04-01T12:00:00Z" generator="feotest/0.1.0">
   <identity use-case-id="my-service" test-name="test_accuracy"/>
   <execution planned-samples="100" samples-executed="100" successes="80" failures="20" elapsed-ms="500" intent="VERIFICATION" confidence="0.95"/>
   <functional successes="80" failures="20" pass-rate="0.8000">
@@ -30,6 +35,10 @@ expression: suite
   <covariates aligned="true"/>
   <termination reason="COMPLETED"/>
   <cost total-time-ms="500" total-tokens="1000" avg-time-per-sample-ms="5" avg-tokens-per-sample="10"/>
+  <per-criterion>
+    <criterion id="result" verdict="FAIL" pass="80" fail="20" inconclusive="0" total="100" observed-rate="0.8000"/>
+    <composite value="FAIL"/>
+  </per-criterion>
   <verdict value="FAIL" reason="0.8000 &lt; 0.9000"/>
 </verdict-record>
 
