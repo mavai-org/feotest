@@ -3,7 +3,7 @@
 //! Provides attribute macros:
 //!
 //! - `#[probabilistic_test]` — probabilistic test with statistical inference.
-//! - `#[sentinel]` — marks a struct as a reliability specification and
+//! - `#[sentinel]` — marks a struct as a sentinel and
 //!   registers it into the sentinel inventory.
 //! - `#[service_contract_factory]` — marks a method within a `#[sentinel]` struct
 //!   as producing a service contract.
@@ -46,7 +46,7 @@ pub fn probabilistic_test(attr: TokenStream, item: TokenStream) -> TokenStream {
         .into()
 }
 
-/// Marks a struct as a reliability specification.
+/// Marks a struct as a sentinel.
 ///
 /// The macro emits an `impl Sentinel` for the struct and registers
 /// a `SpecDescriptor` into the sentinel inventory at link time. The struct

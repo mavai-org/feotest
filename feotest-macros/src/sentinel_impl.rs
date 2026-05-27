@@ -1,6 +1,6 @@
 //! Code expansion for `#[sentinel_impl]`.
 //!
-//! Applied to the `impl` block of a reliability specification struct, this
+//! Applied to the `impl` block of a sentinel struct, this
 //! macro processes two kinds of marker attributes on contained methods and
 //! emits the corresponding sentinel-registry submissions:
 //!

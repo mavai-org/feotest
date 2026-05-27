@@ -1,7 +1,7 @@
 //! Sentinel runner and CLI entry point.
 //!
 //! [`SentinelRunner`] is the execution core the CLI delegates to. It
-//! enumerates registered reliability specifications and their
+//! enumerates registered sentinels and their
 //! content (tests and experiments), dispatches to test or measure mode,
 //! and aggregates results into a [`SentinelResult`]. [`run_cli`] is the
 //! single public entry point downstream sentinel binaries wire into
@@ -285,10 +285,7 @@ fn for_each_selected_spec<F: FnMut(&SpecDescriptor)>(selectors: &[String], mut f
 
 /// Parsed CLI.
 #[derive(Parser, Debug)]
-#[command(
-    name = "sentinel",
-    about = "Run reliability specifications outside a test harness"
-)]
+#[command(name = "sentinel", about = "Run sentinels outside a test harness")]
 struct Cli {
     #[command(subcommand)]
     command: Commands,
@@ -315,7 +312,7 @@ enum Commands {
         /// specification's measure experiments.
         specs: Vec<String>,
     },
-    /// Enumerate every registered reliability specification.
+    /// Enumerate every registered sentinel.
     List,
     /// Verify every EMPIRICAL-origin probabilistic test has a baseline
     /// (external or embedded). Exits non-zero when any are missing.

@@ -1,6 +1,6 @@
 //! Code expansion for `#[sentinel]`.
 //!
-//! The `#[sentinel]` attribute marks a struct as a reliability specification.
+//! The `#[sentinel]` attribute marks a struct as a sentinel.
 //! Expansion emits an `impl Sentinel` using the configured name and
 //! description, plus an `inventory::submit!` registering a `SpecDescriptor`
 //! that points at `StructName::default()` for construction.

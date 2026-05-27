@@ -1,4 +1,4 @@
-//! Method-level content descriptors for reliability specifications.
+//! Method-level content descriptors for sentinels.
 //!
 //! A [`ContentDescriptor`] represents one probabilistic test or measure
 //! experiment method declared inside a `#[sentinel_impl]` block. The
@@ -42,7 +42,7 @@ impl ContentDescriptor {
     }
 }
 
-/// The two kinds of content a reliability specification can declare.
+/// The two kinds of content a sentinel can declare.
 pub enum ContentKind {
     /// A probabilistic test: runs a trial closure many times and produces
     /// a [`VerdictRecord`].

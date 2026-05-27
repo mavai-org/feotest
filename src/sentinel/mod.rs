@@ -1,6 +1,6 @@
-//! Reliability specifications.
+//! Sentinels.
 //!
-//! A reliability specification is a struct that declares the probabilistic
+//! A sentinel is a struct that declares the probabilistic
 //! testing surface for one non-deterministic boundary of an application —
 //! typically one per service or integration point. It bundles the service contracts,
 //! experiments, and probabilistic tests that define what "reliable" means
@@ -101,7 +101,7 @@ pub trait Sentinel: Send + Sync {
     fn as_any(&self) -> &dyn Any;
 }
 
-/// Metadata and constructor for a registered reliability specification.
+/// Metadata and constructor for a registered sentinel.
 ///
 /// One descriptor is submitted to the inventory for each `#[sentinel]`-
 /// annotated struct. Descriptors are collected at link time and enumerated
@@ -130,7 +130,7 @@ impl fmt::Debug for SpecDescriptor {
 
 inventory::collect!(SpecDescriptor);
 
-/// Iterates every reliability specification descriptor registered in this
+/// Iterates every sentinel descriptor registered in this
 /// binary.
 ///
 /// The order in which descriptors are yielded is unspecified and may vary

@@ -23,7 +23,7 @@
 //! - **`experiment`** — experiment workflows for establishing empirical baselines.
 //! - **`ptest`** — probabilistic test execution and verdict production.
 //! - **`reporting`** — structured output of verdicts and diagnostics.
-//! - **`sentinel`** — reliability specifications: structs that aggregate
+//! - **`sentinel`** — sentinels: structs that aggregate
 //!   probabilistic tests and experiments for one non-deterministic boundary,
 //!   discoverable at link time.
 //! - **`usecase`** — the unit of work under test: a named service invocation
