@@ -1,6 +1,6 @@
-//! Reliability specifications.
+//! Sentinels.
 //!
-//! A reliability specification is a struct that declares the probabilistic
+//! A sentinel is a struct that declares the probabilistic
 //! testing surface for one non-deterministic boundary of an application —
 //! typically one per service or integration point. It bundles the service contracts,
 //! experiments, and probabilistic tests that define what "reliable" means
@@ -70,9 +70,9 @@ pub use sinks::{WebhookVerdictSink, WebhookVerdictSinkBuilder};
 /// Implementations are produced by the `#[sentinel]` attribute macro and
 /// are not normally written by hand. The trait exposes the minimum surface
 /// a runtime needs to identify, label, and invoke a specification: name,
-/// description, and a type-erased downcast via [`as_any`](ReliabilitySpec::as_any).
+/// description, and a type-erased downcast via [`as_any`](Sentinel::as_any).
 // javai-ref: JVI-0PYEB09 — do not remove (resolves in javai-orchestrator)
-pub trait ReliabilitySpec: Send + Sync {
+pub trait Sentinel: Send + Sync {
     /// Stable symbolic identifier for this specification.
     ///
     /// Defaults to the snake-cased name of the annotated struct. May be
@@ -101,7 +101,7 @@ pub trait ReliabilitySpec: Send + Sync {
     fn as_any(&self) -> &dyn Any;
 }
 
-/// Metadata and constructor for a registered reliability specification.
+/// Metadata and constructor for a registered sentinel.
 ///
 /// One descriptor is submitted to the inventory for each `#[sentinel]`-
 /// annotated struct. Descriptors are collected at link time and enumerated
@@ -116,7 +116,7 @@ pub struct SpecDescriptor {
     /// The constructor is a plain function pointer so that the descriptor
     /// remains a `'static` value eligible for link-time inventory
     /// submission.
-    pub constructor: fn() -> Box<dyn ReliabilitySpec>,
+    pub constructor: fn() -> Box<dyn Sentinel>,
 }
 
 impl fmt::Debug for SpecDescriptor {
@@ -130,7 +130,7 @@ impl fmt::Debug for SpecDescriptor {
 
 inventory::collect!(SpecDescriptor);
 
-/// Iterates every reliability specification descriptor registered in this
+/// Iterates every sentinel descriptor registered in this
 /// binary.
 ///
 /// The order in which descriptors are yielded is unspecified and may vary

@@ -14,7 +14,7 @@ use crate::spec::baseline::BaselineSpec;
 /// [`BaselineSpec`]) so fingerprint verification runs at resolution time
 /// exactly as it does for baselines read from disk.
 pub struct EmbeddedBaseline {
-    /// Sentinel-registered name of the owning reliability specification.
+    /// Sentinel-registered name of the owning sentinel.
     pub spec_name: &'static str,
     /// Method name of the paired probabilistic test.
     pub method_name: &'static str,
