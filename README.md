@@ -86,7 +86,7 @@ fn service_meets_sla() {
 ```
 
 For a complete worked example, see
-[feotest-examples](https://github.com/javai-org/feotest-examples).
+[feotest-examples](https://github.com/mavai-org/feotest-examples).
 
 ## Three operational approaches
 
@@ -172,7 +172,7 @@ it behind opaque abstractions.
 
 - **[User Guide](docs/USER-GUIDE.md)** — comprehensive guide to the framework's
   concepts, workflows, and API
-- **[feotest-examples](https://github.com/javai-org/feotest-examples)** — worked
+- **[feotest-examples](https://github.com/mavai-org/feotest-examples)** — worked
   examples with two complete service contracts
 
 ## Project status

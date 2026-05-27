@@ -6,7 +6,7 @@ rust-version = "1.85"
 description = "Proc-macros for the feotest probabilistic testing framework"
 license-file = "../LICENSE"
 readme = "../README.md"
-repository = "https://github.com/javai-org/feotest"
+repository = "https://github.com/mavai-org/feotest"
 keywords = ["testing", "probabilistic", "macros"]
 categories = ["development-tools::testing"]
 

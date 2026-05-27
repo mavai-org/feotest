@@ -46,7 +46,7 @@ Unsigned commits will be blocked by automated checks on pull requests.
 
 ## Reporting issues
 
-Please use [GitHub Issues](https://github.com/javai-org/feotest/issues) for
+Please use [GitHub Issues](https://github.com/mavai-org/feotest/issues) for
 bug reports and feature requests. Include a minimal reproducer where
 possible.
 
