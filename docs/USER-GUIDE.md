@@ -814,5 +814,5 @@ leaves the run unpaced.
 - **Transparent statistics** — detailed statistical reasoning in verdict output
 - **HTML reports** — standalone report generation from verdict XML
 
-See [feotest-examples](https://github.com/javai-org/feotest-examples) for
+See [feotest-examples](https://github.com/mavai-org/feotest-examples) for
 worked examples demonstrating the framework's current capabilities.
