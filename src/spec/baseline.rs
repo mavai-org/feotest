@@ -155,7 +155,7 @@ pub struct CriterionStatistics {
 /// Stores the full sorted vector of successful-response latencies so that
 /// thresholds can be re-resolved exactly at verdict time for any chosen
 /// `(percentile, confidence)` pair. This matches the non-parametric
-/// derivation in `javai-R/R/latency.R::latency_threshold_derive`.
+/// derivation in `mavai-R/R/latency.R::latency_threshold_derive`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct LatencyBlock {

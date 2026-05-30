@@ -6,7 +6,7 @@ Implement the `statistics` module as the foundational layer of feotest. This mod
 
 ## Reference: punit-core's Statistics Package
 
-The public API of `org.javai.punit.statistics` (punit-core) defines the functional requirements. The Rust implementation should deliver equivalent statistical capability using idiomatic Rust patterns.
+The public API of `org.mavai.punit.statistics` (punit-core) defines the functional requirements. The Rust implementation should deliver equivalent statistical capability using idiomatic Rust patterns.
 
 ### punit-core Public API Summary
 

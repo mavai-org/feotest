@@ -415,7 +415,7 @@ mod tests {
 
     #[test]
     fn anchor_values_match_reference() {
-        // These values are taken from the javai conformance reference output
+        // These values are taken from the mavai conformance reference output
         assert_eq!(
             DiffAnchorGenerator::anchor_line(0),
             "# ────── anchor:0dfe8af7 ──────"

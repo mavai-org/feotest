@@ -1,6 +1,6 @@
 # REQ-R-bootstrap-fixture-upgrade — Consume the upgraded `latency_threshold_bootstrap.json` fixture
 
-**Source release:** `javai-R` v0.7.0.
+**Source release:** `mavai-R` v0.7.0.
 **Triggered by:** the role+shape upgrade of
 `inst/cases/latency_threshold_bootstrap.json` from informational
 R-internal comparison report to cross-framework conformance
@@ -8,7 +8,7 @@ contract.
 
 ## Background
 
-Prior to javai-R v0.7.0, `latency_threshold_bootstrap.json`
+Prior to mavai-R v0.7.0, `latency_threshold_bootstrap.json`
 carried suite-level `tolerance: 0` and a per-case shape that
 made the suite unconsumable by an external framework:
 
@@ -89,8 +89,8 @@ the production threshold; bootstrap is informational only.
 ## Consuming the new release
 
 feotest's conformance fixtures are vendored — `tests/conformance/`
-(or equivalent) holds a pinned copy of the javai-R release. Bump
-the pinned version to v0.7.0 (or whatever javai-R tag carries
+(or equivalent) holds a pinned copy of the mavai-R release. Bump
+the pinned version to v0.7.0 (or whatever mavai-R tag carries
 the upgraded fixture at the moment feotest picks it up) and
 re-extract the cases-v0.7.0.zip artefact.
 
@@ -114,17 +114,17 @@ possibilities:
 
 1. feotest has a bug in its rank-selection or threshold-emission
    logic.
-2. javai-R has a bug — open a `javai-R` issue with the failing
+2. mavai-R has a bug — open a `mavai-R` issue with the failing
    case and feotest's computed values.
-3. A non-trivial methodology change has landed in javai-R that
+3. A non-trivial methodology change has landed in mavai-R that
    feotest hasn't picked up yet. In which case the corresponding
-   javai-R CHANGELOG entry will say so.
+   mavai-R CHANGELOG entry will say so.
 
-Default to (1) — feotest is the consumer, javai-R is the oracle.
+Default to (1) — feotest is the consumer, mavai-R is the oracle.
 
 ## Test plan
 
-- [ ] Pinned conformance fixtures bumped to javai-R v0.7.0+.
+- [ ] Pinned conformance fixtures bumped to mavai-R v0.7.0+.
 - [ ] Conformance test consumes
   `latency_threshold_bootstrap.json` with the same per-case
   loop pattern as `latency_threshold.json`.
@@ -136,7 +136,7 @@ Default to (1) — feotest is the consumer, javai-R is the oracle.
 
 ## See also
 
-- `javai-R` v0.7.0 CHANGELOG entry for the full upgrade
+- `mavai-R` v0.7.0 CHANGELOG entry for the full upgrade
   rationale.
 - `plan/directives/DIR-LATENCY-THRESHOLD-FIXTURE-UPGRADE-javai-R.md`
   in the orchestrator (the directive that drove the upgrade).

@@ -3,7 +3,7 @@
 //! Optimize experiments produce a single YAML artefact per run that records
 //! each iteration's factor, score, and sample statistics along with
 //! convergence details (best iteration, termination reason). The schema is
-//! normative and shared across javai frameworks — only the `schemaVersion`
+//! normative and shared across mavai frameworks — only the `schemaVersion`
 //! identifier differs between implementations.
 //!
 //! Factor values are serialised through [`serde_yaml::Value`], so any factor

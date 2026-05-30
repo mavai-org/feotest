@@ -2,7 +2,7 @@
 //!
 //! Computes nearest-rank percentiles, summary statistics, and threshold
 //! derivation from baseline latency measurements. The statistical model is
-//! specified by the javai-R oracle (`R/latency.R`) and is non-parametric:
+//! specified by the mavai-R oracle (`R/latency.R`) and is non-parametric:
 //! thresholds are the k-th order statistic of a baseline sample, where k is
 //! the exact binomial upper bound for the requested percentile.
 
@@ -204,7 +204,7 @@ pub fn derive_latency_threshold(
 /// Minimum successful-sample count required for a percentile estimate to be
 /// non-degenerate.
 ///
-/// Matches `latency_min_samples` in `javai-R/R/latency.R`:
+/// Matches `latency_min_samples` in `mavai-R/R/latency.R`:
 /// p ≤ 0.50 → 5; p ≤ 0.90 → 10; p ≤ 0.95 → 20; p ≤ 0.99 → 100; else 100.
 #[must_use]
 pub const fn min_samples_for(percentile: f64) -> u32 {

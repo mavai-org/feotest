@@ -56,7 +56,7 @@ pub enum Objective {
 
 /// Why an optimisation run stopped iterating.
 ///
-/// The set of variants is the same across all javai frameworks so that
+/// The set of variants is the same across all mavai frameworks so that
 /// optimisation YAML output is cross-project comparable. Not every
 /// variant is reachable in every runtime: feotest currently terminates
 /// only on `MaxIterations` or `NoImprovement`; the others become
