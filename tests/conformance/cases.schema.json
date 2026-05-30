@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/javai-org/javai-R/schema/cases.schema.json",
-  "title": "javai-R conformance case suite",
-  "description": "Schema for statistical conformance reference datasets produced by javai-R. Each JSON file represents one suite of test cases.",
+  "$id": "https://github.com/mavai-org/mavai-R/schema/cases.schema.json",
+  "title": "mavai-R conformance case suite",
+  "description": "Schema for statistical conformance reference datasets produced by mavai-R. Each JSON file represents one suite of test cases.",
   "type": "object",
   "required": ["suite", "description", "method", "tolerance", "cases"],
   "additionalProperties": false,

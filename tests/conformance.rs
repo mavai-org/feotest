@@ -1,9 +1,9 @@
-//! Conformance tests against javai-R reference data.
+//! Conformance tests against mavai-R reference data.
 //!
 //! Validates feotest's statistics engine against canonical reference values
-//! published by [javai-R](https://github.com/javai-org/javai-R).
+//! published by [mavai-R](https://github.com/mavai-org/mavai-R).
 //!
-//! Pinned javai-R version: see `tests/conformance/VERSION`.
+//! Pinned mavai-R version: see `tests/conformance/VERSION`.
 
 use serde::Deserialize;
 
