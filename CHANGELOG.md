@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-05-31
+
+First public release on crates.io.
+
+### Added
+
+- **Statistics and inference core.** Wilson score confidence intervals,
+  threshold derivation, feasibility/power analysis, and verdict evaluation
+  for proportions, validated against the mavai-R statistical oracle by a
+  conformance suite.
+- **Contract-driven probabilistic testing.** Define success/failure
+  criteria for a stochastic service and assess whether it meets a
+  pass-rate threshold over repeated trials.
+- **Latency dimension.** Percentile-based latency thresholds alongside
+  the proportion criteria.
+- **Sentinels and experiments.** Authoring surface for tests plus
+  measure/explore/optimize experiment workflows for establishing
+  empirical baselines.
+- **Reporting.** Console, HTML, JUnit, and XML verdict output.
+
 ### Changed (license)
 
 - **Relicensed from Attribution Required License (ARL-1.0) to
