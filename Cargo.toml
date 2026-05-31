@@ -25,6 +25,8 @@ readme = "README.md"
 repository = "https://github.com/mavai-org/feotest"
 keywords = ["testing", "probabilistic", "statistics", "stochastic", "llm"]
 categories = ["development-tools::testing"]
+# Internal coordination/design docs are not part of the published artifact.
+exclude = ["plan/", "CLAUDE.md"]
 
 [features]
 default = []
@@ -35,7 +37,7 @@ webhook = ["dep:ureq"]
 
 [dependencies]
 clap = { version = "4", features = ["derive"] }
-feotest-macros = { path = "feotest-macros" }
+feotest-macros = { path = "feotest-macros", version = "0.1.0" }
 include_dir = "0.7"
 inventory = "0.3"
 serde = { version = "1", features = ["derive"] }
