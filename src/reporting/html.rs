@@ -231,6 +231,6 @@ mod tests {
     fn xslt_stylesheet_is_valid_xml() {
         // Verify the embedded XSLT is at least well-formed XML
         assert!(XSLT_STYLESHEET.contains("<xsl:stylesheet"));
-        assert!(XSLT_STYLESHEET.contains("http://javai.org/verdict/1.0"));
+        assert!(XSLT_STYLESHEET.contains("http://mavai.org/verdict/1.0"));
     }
 }

@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <xsl:stylesheet version="1.0"
                 xmlns:xsl="http://www.w3.org/1999/XSL/Transform"
-                xmlns:v="http://javai.org/verdict/1.0"
+                xmlns:v="http://mavai.org/verdict/1.0"
                 exclude-result-prefixes="v">
 
   <xsl:output method="html" encoding="UTF-8" indent="yes"

@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-06-08
+
+### Changed
+
+- **Verdict-XML namespace `http://javai.org/verdict/1.0` →
+  `http://mavai.org/verdict/1.0` (breaking interchange change).** The
+  verdict-XML wire namespace and the HTML report stylesheet move off
+  `javai.org` to complete the family rename, in lockstep with punit. Only the
+  namespace host changes; the schema shape is unchanged. Consumers parsing the
+  emitted verdict XML by namespace must update. (Released as a patch version by
+  project decision despite the breaking nature; note that `feotest = "0.1"`
+  dependents will pick this up automatically.)
+
 ## [0.1.0] - 2026-05-31
 
 First public release on crates.io.

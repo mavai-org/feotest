@@ -4,7 +4,7 @@ assertion_line: 903
 expression: xml
 ---
 <?xml version="1.0" encoding="UTF-8"?>
-<verdict-record xmlns="http://javai.org/verdict/1.0" version="1.2" timestamp="2026-04-19T10:00:00Z" correlation-id="run-20260419-abc123" generator="feotest/0.1.0">
+<verdict-record xmlns="http://mavai.org/verdict/1.0" version="1.2" timestamp="2026-04-19T10:00:00Z" correlation-id="run-20260419-abc123" generator="feotest/0.1.1">
   <identity use-case-id="correlated-service"/>
   <execution planned-samples="50" samples-executed="50" successes="48" failures="2" elapsed-ms="500" intent="VERIFICATION"/>
   <functional successes="48" failures="2" pass-rate="0.9600"/>
