@@ -248,7 +248,7 @@ fn write_observed_data(
     let total = func.pass() + func.fail();
     write_line(
         w,
-        &format!("Successes / Total:    {} / {}", func.pass(), total,),
+        &format!("Successes / Total:    {} / {}", func.pass(), total),
     )?;
     write_line(w, &format!("Observed pass rate:   {:.3}", func.pass_rate()))?;
 

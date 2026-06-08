@@ -714,7 +714,7 @@ mod tests {
 
     #[test]
     fn cost_summary_averages() {
-        let cost = CostSummary::new(Duration::from_millis(1000), 500, 10);
+        let cost = CostSummary::new(Duration::from_secs(1), 500, 10);
         assert_eq!(cost.avg_time_per_sample(), Duration::from_millis(100));
         assert_eq!(cost.avg_tokens_per_sample(), 50);
     }
