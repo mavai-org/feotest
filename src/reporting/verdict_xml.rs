@@ -1,7 +1,7 @@
 //! Verdict XML serialisation (the verdict XML interchange format).
 //!
 //! Serialises a [`VerdictRecord`] to XML conforming to the
-//! `http://javai.org/verdict/1.0` schema. The output is a standalone
+//! `http://mavai.org/verdict/1.0` schema. The output is a standalone
 //! `<verdict-record>` document suitable for file-per-test persistence
 //! and XSLT transformation to HTML.
 
@@ -14,7 +14,7 @@ use crate::latency::resolver::ThresholdProvenance;
 use crate::verdict::{Verdict, VerdictRecord};
 
 /// The XML namespace for the verdict interchange format.
-const NAMESPACE: &str = "http://javai.org/verdict/1.0";
+const NAMESPACE: &str = "http://mavai.org/verdict/1.0";
 
 /// Schema version emitted when the per-criterion bundle is absent.
 const VERSION_1_0: &str = "1.0";
@@ -755,7 +755,7 @@ mod tests {
     #[test]
     fn xml_contains_namespace() {
         let xml = VerdictXmlWriter::write_record(&pass_record(), Some("2026-04-01T12:00:00Z"));
-        assert!(xml.contains("xmlns=\"http://javai.org/verdict/1.0\""));
+        assert!(xml.contains("xmlns=\"http://mavai.org/verdict/1.0\""));
     }
 
     #[test]

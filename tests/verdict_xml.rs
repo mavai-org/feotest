@@ -80,7 +80,7 @@ fn full_verdict_contains_all_rp07_elements() {
 
     // Root structure. The namespace is stable across schema revisions; the
     // per-criterion bundle a contract-driven record carries lifts it to 1.2.
-    assert!(xml.contains("xmlns=\"http://javai.org/verdict/1.0\""));
+    assert!(xml.contains("xmlns=\"http://mavai.org/verdict/1.0\""));
     assert!(xml.contains("version=\"1.2\""));
     assert!(xml.contains("generator=\"feotest/"));
 

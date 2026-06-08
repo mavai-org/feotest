@@ -4,7 +4,7 @@ assertion_line: 852
 expression: xml
 ---
 <?xml version="1.0" encoding="UTF-8"?>
-<verdict-record xmlns="http://javai.org/verdict/1.0" version="1.2" timestamp="2026-04-01T12:00:00Z" generator="feotest/0.1.0">
+<verdict-record xmlns="http://mavai.org/verdict/1.0" version="1.2" timestamp="2026-04-01T12:00:00Z" generator="feotest/0.1.1">
   <identity use-case-id="covariate-test"/>
   <execution planned-samples="100" samples-executed="100" successes="85" failures="15" elapsed-ms="500" intent="VERIFICATION"/>
   <functional successes="85" failures="15" pass-rate="0.8500"/>
