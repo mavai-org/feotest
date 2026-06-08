@@ -16,7 +16,7 @@ use feotest::verdict::{
     Verdict, VerdictRecord,
 };
 
-fn sample_execution(
+const fn sample_execution(
     planned: u32,
     executed: u32,
     successes: u32,

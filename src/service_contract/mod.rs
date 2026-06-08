@@ -372,11 +372,11 @@ mod tests {
         type Input = String;
         type Output = String;
 
-        fn id(&self) -> &str {
+        fn id(&self) -> &'static str {
             "test.use-case"
         }
 
-        fn description(&self) -> &str {
+        fn description(&self) -> &'static str {
             "A test service contract"
         }
 
@@ -408,7 +408,7 @@ mod tests {
             type Input = String;
             type Output = String;
 
-            fn id(&self) -> &str {
+            fn id(&self) -> &'static str {
                 "minimal"
             }
 
@@ -436,7 +436,7 @@ mod tests {
             type Input = String;
             type Output = String;
 
-            fn id(&self) -> &str {
+            fn id(&self) -> &'static str {
                 "with-latency"
             }
             fn invoke(&self, input: &String, _cost: &mut Cost) -> Result<String, Defect> {
@@ -493,7 +493,7 @@ mod tests {
         type Input = String;
         type Output = String;
 
-        fn id(&self) -> &str {
+        fn id(&self) -> &'static str {
             "configurable"
         }
 
@@ -644,7 +644,7 @@ mod tests {
             type Input = String;
             type Output = String;
 
-            fn id(&self) -> &str {
+            fn id(&self) -> &'static str {
                 "with-covariates"
             }
             fn covariates(&self) -> Vec<CovariateDeclaration> {
@@ -692,7 +692,7 @@ mod tests {
             type Input = String;
             type Output = String;
 
-            fn id(&self) -> &str {
+            fn id(&self) -> &'static str {
                 "ctx-test"
             }
             fn covariates(&self) -> Vec<CovariateDeclaration> {

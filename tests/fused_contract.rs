@@ -31,7 +31,7 @@ impl ServiceContract for CountingService {
     type Input = String;
     type Output = String;
 
-    fn id(&self) -> &str {
+    fn id(&self) -> &'static str {
         "counting.service"
     }
 

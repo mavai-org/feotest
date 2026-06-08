@@ -87,10 +87,7 @@ impl HtmlReportWriter {
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(io::Error::new(
-                io::ErrorKind::Other,
-                format!("xsltproc failed: {stderr}"),
-            ));
+            return Err(io::Error::other(format!("xsltproc failed: {stderr}")));
         }
 
         String::from_utf8(output.stdout).map_err(|e| {

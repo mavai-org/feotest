@@ -30,7 +30,7 @@ impl ServiceContract for MockService {
     type Input = String;
     type Output = String;
 
-    fn id(&self) -> &str {
+    fn id(&self) -> &'static str {
         "mock"
     }
 
@@ -47,7 +47,7 @@ impl ServiceContract for MockService {
     }
 }
 
-fn mock_service_factory(_factor: &ConfigFactor) -> MockService {
+const fn mock_service_factory(_factor: &ConfigFactor) -> MockService {
     MockService
 }
 

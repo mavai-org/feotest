@@ -560,6 +560,10 @@ impl PacingSummary {
     #[must_use]
     pub fn from_config(config: &PacingConfig) -> Self {
         let effective_delay = config.effective_delay_ms();
+        #[allow(
+            clippy::cast_precision_loss,
+            reason = "delay in milliseconds is far below f64's 2^52 exact-integer ceiling"
+        )]
         let effective_rps = if effective_delay > 0 {
             1000.0 / effective_delay as f64
         } else {
@@ -710,7 +714,7 @@ mod tests {
 
     #[test]
     fn cost_summary_averages() {
-        let cost = CostSummary::new(Duration::from_millis(1000), 500, 10);
+        let cost = CostSummary::new(Duration::from_secs(1), 500, 10);
         assert_eq!(cost.avg_time_per_sample(), Duration::from_millis(100));
         assert_eq!(cost.avg_tokens_per_sample(), 50);
     }

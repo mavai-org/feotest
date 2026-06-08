@@ -28,7 +28,7 @@ impl ServiceContract for Service {
     type Input = String;
     type Output = String;
 
-    fn id(&self) -> &str {
+    fn id(&self) -> &'static str {
         "service"
     }
 
@@ -45,11 +45,11 @@ impl ServiceContract for Service {
     }
 }
 
-fn build_service_from_temp(_t: &Temp) -> Service {
+const fn build_service_from_temp(_t: &Temp) -> Service {
     Service
 }
 
-fn build_service_from_prompt(_p: &Prompt) -> Service {
+const fn build_service_from_prompt(_p: &Prompt) -> Service {
     Service
 }
 

@@ -340,9 +340,9 @@ mod tests {
                 .starts_with("test-use-case-")
         );
 
-        let resolved = resolver.resolve("test-use-case").unwrap();
-        assert_eq!(resolved.service_contract_id, "test-use-case");
-        assert!((resolved.requirements.min_pass_rate - 0.85).abs() < 1e-10);
+        let loaded_spec = resolver.resolve("test-use-case").unwrap();
+        assert_eq!(loaded_spec.service_contract_id, "test-use-case");
+        assert!((loaded_spec.requirements.min_pass_rate - 0.85).abs() < 1e-10);
     }
 
     #[test]
@@ -481,16 +481,12 @@ mod tests {
         let resolver = SpecResolver::with_dir(dir.path());
 
         // Write a spec with a sanitised name: "my.service/v2" → "my_service_v2"
-        let spec = sample_spec();
-        let mut enriched = spec.clone();
+        let mut enriched = sample_spec();
         enriched.service_contract_id = "my.service/v2".to_string();
 
-        // Write via the resolver (which sanitises internally)
-        let profile = CovariateProfile::empty();
-        // The write uses the spec's service_contract_id, but find_candidates sanitises
-        // the lookup ID. We need the file to match the sanitised prefix.
-        // Write it manually with the sanitised name.
-        let mut signed = enriched.clone();
+        // find_candidates sanitises the lookup ID, so the file on disk must match
+        // the sanitised prefix. Write it manually with the sanitised name.
+        let mut signed = enriched;
         signed.content_fingerprint = None;
         let yaml_without_fp = signed.to_yaml().unwrap();
         let digest = sha2::Sha256::digest(yaml_without_fp.as_bytes());

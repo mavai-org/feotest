@@ -26,7 +26,7 @@ impl ServiceContract for Counter {
     type Input = String;
     type Output = String;
 
-    fn id(&self) -> &str {
+    fn id(&self) -> &'static str {
         "counter"
     }
 
@@ -164,7 +164,7 @@ impl ServiceContract for Panicker {
     type Input = String;
     type Output = String;
 
-    fn id(&self) -> &str {
+    fn id(&self) -> &'static str {
         "panicker"
     }
 

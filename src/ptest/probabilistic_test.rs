@@ -19,7 +19,7 @@ pub struct ProbabilisticTest;
 
 /// Builds optional execution config overrides from the simplified
 /// budget/pacing setters.
-pub(crate) fn build_config_overrides(
+pub fn build_config_overrides(
     approach: &ThresholdApproach,
     time_budget: Option<Duration>,
     token_budget: Option<u64>,

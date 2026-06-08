@@ -1,7 +1,7 @@
 //! Integration tests for the console renderer fed with runner-produced records.
 //!
 //! Unlike the unit tests in `reporting/console.rs` which use hand-built
-//! VerdictRecords, these tests run the full pipeline and then render the
+//! `VerdictRecord`s, these tests run the full pipeline and then render the
 //! result. This catches field-population bugs that unit tests cannot.
 
 mod common;
@@ -27,7 +27,7 @@ impl feotest::service_contract::ServiceContract for LatencyContract {
     type Input = String;
     type Output = String;
 
-    fn id(&self) -> &str {
+    fn id(&self) -> &'static str {
         "cr-latency"
     }
 
