@@ -131,7 +131,7 @@ mod tests {
     fn interpret_ok_returns_spec() {
         let spec = test_spec();
         let mut warnings = Vec::new();
-        let result = interpret_resolve_result(Ok(spec.clone()), &mut warnings);
+        let result = interpret_resolve_result(Ok(spec), &mut warnings);
         assert!(result.is_some());
         assert!(warnings.is_empty());
     }

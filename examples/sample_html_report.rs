@@ -1,6 +1,6 @@
 //! Generates a sample HTML report showcasing all verdict XML elements.
 //!
-//! Run with: cargo run --example sample_html_report
+//! Run with: `cargo run --example sample_html_report`
 //!
 //! Writes the report to `target/sample-report.html`.
 
@@ -17,7 +17,7 @@ use feotest::verdict::{
     SpecProvenance, StatisticalAnalysis, Verdict, VerdictRecord,
 };
 
-fn execution(
+const fn execution(
     planned: u32,
     executed: u32,
     successes: u32,
@@ -36,7 +36,7 @@ fn execution(
 
 fn full_pass_record() -> VerdictRecord {
     let analysis = StatisticalAnalysis::new(0.95, 0.014, 0.932, 0.920, ThresholdOrigin::Empirical)
-        .with_test_results(3.14, 0.001);
+        .with_test_results(3.2, 0.001);
 
     let provenance = SpecProvenance::new(ThresholdOrigin::Empirical)
         .with_spec_filename("translation-service.yaml")

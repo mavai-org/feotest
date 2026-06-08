@@ -696,7 +696,7 @@ mod tests {
         type Input = String;
         type Output = bool;
 
-        fn id(&self) -> &str {
+        fn id(&self) -> &'static str {
             "mock"
         }
 

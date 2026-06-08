@@ -273,7 +273,7 @@ impl LatencyDimension {
     /// renderers and other consumers that need controlled latency data.
     #[cfg(test)]
     #[must_use]
-    pub fn from_parts(
+    pub const fn from_parts(
         observed_percentiles: Vec<(Percentile, Duration)>,
         evaluations: Vec<LatencyEvaluation>,
         strict_violations: u32,

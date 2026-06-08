@@ -1,8 +1,8 @@
 //! Probabilistic test execution and verdict production.
 
 use crate::controls::{Cost, ExecutionConfig, TokenRecorder};
-use crate::criteria::{CriteriaCounts, CriterionCounts, CriterionTarget};
-use crate::experiment::{ExecutionEngine, SampleEvaluation};
+use crate::criteria::{Criteria, CriteriaCounts, CriterionCounts, CriterionTarget};
+use crate::experiment::{ContractExecutionResult, ExecutionEngine, SampleEvaluation};
 use crate::latency::{
     LatencyCriterion, LatencyDimension, LatencyEnforcementMode, LatencyThresholds, enforcement,
     resolver,
@@ -441,49 +441,24 @@ where
         feasibility::feasibility_check(samples, derived_threshold.value(), resolved_confidence);
     enforce_feasibility(&service_contract_id, criteria.intent, &feas, &mut warnings);
 
-    // Early termination only applies under a meaningful threshold; a `0.0`
-    // floor (the bare-samples plan) runs every sample and lets the
-    // per-criterion targets decide the verdict.
-    let mut config = config_overrides.cloned().unwrap_or_else(|| {
-        let mut c = ExecutionConfig::new(samples);
-        if let Some(behaviour) = criteria.on_budget_exhausted {
-            c = c.with_on_budget_exhausted(behaviour);
-        }
-        c
-    });
-    if derived_threshold.value() > 0.0 && !criteria.early_termination_disabled {
-        config = config
-            .min_pass_rate(derived_threshold.value())
-            .min_samples_for_validity(feas.minimum_samples());
-    }
-    let config = config.with_warmup(contract.warmup());
+    let config = resolve_execution_config(
+        config_overrides,
+        samples,
+        criteria,
+        &derived_threshold,
+        &feas,
+        contract.warmup(),
+    );
 
     let token_recorder = TokenRecorder::new();
     let contract_criteria = contract.criteria();
-    let exec_result = {
-        let recorder = token_recorder.clone();
-        let contract_criteria = &contract_criteria;
-        ExecutionEngine::run_contract(
-            &config,
-            inputs,
-            &token_recorder,
-            crate::controls::run::current(),
-            |input: &C::Input| {
-                let mut cost = Cost::new();
-                let start = std::time::Instant::now();
-                let output = contract.invoke(input, &mut cost)?;
-                let elapsed = start.elapsed();
-                recorder.record(cost.tokens_recorded());
-                Ok(SampleEvaluation {
-                    results: contract_criteria.evaluate(&output),
-                    elapsed,
-                })
-            },
-        )
-    }
-    .unwrap_or_else(|defect| {
-        panic!("\n\nservice invocation aborted the run: {defect}\n");
-    });
+    let exec_result = run_contract_sampling(
+        contract,
+        inputs,
+        &config,
+        &contract_criteria,
+        &token_recorder,
+    );
 
     let summary = exec_result.summary();
 
@@ -560,6 +535,74 @@ where
         verdict_record: builder.build(),
         approach: criteria.approach.clone(),
     }
+}
+
+/// Synthesises the execution config for a run: an explicit caller override is
+/// used as-is, otherwise one is built from the resolved sample size and the
+/// criteria's budget-exhaustion behaviour. Early termination is wired in only
+/// under a meaningful threshold — a `0.0` floor (the bare-samples plan) runs
+/// every sample and lets the per-criterion targets decide the verdict.
+fn resolve_execution_config(
+    config_overrides: Option<&ExecutionConfig>,
+    samples: u32,
+    criteria: &AssessmentCriteria,
+    derived_threshold: &DerivedThreshold,
+    feas: &FeasibilityResult,
+    warmup: u32,
+) -> ExecutionConfig {
+    let mut config = config_overrides.cloned().unwrap_or_else(|| {
+        let mut c = ExecutionConfig::new(samples);
+        if let Some(behaviour) = criteria.on_budget_exhausted {
+            c = c.with_on_budget_exhausted(behaviour);
+        }
+        c
+    });
+    if derived_threshold.value() > 0.0 && !criteria.early_termination_disabled {
+        config = config
+            .min_pass_rate(derived_threshold.value())
+            .min_samples_for_validity(feas.minimum_samples());
+    }
+    config.with_warmup(warmup)
+}
+
+/// Runs the sampling loop for `contract`, timing each invocation and recording
+/// its token cost, then evaluating the output against `contract_criteria`.
+///
+/// # Panics
+///
+/// Panics if a service invocation yields a defect (a transport failure or a
+/// caught panic) — a defect aborts the run.
+fn run_contract_sampling<C: ServiceContract>(
+    contract: &C,
+    inputs: &[C::Input],
+    config: &ExecutionConfig,
+    contract_criteria: &Criteria<C::Output>,
+    token_recorder: &TokenRecorder,
+) -> ContractExecutionResult
+where
+    C::Output: 'static,
+{
+    let recorder = token_recorder.clone();
+    ExecutionEngine::run_contract(
+        config,
+        inputs,
+        token_recorder,
+        crate::controls::run::current(),
+        |input: &C::Input| {
+            let mut cost = Cost::new();
+            let start = std::time::Instant::now();
+            let output = contract.invoke(input, &mut cost)?;
+            let elapsed = start.elapsed();
+            recorder.record(cost.tokens_recorded());
+            Ok(SampleEvaluation {
+                results: contract_criteria.evaluate(&output),
+                elapsed,
+            })
+        },
+    )
+    .unwrap_or_else(|defect| {
+        panic!("\n\nservice invocation aborted the run: {defect}\n");
+    })
 }
 
 /// Builds one verdict row per criterion, each judged against its own target.
@@ -681,18 +724,19 @@ fn build_criterion_row(
 /// Panics if no baseline is available — an empirical criterion requires one.
 fn criterion_baseline(name: &str, baseline: Option<&BaselineSpec>) -> (u32, u32) {
     let spec = baseline.expect("an empirical criterion requires a baseline");
-    match spec
-        .statistics
+    spec.statistics
         .per_criterion
         .as_ref()
         .and_then(|per| per.get(name))
-    {
-        Some(criterion) => (
-            criterion.successes,
-            criterion.successes + criterion.failures,
-        ),
-        None => (spec.statistics.successes, spec.execution.samples_executed),
-    }
+        .map_or(
+            (spec.statistics.successes, spec.execution.samples_executed),
+            |criterion| {
+                (
+                    criterion.successes,
+                    criterion.successes + criterion.failures,
+                )
+            },
+        )
 }
 
 /// Builds a criterion's statistical analysis from its observed tally against

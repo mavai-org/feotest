@@ -560,6 +560,10 @@ impl PacingSummary {
     #[must_use]
     pub fn from_config(config: &PacingConfig) -> Self {
         let effective_delay = config.effective_delay_ms();
+        #[allow(
+            clippy::cast_precision_loss,
+            reason = "delay in milliseconds is far below f64's 2^52 exact-integer ceiling"
+        )]
         let effective_rps = if effective_delay > 0 {
             1000.0 / effective_delay as f64
         } else {

@@ -498,7 +498,7 @@ mod tests {
         type Input = String;
         type Output = String;
 
-        fn id(&self) -> &str {
+        fn id(&self) -> &'static str {
             "test-service"
         }
 
@@ -525,7 +525,7 @@ mod tests {
         type Input = String;
         type Output = String;
 
-        fn id(&self) -> &str {
+        fn id(&self) -> &'static str {
             "mixed-service"
         }
 

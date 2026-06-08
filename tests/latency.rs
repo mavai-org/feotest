@@ -10,7 +10,7 @@ use feotest::ptest::ProbabilisticTest;
 use feotest::ptest::builder::ThresholdApproach;
 use feotest::verdict::Verdict;
 
-fn threshold_first(samples: u32, pass_rate: f64) -> ThresholdApproach {
+const fn threshold_first(samples: u32, pass_rate: f64) -> ThresholdApproach {
     ThresholdApproach::ThresholdFirst {
         samples,
         min_pass_rate: pass_rate,

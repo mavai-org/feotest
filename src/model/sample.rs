@@ -188,7 +188,7 @@ mod tests {
         assert_eq!(agg.total(), 0);
         assert_eq!(agg.successes(), 0);
         assert_eq!(agg.failures(), 0);
-        assert_eq!(agg.success_rate(), 0.0);
+        assert!(agg.success_rate().abs() < f64::EPSILON);
     }
 
     #[test]

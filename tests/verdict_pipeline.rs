@@ -1,9 +1,9 @@
-//! Integration tests for the verdict pipeline: builder → runner → VerdictRecord.
+//! Integration tests for the verdict pipeline: builder → runner → `VerdictRecord`.
 //!
 //! These tests exercise the full path from test configuration through execution
 //! to verdict record construction. They verify that fields set on the builder
 //! propagate correctly through the runner into the record, and that derived
-//! fields (verdict_reason, baseline_provenance) are populated from real
+//! fields (`verdict_reason`, `baseline_provenance`) are populated from real
 //! execution data — not hand-built fixtures.
 
 mod common;

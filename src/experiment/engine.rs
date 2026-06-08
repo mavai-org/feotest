@@ -200,13 +200,14 @@ where
 
 /// Extracts a human-readable message from a caught panic payload.
 fn panic_message(panic: &(dyn std::any::Any + Send)) -> String {
-    if let Some(s) = panic.downcast_ref::<&str>() {
-        (*s).to_string()
-    } else if let Some(s) = panic.downcast_ref::<String>() {
-        s.clone()
-    } else {
-        "service invocation panicked".to_string()
-    }
+    panic.downcast_ref::<&str>().map_or_else(
+        || {
+            panic
+                .downcast_ref::<String>()
+                .map_or_else(|| "service invocation panicked".to_string(), Clone::clone)
+        },
+        |s| (*s).to_string(),
+    )
 }
 
 /// Records one contract sample into the composite aggregate. The sample is a
@@ -481,11 +482,19 @@ mod tests {
     // --- Shared sampling-loop behaviour driven through run_contract ---
 
     /// A sample that always passes its single criterion.
+    #[allow(
+        clippy::unnecessary_wraps,
+        reason = "signature must match the sampler fn type run_contract expects"
+    )]
     fn pass_sample(_: &String) -> Result<SampleEvaluation, Defect> {
         Ok(eval(vec![CriterionSampleResult::pass("a")]))
     }
 
     /// A sample that always fails its single criterion (composite failure).
+    #[allow(
+        clippy::unnecessary_wraps,
+        reason = "signature must match the sampler fn type run_contract expects"
+    )]
     fn fail_sample(_: &String) -> Result<SampleEvaluation, Defect> {
         Ok(eval(vec![CriterionSampleResult::fail(
             "a",
@@ -749,7 +758,9 @@ mod tests {
             let recorder = TokenRecorder::new();
             let run_budget = RunBudget::new(Some(Duration::from_millis(1)), None);
             std::thread::sleep(Duration::from_millis(5));
-            let start = Instant::now() - Duration::from_millis(10);
+            let start = Instant::now()
+                .checked_sub(Duration::from_millis(10))
+                .unwrap();
 
             let reason = check_pre_sample_budgets(&config, &recorder, Some(&run_budget), start);
             assert_eq!(reason, Some(TerminationReason::RunTimeBudgetExhausted));
@@ -772,7 +783,9 @@ mod tests {
         fn reports_method_level_time_when_run_scoped_clear() {
             let config = ExecutionConfig::new(10).with_time_budget(Duration::from_millis(1));
             let recorder = TokenRecorder::new();
-            let start = Instant::now() - Duration::from_millis(10);
+            let start = Instant::now()
+                .checked_sub(Duration::from_millis(10))
+                .unwrap();
 
             let reason = check_pre_sample_budgets(&config, &recorder, None, start);
             assert_eq!(reason, Some(TerminationReason::TimeBudgetExhausted));

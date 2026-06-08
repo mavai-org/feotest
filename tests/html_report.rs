@@ -19,7 +19,7 @@ use feotest::verdict::{
     CriterionRow, FunctionalAssessment, SpecProvenance, StatisticalAnalysis, Verdict, VerdictRecord,
 };
 
-fn sample_execution(
+const fn sample_execution(
     planned: u32,
     executed: u32,
     successes: u32,

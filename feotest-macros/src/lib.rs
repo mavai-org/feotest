@@ -84,8 +84,9 @@ pub fn service_contract_factory(attr: TokenStream, item: TokenStream) -> TokenSt
         .into()
 }
 
-/// Applied to the `impl` block of a `#[sentinel]` struct. Processes
-/// method-level marker attributes (`#[probabilistic_test]`,
+/// Applied to the `impl` block of a `#[sentinel]` struct.
+///
+/// Processes method-level marker attributes (`#[probabilistic_test]`,
 /// `#[measure_experiment]`) and emits the registrations that make the
 /// methods invokable through the sentinel runtime.
 ///

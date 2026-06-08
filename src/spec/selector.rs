@@ -74,7 +74,7 @@ impl SelectionResult {
     /// Creates a `SelectionResult` from a single spec with no conformance
     /// issues. For use in tests that need a clean selection result.
     #[cfg(test)]
-    pub(crate) fn from_single(spec: BaselineSpec) -> Self {
+    pub(crate) const fn from_single(spec: BaselineSpec) -> Self {
         Self {
             selected: spec,
             conformance: Vec::new(),
@@ -86,7 +86,7 @@ impl SelectionResult {
     /// Creates a `SelectionResult` with custom conformance and ambiguity.
     /// For use in tests that need to exercise warning paths.
     #[cfg(test)]
-    pub(crate) fn with_details(
+    pub(crate) const fn with_details(
         spec: BaselineSpec,
         conformance: Vec<ConformanceDetail>,
         ambiguous: bool,

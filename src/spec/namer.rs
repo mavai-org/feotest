@@ -11,7 +11,7 @@
 //! {ServiceContractId}-{footprintHash}-{covHash1}-{covHash2}.yaml
 //! ```
 //!
-//! - **ServiceContractId**: sanitized service contract name (unsafe characters replaced with `_`)
+//! - **`ServiceContractId`**: sanitized service contract name (unsafe characters replaced with `_`)
 //! - **footprintHash**: 8-char SHA-256 of service contract ID + covariate *declarations*
 //!   (names only, not values). Identifies *what* covariates exist.
 //! - **covHash1..N**: 4-char SHA-256 per covariate of `key=value`. Identifies
@@ -297,7 +297,12 @@ mod tests {
         let name = baseline_filename("ShoppingBasketServiceContract", &fp, &profile);
 
         assert!(name.starts_with("ShoppingBasketServiceContract-"));
-        assert!(name.ends_with(".yaml"));
+        assert_eq!(
+            std::path::Path::new(&name)
+                .extension()
+                .and_then(|e| e.to_str()),
+            Some("yaml")
+        );
         // ServiceContractId + "-" + 4-char footprint + ".yaml"
         let parts: Vec<&str> = name.trim_end_matches(".yaml").split('-').collect();
         assert_eq!(parts.len(), 2);
@@ -314,7 +319,12 @@ mod tests {
         let name = baseline_filename("ShoppingBasketServiceContract", &fp, &profile);
 
         assert!(name.starts_with("ShoppingBasketServiceContract-"));
-        assert!(name.ends_with(".yaml"));
+        assert_eq!(
+            std::path::Path::new(&name)
+                .extension()
+                .and_then(|e| e.to_str()),
+            Some("yaml")
+        );
         // ServiceContractId + "-" + 4-char footprint + "-" + 4-char + "-" + 4-char + ".yaml"
         let parts: Vec<&str> = name.trim_end_matches(".yaml").split('-').collect();
         assert_eq!(parts.len(), 4);

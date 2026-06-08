@@ -160,6 +160,7 @@ where
     ///
     /// Panics if a service invocation yields a defect (a transport failure or a
     /// caught panic) — a defect aborts the experiment.
+    #[must_use]
     pub fn run(self) -> ExploreResult {
         let mut results = Vec::new();
 
@@ -427,6 +428,7 @@ impl ExploreResult {
     /// Each configuration produces a separate YAML document, delimited
     /// by `---`, with per-sample result projections (per-criterion outcomes
     /// and timing) embedded inline.
+    #[must_use]
     pub fn to_yaml(&self) -> String {
         let timestamp = now_iso8601();
         let mut out = String::new();
@@ -506,7 +508,7 @@ mod tests {
         type Input = String;
         type Output = bool;
 
-        fn id(&self) -> &str {
+        fn id(&self) -> &'static str {
             "mock"
         }
 

@@ -458,19 +458,19 @@ mod tests {
     #[test]
     #[should_panic(expected = "sample count must be positive")]
     fn rejects_zero_samples() {
-        ExecutionConfig::new(0);
+        let _ = ExecutionConfig::new(0);
     }
 
     #[test]
     #[should_panic(expected = "time_budget must be positive")]
     fn rejects_zero_time_budget() {
-        ExecutionConfig::new(100).with_time_budget(Duration::ZERO);
+        let _ = ExecutionConfig::new(100).with_time_budget(Duration::ZERO);
     }
 
     #[test]
     #[should_panic(expected = "token_budget must be positive")]
     fn rejects_zero_token_budget() {
-        ExecutionConfig::new(100).with_token_budget(0);
+        let _ = ExecutionConfig::new(100).with_token_budget(0);
     }
 
     #[test]
@@ -482,19 +482,19 @@ mod tests {
     #[test]
     #[should_panic(expected = "min_pass_rate must be in [0, 1], got -0.5")]
     fn rejects_min_pass_rate_negative() {
-        ExecutionConfig::new(100).min_pass_rate(-0.5);
+        let _ = ExecutionConfig::new(100).min_pass_rate(-0.5);
     }
 
     #[test]
     #[should_panic(expected = "min_pass_rate must be in [0, 1], got 1.1")]
     fn rejects_min_pass_rate_above_one() {
-        ExecutionConfig::new(100).min_pass_rate(1.1);
+        let _ = ExecutionConfig::new(100).min_pass_rate(1.1);
     }
 
     #[test]
     #[should_panic(expected = "min_pass_rate must be in [0, 1]")]
     fn rejects_min_pass_rate_nan() {
-        ExecutionConfig::new(100).min_pass_rate(f64::NAN);
+        let _ = ExecutionConfig::new(100).min_pass_rate(f64::NAN);
     }
 
     #[test]
@@ -506,7 +506,7 @@ mod tests {
     #[test]
     #[should_panic(expected = "min_samples_for_validity must be positive")]
     fn rejects_min_samples_for_validity_zero() {
-        ExecutionConfig::new(100).min_samples_for_validity(0);
+        let _ = ExecutionConfig::new(100).min_samples_for_validity(0);
     }
 
     #[test]

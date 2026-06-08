@@ -2,7 +2,10 @@
 //!
 //! Each integration-test binary compiles this module independently and uses a
 //! different subset of the helpers, so unused items are expected per binary.
-#![allow(dead_code)]
+#![allow(
+    dead_code,
+    reason = "each integration-test binary compiles this module and uses a different subset"
+)]
 
 use std::path::Path;
 
