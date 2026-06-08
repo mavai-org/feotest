@@ -25,3 +25,6 @@ tests/baselines/
 *~
 /.claude/settings.local.json
 /.claude/
+
+# Agent-local guidance — not tracked in this public repo.
+CLAUDE.md
