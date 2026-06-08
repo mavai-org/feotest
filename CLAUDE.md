@@ -155,3 +155,40 @@ trybuild = "1"
 
 - Commit messages should be concise and describe the *why*, not just the *what*.
 - Keep commits focused: one logical change per commit.
+
+## Releasing
+
+`feotest` and `feotest-macros` publish to crates.io, and the git tag is what
+downstream pins to. Both acts are effectively irreversible — a crates.io
+version can never be re-published, and a tag, once fetched, is permanent. A
+release is therefore the *last* step taken from a known-good state, never the
+way to discover whether the state is good. Tagging a version while the project
+still has missing pieces, a red or absent pipeline, or unrun checks is exactly
+the failure this section exists to prevent.
+
+**Before tagging `vX.Y.Z` or running `cargo publish`, confirm every one of the
+following. A release with any of them unmet is a defect, not a judgement call:**
+
+1. **CI is green on the exact commit being tagged**, in GitHub Actions — not
+   just on your machine (`.github/workflows/ci.yml`): `cargo fmt --all -- --check`,
+   `cargo clippy --workspace --all-targets -- -D warnings`, the full
+   `cargo nextest run --workspace`, and `cargo test --workspace --doc`. An
+   absent or failing pipeline blocks the release outright; that gate is the
+   point.
+2. **The conformance test is green** against the pinned mavai-R fixtures
+   (`tests/conformance.rs`). A framework out of step with the statistical
+   oracle is not releasable — bump the vendored fixtures first if they have
+   drifted.
+3. **The version is bumped and `CHANGELOG.md` updated in the same commit**, and
+   the annotated tag (`vX.Y.Z`) matches the `version` in `Cargo.toml` exactly.
+4. **`cargo publish --dry-run` is clean for each crate**, and the packaged file
+   list is correct — internal-only paths (`plan/`, `CLAUDE.md`, the `proband`
+   scratch dir) stay excluded via `Cargo.toml`'s `exclude`.
+5. **The working tree is clean** — nothing uncommitted, stashed, or half-wired.
+   What you tag is exactly what ships.
+
+**Publish order:** `feotest-macros` must be published before `feotest`. The
+`feotest → feotest-macros` dependency carries both a path and a version, and the
+version cannot resolve on crates.io until the macros crate is up (so a dependent
+dry-run cannot fully verify before the macros crate is published). The
+`feotest-examples` crate is not published.
