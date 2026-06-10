@@ -114,8 +114,9 @@ where
                     let output = service_contract.invoke(input, &mut cost)?;
                     let elapsed = start.elapsed();
                     cost_recorder.record(cost.tokens_recorded());
+                    let expected = service_contract.expected(input);
                     Ok(SampleEvaluation {
-                        results: criteria.evaluate(&output),
+                        results: criteria.evaluate(&output, expected.as_ref()),
                         elapsed,
                     })
                 },

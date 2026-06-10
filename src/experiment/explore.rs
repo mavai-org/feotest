@@ -191,7 +191,8 @@ where
                         let output = service_contract.invoke(input, &mut cost)?;
                         let elapsed = start.elapsed();
                         cost_recorder.record(cost.tokens_recorded());
-                        let results = criteria.evaluate(&output);
+                        let expected = service_contract.expected(input);
+                        let results = criteria.evaluate(&output, expected.as_ref());
                         projections.push(build_projection(sample_idx, "", &results, elapsed));
                         sample_idx += 1;
                         Ok(SampleEvaluation { results, elapsed })

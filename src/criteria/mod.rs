@@ -25,7 +25,7 @@
 //!         .build(),
 //! ]);
 //!
-//! let results = criteria.evaluate(&"hello".to_string());
+//! let results = criteria.evaluate(&"hello".to_string(), None);
 //! assert!(results[0].passed());
 //! ```
 
@@ -34,7 +34,10 @@ mod counts;
 mod criterion;
 mod result;
 
-pub use builder::{CriterionBuild, EmpiricalCriterion, NormativeCriterion, TransformingBuild};
+pub use builder::{
+    Constrained, CriterionBuild, EmpiricalCriterion, MatchingBuild, NormativeCriterion, Open,
+    TransformingBuild,
+};
 pub use counts::{CriteriaCounts, CriterionCounts};
 pub use criterion::{Criterion, CriterionTarget};
 pub use result::{CriterionOutcome, CriterionSampleResult};
@@ -69,13 +72,20 @@ impl<O: 'static> Criteria<O> {
         }
     }
 
-    /// Evaluates every criterion against one sample's output, independently,
-    /// yielding one result per criterion in declaration order.
+    /// Evaluates every criterion against one sample's output and the optional
+    /// per-sample expected value, independently, yielding one result per
+    /// criterion in declaration order. Postcondition criteria ignore
+    /// `expected`; a reference-matching criterion routes it through its matcher.
+    ///
+    /// # Panics
+    ///
+    /// Panics if a reference-matching criterion is present and `expected` is
+    /// `None` (see [`Criterion::evaluate`]).
     #[must_use]
-    pub fn evaluate(&self, output: &O) -> Vec<CriterionSampleResult> {
+    pub fn evaluate(&self, output: &O, expected: Option<&O>) -> Vec<CriterionSampleResult> {
         self.criteria
             .iter()
-            .map(|criterion| criterion.evaluate(output))
+            .map(|criterion| criterion.evaluate(output, expected))
             .collect()
     }
 
@@ -150,7 +160,7 @@ mod tests {
                 .build(),
         ]);
 
-        let results = criteria.evaluate(&"x".to_string());
+        let results = criteria.evaluate(&"x".to_string(), None);
 
         assert_eq!(results.len(), 2);
         assert_eq!(results[0].criterion(), "first");
@@ -167,7 +177,7 @@ mod tests {
             .satisfies("not-empty", fails("not-empty"))
             .build()]);
 
-        let results = criteria.evaluate(&"x".to_string());
+        let results = criteria.evaluate(&"x".to_string(), None);
 
         assert_eq!(results[0].outcome(), CriterionOutcome::Fail);
         assert_eq!(results[0].reason().unwrap().check(), "not-empty");
@@ -184,7 +194,7 @@ mod tests {
             .satisfies("second", passes)
             .satisfies("third", passes)
             .build()]);
-        assert!(criteria.evaluate(&"x".to_string())[0].passed());
+        assert!(criteria.evaluate(&"x".to_string(), None)[0].passed());
 
         let with_late_failure = Criteria::<String>::of([Criterion::meeting()
             .pass_rate(0.9)
@@ -193,7 +203,7 @@ mod tests {
             .satisfies("second", passes)
             .satisfies("third", fails("third"))
             .build()]);
-        let results = with_late_failure.evaluate(&"x".to_string());
+        let results = with_late_failure.evaluate(&"x".to_string(), None);
         assert!(!results[0].passed());
         assert_eq!(results[0].reason().unwrap().check(), "third");
     }
@@ -206,7 +216,7 @@ mod tests {
             .satisfies("ok", passes)
             .build()]);
 
-        let results = criteria.evaluate(&"x".to_string());
+        let results = criteria.evaluate(&"x".to_string(), None);
 
         assert_eq!(results[0].outcome(), CriterionOutcome::Pass);
         assert!(results[0].reason().is_none());
@@ -221,7 +231,7 @@ mod tests {
             .satisfies("second", fails("second"))
             .build()]);
 
-        let results = criteria.evaluate(&"x".to_string());
+        let results = criteria.evaluate(&"x".to_string(), None);
 
         assert_eq!(results[0].reason().unwrap().check(), "first");
     }
@@ -247,11 +257,11 @@ mod tests {
             })
             .build()]);
 
-        let failed = criteria.evaluate(&"not-a-number".to_string());
+        let failed = criteria.evaluate(&"not-a-number".to_string(), None);
         assert_eq!(failed[0].outcome(), CriterionOutcome::Fail);
         assert_eq!(failed[0].reason().unwrap().check(), "transform");
 
-        let passed = criteria.evaluate(&"42".to_string());
+        let passed = criteria.evaluate(&"42".to_string(), None);
         assert!(passed[0].passed());
     }
 
@@ -273,7 +283,7 @@ mod tests {
             })
             .build()]);
 
-        let results = criteria.evaluate(&"0".to_string());
+        let results = criteria.evaluate(&"0".to_string(), None);
         assert_eq!(results[0].reason().unwrap().check(), "non-positive");
     }
 
@@ -338,5 +348,110 @@ mod tests {
     #[should_panic(expected = "pass rate must be in (0, 1)")]
     fn rejects_out_of_range_pass_rate() {
         let _ = Criterion::<String>::meeting().pass_rate(1.5);
+    }
+
+    #[test]
+    fn equality_match_passes_when_output_equals_expected() {
+        let criteria = Criteria::<String>::of([Criterion::meeting()
+            .pass_rate(0.9)
+            .name("matches-reference")
+            .matching_equality()
+            .build()]);
+
+        let results = criteria.evaluate(&"bonjour".to_string(), Some(&"bonjour".to_string()));
+
+        assert!(results[0].passed());
+        assert!(results[0].reason().is_none());
+    }
+
+    #[test]
+    fn equality_match_fails_with_stable_check_name_on_mismatch() {
+        let criteria = Criteria::<String>::of([Criterion::meeting()
+            .pass_rate(0.9)
+            .name("matches-reference")
+            .matching_equality()
+            .build()]);
+
+        let results = criteria.evaluate(&"hallo".to_string(), Some(&"bonjour".to_string()));
+
+        assert_eq!(results[0].outcome(), CriterionOutcome::Fail);
+        let reason = results[0].reason().unwrap();
+        assert_eq!(reason.check(), "not-equal");
+        // The reason carries the diff (expected vs got).
+        assert!(reason.reason().contains("bonjour"));
+        assert!(reason.reason().contains("hallo"));
+    }
+
+    #[test]
+    fn custom_matcher_violation_name_and_message_reach_the_result() {
+        let criteria = Criteria::<String>::of([Criterion::meeting()
+            .pass_rate(0.9)
+            .name("matches-reference")
+            .matching(|expected: &String, actual: &String| {
+                if expected.eq_ignore_ascii_case(actual) {
+                    Ok(())
+                } else {
+                    Err(ContractViolation::new(
+                        "case-insensitive-mismatch",
+                        "differs beyond letter case",
+                    ))
+                }
+            })
+            .build()]);
+
+        // Case-only difference passes the custom matcher.
+        let passed = criteria.evaluate(&"BONJOUR".to_string(), Some(&"bonjour".to_string()));
+        assert!(passed[0].passed());
+
+        // A genuine difference fails, carrying the matcher's own name/message.
+        let failed = criteria.evaluate(&"hallo".to_string(), Some(&"bonjour".to_string()));
+        let reason = failed[0].reason().unwrap();
+        assert_eq!(reason.check(), "case-insensitive-mismatch");
+        assert_eq!(reason.reason(), "differs beyond letter case");
+    }
+
+    #[test]
+    fn matching_and_satisfies_criteria_bundle_and_evaluate_independently() {
+        // A reference-matching criterion is exclusive on its own criterion, but
+        // bundles with an intrinsic-property criterion via Criteria::of. Both
+        // are judged on the same sample, independently.
+        let criteria = Criteria::<String>::of([
+            Criterion::meeting()
+                .pass_rate(0.99)
+                .name("non-empty")
+                .satisfies("not empty", |r: &String| {
+                    if r.is_empty() {
+                        Err(ContractViolation::new("empty", "blank"))
+                    } else {
+                        Ok(())
+                    }
+                })
+                .build(),
+            Criterion::meeting()
+                .pass_rate(0.9)
+                .name("matches-reference")
+                .matching_equality()
+                .build(),
+        ]);
+
+        // Non-empty but wrong: intrinsic passes, match fails.
+        let results = criteria.evaluate(&"hallo".to_string(), Some(&"bonjour".to_string()));
+        assert_eq!(results.len(), 2);
+        assert!(results[0].passed(), "non-empty criterion passes");
+        assert!(!results[1].passed(), "matching criterion fails");
+        assert_eq!(results[1].reason().unwrap().check(), "not-equal");
+    }
+
+    #[test]
+    #[should_panic(expected = "matches-reference")]
+    fn matching_criterion_without_expected_value_is_a_defect() {
+        let criteria = Criteria::<String>::of([Criterion::meeting()
+            .pass_rate(0.9)
+            .name("matches-reference")
+            .matching_equality()
+            .build()]);
+
+        // No expected value for a reference-matching criterion is a defect.
+        let _ = criteria.evaluate(&"bonjour".to_string(), None);
     }
 }

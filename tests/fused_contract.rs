@@ -109,7 +109,7 @@ fn well_formed_response_passes_the_parsing_criterion() {
         .invoke(&"42".to_string(), &mut cost)
         .expect("a well-formed response is obtainable");
 
-    let results = contract.criteria().evaluate(&output);
+    let results = contract.criteria().evaluate(&output, None);
     assert_eq!(results[0].outcome(), CriterionOutcome::Pass);
 }
 
@@ -126,7 +126,7 @@ fn malformed_response_is_ok_but_fails_the_parsing_criterion() {
         .expect("a malformed response is still a response, not a defect");
 
     // The parsing criterion fails that sample, carrying the transform's reason.
-    let results = contract.criteria().evaluate(&output);
+    let results = contract.criteria().evaluate(&output, None);
     assert_eq!(results[0].outcome(), CriterionOutcome::Fail);
     assert_eq!(results[0].reason().unwrap().check(), "parse");
 }
