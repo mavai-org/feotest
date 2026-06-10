@@ -1,0 +1,14 @@
+error[E0599]: no method named `matching_equality` found for struct `CriterionBuild<std::string::String, Constrained>` in the current scope
+  --> tests/ui/matching/matching_after_satisfies.rs:14:10
+   |
+10 |       let _ = Criterion::<String>::meeting()
+   |  _____________-
+11 | |         .pass_rate(0.9)
+12 | |         .name("x")
+13 | |         .satisfies("non-empty", |_: &String| Ok(()))
+14 | |         .matching_equality()
+   | |         -^^^^^^^^^^^^^^^^^ method not found in `CriterionBuild<std::string::String, Constrained>`
+   | |_________|
+   |
+   |
+   = note: the method was found for `CriterionBuild<O>`
