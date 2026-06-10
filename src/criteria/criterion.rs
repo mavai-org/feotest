@@ -2,6 +2,12 @@
 
 use crate::criteria::result::CriterionSampleResult;
 
+/// A criterion's type-erased evaluation: the sample's output and the optional
+/// per-sample expected value in, a two-valued sample result out. Any transform
+/// is collapsed into this closure at build time, so the criterion's whole
+/// behaviour — postconditions or a reference matcher — lives behind one type.
+type Evaluate<O> = Box<dyn Fn(&O, Option<&O>) -> CriterionSampleResult + Send + Sync>;
+
 /// The target a criterion is judged against.
 ///
 /// `meeting()` produces a normative target whose rate is stated explicitly;
@@ -25,17 +31,18 @@ pub enum CriterionTarget {
 /// transform step is collapsed into the evaluation closure at build time, so
 /// the transformed value type does not escape into this type — every criterion
 /// over the same `O` has the same type and can sit in one collection.
+///
+/// The evaluation closure takes the sample's output and the optional per-sample
+/// expected value. Postcondition criteria ignore the expected value; a
+/// reference-matching criterion routes it through its matcher (and treats a
+/// missing expected value as a defect).
 // javai-ref: JVI-JGG2K8= — do not remove (resolves in javai-orchestrator)
 // javai-ref: JVI-K90P6S1 — do not remove (resolves in javai-orchestrator)
 pub struct Criterion<O> {
     name: String,
     target: CriterionTarget,
     postconditions: Vec<String>,
-    #[allow(
-        clippy::type_complexity,
-        reason = "the evaluation closure is the criterion's whole behaviour, type-erased over any transform"
-    )]
-    evaluate: Box<dyn Fn(&O) -> CriterionSampleResult + Send + Sync>,
+    evaluate: Evaluate<O>,
 }
 
 impl<O> Criterion<O> {
@@ -43,7 +50,7 @@ impl<O> Criterion<O> {
         name: String,
         target: CriterionTarget,
         postconditions: Vec<String>,
-        evaluate: Box<dyn Fn(&O) -> CriterionSampleResult + Send + Sync>,
+        evaluate: Evaluate<O>,
     ) -> Self {
         Self {
             name,
@@ -71,13 +78,24 @@ impl<O> Criterion<O> {
         &self.postconditions
     }
 
-    /// Evaluates the criterion against one sample's output, yielding a
-    /// two-valued result. Postconditions are checked in declaration order and
-    /// the first failure (or a failed transform) determines the `Fail` reason;
-    /// this short-circuit is *within* the criterion only.
+    /// Evaluates the criterion against one sample's output and the optional
+    /// per-sample expected value, yielding a two-valued result. Postconditions
+    /// are checked in declaration order and the first failure (or a failed
+    /// transform) determines the `Fail` reason; this short-circuit is *within*
+    /// the criterion only. Postcondition criteria ignore `expected`; a
+    /// reference-matching criterion routes it through its matcher.
+    ///
+    /// # Panics
+    ///
+    /// A reference-matching criterion panics if `expected` is `None` — a
+    /// contract that declares such a criterion must supply a reference value
+    /// for every sample (via [`ServiceContract::expected`]). This is a defect,
+    /// not a sample failure.
+    ///
+    /// [`ServiceContract::expected`]: crate::service_contract::ServiceContract::expected
     #[must_use]
-    pub fn evaluate(&self, output: &O) -> CriterionSampleResult {
-        (self.evaluate)(output)
+    pub fn evaluate(&self, output: &O, expected: Option<&O>) -> CriterionSampleResult {
+        (self.evaluate)(output, expected)
     }
 }
 

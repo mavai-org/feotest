@@ -594,8 +594,9 @@ where
             let output = contract.invoke(input, &mut cost)?;
             let elapsed = start.elapsed();
             recorder.record(cost.tokens_recorded());
+            let expected = contract.expected(input);
             Ok(SampleEvaluation {
-                results: contract_criteria.evaluate(&output),
+                results: contract_criteria.evaluate(&output, expected.as_ref()),
                 elapsed,
             })
         },

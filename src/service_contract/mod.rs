@@ -90,6 +90,19 @@ pub trait ServiceContract: Send + Sync {
     /// short-circuit across criteria — yielding a pass rate per criterion.
     fn criteria(&self) -> Criteria<Self::Output>;
 
+    /// The known-correct output for this input, when the contract is backed by
+    /// a golden dataset.
+    ///
+    /// `None` — the default — means the contract supplies no reference value.
+    /// A reference-matching criterion (`matching` / `matching_equality`)
+    /// declared on a contract that returns `None` for a sample aborts the run
+    /// as a defect: the contract promised reference-matching and supplied no
+    /// ground truth. The expected value conceptually travels with the input;
+    /// override this to project it out.
+    fn expected(&self, _input: &Self::Input) -> Option<Self::Output> {
+        None
+    }
+
     /// The contract's latency commitment, if any.
     ///
     /// A contract declares **at most one** latency criterion: a service has a
