@@ -5,7 +5,7 @@ expression: suite
 ---
 <?xml version="1.0" encoding="UTF-8"?>
 <verdict-suite xmlns="http://mavai.org/verdict/1.0" timestamp="2026-04-01T12:00:00Z">
-<verdict-record xmlns="http://mavai.org/verdict/1.0" version="1.2" timestamp="2026-04-01T12:00:00Z" generator="feotest/0.1.1">
+<verdict-record xmlns="http://mavai.org/verdict/1.0" version="1.2" timestamp="2026-04-01T12:00:00Z" generator="feotest/0.1.2">
   <identity use-case-id="my-service" test-name="test_translation"/>
   <execution planned-samples="100" samples-executed="100" successes="96" failures="4" elapsed-ms="500" intent="VERIFICATION" confidence="0.95"/>
   <functional successes="96" failures="4" pass-rate="0.9600"/>
@@ -22,7 +22,7 @@ expression: suite
   <verdict value="PASS" reason="0.9600 &gt;= 0.9000"/>
 </verdict-record>
 
-<verdict-record xmlns="http://mavai.org/verdict/1.0" version="1.2" timestamp="2026-04-01T12:00:00Z" generator="feotest/0.1.1">
+<verdict-record xmlns="http://mavai.org/verdict/1.0" version="1.2" timestamp="2026-04-01T12:00:00Z" generator="feotest/0.1.2">
   <identity use-case-id="my-service" test-name="test_accuracy"/>
   <execution planned-samples="100" samples-executed="100" successes="80" failures="20" elapsed-ms="500" intent="VERIFICATION" confidence="0.95"/>
   <functional successes="80" failures="20" pass-rate="0.8000">

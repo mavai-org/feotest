@@ -4,7 +4,7 @@ assertion_line: 964
 expression: xml
 ---
 <?xml version="1.0" encoding="UTF-8"?>
-<verdict-record xmlns="http://mavai.org/verdict/1.0" version="1.2" timestamp="2026-04-19T10:00:00Z" generator="feotest/0.1.1">
+<verdict-record xmlns="http://mavai.org/verdict/1.0" version="1.2" timestamp="2026-04-19T10:00:00Z" generator="feotest/0.1.2">
   <identity use-case-id="aging-service"/>
   <execution planned-samples="100" samples-executed="100" successes="92" failures="8" elapsed-ms="500" intent="VERIFICATION"/>
   <functional successes="92" failures="8" pass-rate="0.9200"/>

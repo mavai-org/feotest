@@ -4,7 +4,7 @@ assertion_line: 1011
 expression: xml
 ---
 <?xml version="1.0" encoding="UTF-8"?>
-<verdict-record xmlns="http://mavai.org/verdict/1.0" version="1.2" timestamp="2026-04-19T10:00:00Z" correlation-id="suite-run-42" generator="feotest/0.1.1">
+<verdict-record xmlns="http://mavai.org/verdict/1.0" version="1.2" timestamp="2026-04-19T10:00:00Z" correlation-id="suite-run-42" generator="feotest/0.1.2">
   <identity use-case-id="full-service" test-name="test_everything"/>
   <execution planned-samples="200" samples-executed="200" successes="192" failures="8" elapsed-ms="500" intent="VERIFICATION" confidence="0.95"/>
   <functional successes="192" failures="8" pass-rate="0.9600"/>

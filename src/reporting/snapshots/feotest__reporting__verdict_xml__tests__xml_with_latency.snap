@@ -4,7 +4,7 @@ assertion_line: 859
 expression: xml
 ---
 <?xml version="1.0" encoding="UTF-8"?>
-<verdict-record xmlns="http://mavai.org/verdict/1.0" version="1.2" timestamp="2026-04-01T12:00:00Z" generator="feotest/0.1.1">
+<verdict-record xmlns="http://mavai.org/verdict/1.0" version="1.2" timestamp="2026-04-01T12:00:00Z" generator="feotest/0.1.2">
   <identity use-case-id="latency-service" test-name="test_response_time"/>
   <execution planned-samples="100" samples-executed="100" successes="95" failures="5" elapsed-ms="500" intent="VERIFICATION" confidence="0.95"/>
   <functional successes="95" failures="5" pass-rate="0.9500"/>
