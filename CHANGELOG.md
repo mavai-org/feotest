@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-06-10
+
+### Added
+
+- **Reference-matching criteria.** A criterion can now
+  judge each sample's output against a per-sample *expected* value supplied by
+  the contract, rather than only intrinsic postconditions. `ServiceContract`
+  gains an `expected(&input) -> Option<Output>` method (defaulted to `None`)
+  that surfaces the per-sample reference; `Criterion`'s builder gains
+  `matching(matcher)` and `matching_equality()`, which route the actual output
+  and the expected value through a matcher and fail the sample with a named
+  violation on mismatch. Purely additive — existing postcondition-based criteria
+  and contracts are unaffected, and a contract that does not override `expected`
+  behaves exactly as before.
+
 ## [0.1.1] - 2026-06-08
 
 ### Changed
