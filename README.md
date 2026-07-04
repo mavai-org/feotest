@@ -56,33 +56,41 @@ Add `feotest` as a dependency:
 feotest = { path = "../feotest" }  # or from crates.io once published
 ```
 
-Define a service contract and run a probabilistic test:
+The lowest-ceremony entry point is the `#[probabilistic_test]` attribute macro: the function body judges one service response, and the attribute carries the sampling plan. The framework runs the body as repeated trials and produces a statistical verdict.
 
 ```rust
-use feotest::ptest::ProbabilisticTestBuilder;
+use feotest::model::ContractViolation;
+use feotest::probabilistic_test;
+
+#[probabilistic_test(samples = 100, threshold = 0.95, threshold_origin = "slo")]
+fn service_returns_valid_json() -> Result<(), ContractViolation> {
+    // Call your service here and judge its response.
+    let response = my_service_call("request");
+    if response.starts_with('{') {
+        Ok(())
+    } else {
+        Err(ContractViolation::new("format", "response was not JSON"))
+    }
+}
+```
+
+`Err(ContractViolation)` is a counted trial failure, not a crash — the verdict is statistical, over all 100 samples.
+
+For richer contracts — multiple criteria, typed inputs and outputs, latency commitments, covariates — implement the `ServiceContract` trait and run it through the contract-driven builder:
+
+```rust
+use feotest::ptest::ProbabilisticTest;
 use feotest::ptest::builder::ThresholdApproach;
-use feotest::model::TrialOutcome;
-use feotest::verdict::Verdict;
-use std::time::Duration;
 
-#[test]
-fn service_meets_sla() {
-    let inputs = vec!["request".to_string()];
-
-    let result = ProbabilisticTestBuilder::new("my-service", &inputs,
-        |_input| {
-            // Call your service here and evaluate the contract
-            TrialOutcome::success(Duration::from_millis(10))
-        },
-    )
+let result = ProbabilisticTest::for_contract(MyServiceContract::new())
+    .inputs(&inputs)
     .approach(ThresholdApproach::ThresholdFirst {
         samples: 100,
         min_pass_rate: 0.95,
     })
     .run();
 
-    assert_eq!(result.verdict_record().verdict(), Verdict::Pass);
-}
+assert!(result.passed());
 ```
 
 For a complete worked example, see
@@ -118,15 +126,17 @@ The framework is organised around a small number of core modules:
 | Module | Responsibility |
 |---|---|
 | `statistics` | Confidence intervals, threshold derivation, hypothesis testing |
-| `model` | Domain types: trials, outcomes, sample aggregates |
-| `contract` | Service contracts: postcondition-based success/failure criteria |
+| `model` | Domain types: outcomes, violations, sample aggregates, warnings |
+| `criteria` | Acceptance criteria: normative, empirical, and reference-matching |
+| `service_contract` | The `ServiceContract` trait: the named unit of work under test |
+| `latency` | Latency percentile criteria and enforcement |
 | `verdict` | Mapping statistical results to pass/fail decisions |
-| `spec` | Baseline specifications from empirical measurement |
-| `controls` | Operational safeguards: warm-up, budgets, pacing |
+| `spec` | Baseline specs: generation, resolution, covariate matching, expiration |
+| `controls` | Operational safeguards: warm-up, budgets, pacing, token tracking |
 | `experiment` | Experiment workflows: measure, explore, optimize |
 | `ptest` | Probabilistic test execution and verdict production |
-| `reporting` | Structured output (JUnit XML) |
-| `service_contract` | The named unit of work under test |
+| `reporting` | Structured output: console, JUnit XML, verdict XML, HTML |
+| `sentinel` | Deployable reliability sentinel runtime |
 
 Dependencies point inward: statistics and model are at the core, reporting is at
 the periphery. Nothing depends on reporting; everything depends on model.

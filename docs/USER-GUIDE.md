@@ -55,50 +55,61 @@ with exactly two outcomes — success or failure — as defined by a **service
 contract**. A sequence of independent trials with a common success probability
 forms a Bernoulli process.
 
-This is the foundational model for stochastic service quality. The question it
-answers is: "Does this service meet a binary quality threshold with statistical
-confidence?" A future version of the framework will extend this to a second
-dimension — **latency** — where per-percentile thresholds (p50, p90, p95, p99)
-are derived from baselines and enforced alongside pass-rate verdicts, producing
-multi-dimensional assessments of service reliability.
+This is the foundational model for stochastic service quality. The question it answers is: "Does this service meet a binary quality threshold with statistical confidence?" The framework also assesses a second dimension — **latency** — where per-percentile thresholds (p50, p90, p95, p99) are declared on the contract or derived from baselines and evaluated alongside pass-rate verdicts, producing multi-dimensional assessments of service reliability (see [Part 5](#latency-commitments)).
 
 ### Service contracts
 
-A service contract defines what "success" means for a single trial. Contracts
-are built from an ordered chain of **postconditions** — closures that inspect the
-service response and return `Ok(())` on success or `Err(ContractViolation)` on
-failure.
+A service contract is the named unit of work under test: it knows how to invoke the service and how to judge each response. You author one by implementing the `ServiceContract` trait — one `impl` block defines the whole thing.
 
 ```rust
-use feotest::contract::ServiceContract;
-use feotest::model::ContractViolation;
+use feotest::controls::Cost;
+use feotest::criteria::{Criteria, Criterion};
+use feotest::model::{ContractViolation, Defect};
+use feotest::service_contract::ServiceContract;
 
-let contract = ServiceContract::<String, String>::builder()
-    .ensure("Response has content", |_input, response| {
-        if response.is_empty() {
-            Err(ContractViolation::new("content", "empty response"))
-        } else {
-            Ok(())
-        }
-    })
-    .ensure("Response is valid JSON", |_input, response| {
-        if response.starts_with('{') {
-            Ok(())
-        } else {
-            Err(ContractViolation::new("format", "not JSON"))
-        }
-    })
-    .build();
+struct TranslationService;
+
+impl ServiceContract for TranslationService {
+    type Input = String;
+    type Output = String;
+
+    fn id(&self) -> &str {
+        "translation-service"
+    }
+
+    fn invoke(&self, input: &String, _cost: &mut Cost) -> Result<String, Defect> {
+        // Call your service and return its raw response — malformed or not.
+        Ok(my_service_call(input))
+    }
+
+    fn criteria(&self) -> Criteria<String> {
+        Criteria::of([Criterion::meeting()
+            .pass_rate(0.95)
+            .name("valid-json")
+            .satisfies("response is valid JSON", |response: &String| {
+                if response.starts_with('{') {
+                    Ok(())
+                } else {
+                    Err(ContractViolation::new("format", "not JSON"))
+                }
+            })
+            .build()])
+    }
+}
 ```
 
-Postconditions are evaluated in declaration order. The first failure
-short-circuits — subsequent checks are not evaluated. This is a **fail-fast**
-strategy that mirrors Rust's own `?` operator semantics.
+The required members are:
 
-A contract violation is not a software defect. It is a legitimate statistical
-observation: the service was invoked correctly, but its output did not meet the
-postconditions. This distinction is fundamental. A panic (a defect) must abort
-the run. A contract violation (a trial outcome) must be counted and analysed.
+- **`Input` / `Output`** — the type fed to each invocation and the raw response type the service returns.
+- **`id`** — a unique identifier, used in spec filenames, reports, and CLI output.
+- **`invoke`** — invokes the service once and returns its raw response. It returns `Ok(output)` whenever *any* response comes back, well-formed or malformed; `Err(Defect)` is reserved for the case where no response is obtainable at all (a transport failure, a panic-class fault) and aborts the run rather than counting as a failed sample.
+- **`criteria`** — the acceptance criteria that judge each response. Each criterion is a named check built from postconditions — closures that inspect the response and return `Ok(())` on success or `Err(ContractViolation)` on failure.
+
+Every criterion is judged **independently** on every sample's response — there is no short-circuit across criteria — yielding a pass rate per criterion. A sample counts as a composite success only when every criterion passes. Within a single criterion, postconditions are checked in declaration order and the first failure determines that criterion's failure reason for the sample.
+
+Optional members add warm-up (`warmup`), covariate declarations (`covariates` / `resolve_covariates`), a golden-dataset reference (`expected`), a human-readable `description`, and a latency commitment (`latency`) — see [Part 5](#part-5-service-contracts-in-depth).
+
+A contract violation is not a software defect. It is a legitimate statistical observation: the service was invoked correctly, but its output did not meet the criteria. This distinction is fundamental. A panic (a defect) must abort the run. A contract violation (a trial outcome) must be counted and analysed.
 
 ### Verdicts
 
@@ -142,16 +153,10 @@ than guesswork.
 
 ### Step 1: Explore (optional)
 
-Before committing to a configuration (model, temperature, prompt), run an
-**explore experiment** to compare candidates. The experiment is defined
-by a list of **factors** — one per configuration — and a **factory**
-that constructs a service contract instance from each factor. The framework
-walks the factors, builds the corresponding instance, and runs a fixed
-number of trials against it.
+Before committing to a configuration (model, temperature, prompt), run an **explore experiment** to compare candidates. The experiment is defined by a list of **factors** — one per configuration — and a **factory** that constructs a service contract instance from each factor. The framework walks the factors, builds the corresponding instance, and lets the contract's own `invoke` and `criteria` drive a fixed number of trials against it.
 
 ```rust
 use feotest::experiment::ExploreExperiment;
-use feotest::model::TrialOutcome;
 use std::fmt;
 
 // The factor: what varies between configurations. Its `Display` impl
@@ -165,15 +170,8 @@ impl fmt::Display for ModelChoice {
 }
 
 // The service contract: what the factory produces from each factor.
-struct MyService { model: &'static str }
-impl MyService {
-    fn new(model: &'static str) -> Self { Self { model } }
-    fn call(&self, _instruction: &str) -> TrialOutcome {
-        // invoke the service using `self.model` and return a TrialOutcome
-        TrialOutcome::success(std::time::Duration::ZERO)
-    }
-}
-
+// `MyService` implements `ServiceContract` as shown in Part 1, using
+// `self.model` inside `invoke`.
 let factors = vec![
     ModelChoice { model: "model-a" },
     ModelChoice { model: "model-b" },
@@ -186,7 +184,6 @@ let result = ExploreExperiment::builder()
     .service_contract(|f: &ModelChoice| MyService::new(f.model))
     .samples_per_config(20)
     .inputs(&inputs)
-    .trial(|svc: &MyService, input| svc.call(input))
     .build()
     .run();
 
@@ -206,21 +203,10 @@ They are not statistically rigorous — they are for rapid filtering.
 
 ### Step 2: Measure
 
-Once you have chosen a configuration, run a **measure experiment** to establish
-a statistical baseline:
+Once you have chosen a configuration, run a **measure experiment** to establish a statistical baseline:
 
 ```rust
 use feotest::experiment::MeasureExperiment;
-use feotest::model::TrialOutcome;
-
-// The service contract: what the factory produces.
-struct MyService;
-impl MyService {
-    fn invoke(&self, _instruction: &str) -> TrialOutcome {
-        // call the service and return a TrialOutcome
-        TrialOutcome::success(std::time::Duration::from_millis(10))
-    }
-}
 
 let inputs = standard_instructions();
 
@@ -229,7 +215,6 @@ let result = MeasureExperiment::builder()
     .service_contract(|| MyService)
     .samples(1000)
     .inputs(&inputs)
-    .trial(|uc: &MyService, instruction| uc.invoke(instruction))
     .experiment_id("baseline-v1")
     .baseline_dir("specs")
     .build()
@@ -240,11 +225,7 @@ println!("Observed rate:     {:.4}", spec.statistics.success_rate.observed);
 println!("Derived threshold: {:.4}", spec.requirements.min_pass_rate);
 ```
 
-The API mirrors `ExploreExperiment` and `OptimizeExperiment`:
-`.service_contract_id(...)` names the thing being measured, `.service_contract(...)`
-takes a factory that builds the instance, and `.trial(...)` receives
-`&T` plus the input. Measure's factory takes no arguments — there's no
-factor to vary, unlike explore and optimize.
+The API mirrors `ExploreExperiment` and `OptimizeExperiment`: `.service_contract_id(...)` names the thing being measured and `.service_contract(...)` takes a factory that builds the instance; the contract's own `invoke` and `criteria` drive each sample. Measure's factory takes no arguments — there's no factor to vary, unlike explore and optimize.
 
 `baseline_dir` sets the output directory for the spec YAML; the default
 is `tests/baselines`. For more control (e.g., a pre-configured
@@ -258,29 +239,25 @@ given the observed data.
 
 ### Step 3: Test
 
-Run a **probabilistic test** that compares current behaviour against the
-baseline:
+Run a **probabilistic test** that compares current behaviour against the baseline:
 
 ```rust
-use feotest::ptest::ProbabilisticTestBuilder;
+use feotest::ptest::ProbabilisticTest;
 use feotest::ptest::builder::ThresholdApproach;
 use feotest::spec::SpecResolver;
 
 let inputs = standard_instructions();
-let resolver = SpecResolver::with_dir("specs");
-let mut service_contract = MyServiceContract::new();
 
-let result = ProbabilisticTestBuilder::new("my-service", &inputs, |instruction| {
-    service_contract.invoke(instruction)
-})
-.approach(ThresholdApproach::SampleSizeFirst {
-    samples: 100,
-    confidence: 0.95,
-})
-.spec_resolver(resolver)
-.run();
+let result = ProbabilisticTest::for_contract(MyService)
+    .inputs(&inputs)
+    .approach(ThresholdApproach::SampleSizeFirst {
+        samples: 100,
+        confidence: 0.95,
+    })
+    .spec_resolver(SpecResolver::with_dir("specs"))
+    .run();
 
-assert_eq!(result.verdict_record().verdict(), feotest::verdict::Verdict::Pass);
+assert!(result.passed());
 ```
 
 The test loads the baseline spec, derives the threshold, runs the configured
@@ -361,47 +338,22 @@ Every probabilistic test declares an **intent**:
   broken?" — rather than rigorous verification.
 
 ```rust
-use feotest::model::TestIntent;
-
-ProbabilisticTestBuilder::new("my-service", &inputs, trial)
+ProbabilisticTest::for_contract(MyService)
+    .inputs(&inputs)
     .approach(approach)
-    .intent(TestIntent::Smoke)  // or TestIntent::Verification (default)
+    .smoke()  // the default intent is Verification
     .run();
 ```
+
+In the macro form the intent is an attribute: `#[probabilistic_test(samples = 50, threshold = 0.99, intent = "smoke")]`.
 
 ---
 
 ## Part 5: Service contracts in depth
 
-### Contract evaluation
+### How a contract is evaluated
 
-Contracts are evaluated by `ServiceContractOutcome::evaluate`, which times the service
-call and runs all postconditions:
-
-```rust
-use feotest::contract::{ServiceContract, ServiceContractOutcome};
-use feotest::model::ContractViolation;
-
-let contract = ServiceContract::<String, String>::builder()
-    .ensure("Has content", |_input, response| {
-        if response.is_empty() {
-            Err(ContractViolation::new("content", "empty"))
-        } else {
-            Ok(())
-        }
-    })
-    .build();
-
-let outcome = ServiceContractOutcome::evaluate(&contract, &"request".into(), || {
-    my_service.call("request")
-});
-
-if outcome.is_success() {
-    println!("Trial passed in {:?}", outcome.trial_outcome().elapsed());
-} else {
-    println!("Violation: {}", outcome.violation().unwrap());
-}
-```
+You never invoke a contract yourself — the execution engine does. For each sample it cycles to the next input, times a call to `invoke`, and judges the raw response against every criterion. The per-criterion results are tallied separately, and the sample counts as a **composite success** only when every criterion passed. Warm-up, input cycling, budget enforcement, pacing, and early termination are all applied around this loop.
 
 ### Contract vs defect
 
@@ -410,37 +362,39 @@ This distinction is critical:
 | Situation | What it is | What happens |
 |---|---|---|
 | The service returns invalid JSON | **Contract violation** (trial failure) | Counted as a failed trial. Statistical analysis continues. |
-| The service call panics | **Software defect** | The run aborts. This is not a statistical event — it is a bug. |
+| The service call panics or yields no response | **Software defect** | The run aborts. This is not a statistical event — it is a bug. |
 
-Contract violations are the raw material of probabilistic testing. Defects are
-not. `feotest` does not catch panics in trial closures — if your code panics,
-the test aborts with a clear diagnostic. This is deliberate: a defective program
-must not be statistically analysed.
+Contract violations are the raw material of probabilistic testing. Defects are not. A panic inside `invoke`, like an explicit `Err(Defect)`, aborts the run with a clear diagnostic instead of being counted as a sample. This is deliberate: a defective program must not be statistically analysed.
 
-### Trial closures
+### Criteria in depth
 
-In most cases, you will not use `ServiceContractOutcome` directly. Instead, you pass a
-**trial closure** to the experiment or test builder. The closure receives an
-input string and returns a `TrialOutcome`:
+A contract's `criteria` method returns a `Criteria<Output>` — one or more named `Criterion` values, each judged independently on every sample. A criterion starts from its **target**:
+
+- **`Criterion::meeting().pass_rate(rate)`** — a normative target: the criterion must pass at least this often. Use this when the rate comes from an SLA, SLO, or policy.
+- **`Criterion::empirical().pass_rate()`** — an empirical target: the criterion's required rate is derived from the measured baseline for *that criterion*. Use this in the measure-then-test workflow.
+
+Postconditions are then attached with `.satisfies(description, closure)`, where the closure inspects the response and returns `Ok(())` or `Err(ContractViolation)`. A `.transforming(f)` step parses or converts the response mid-chain, so a malformed response becomes a counted failure with a precise reason rather than an abort. Every criterion takes a `.name(...)` before `.build()`; the name keys per-criterion statistics in baselines and reports.
+
+A third form judges each output against a per-sample **expected** value supplied by the contract's `expected(&input)` method: `.matching(matcher)` takes a `(expected, actual)` closure, and `.matching_equality()` is the equality shorthand. A reference-matching criterion is purely an equivalence judgement — it carries no `satisfies` or `transforming` clauses; combine styles by bundling separate criteria in `Criteria::of`.
+
+### Latency commitments
+
+A contract declares at most one latency criterion via the `latency` method — a service has a single latency profile, so one criterion (bounding any number of percentiles) holds the whole commitment:
 
 ```rust
-use feotest::model::{ContractViolation, TrialOutcome};
-use std::time::Instant;
+use feotest::latency::{LatencyCriterion, Percentile};
+use std::time::Duration;
 
-let trial = |input: &str| -> TrialOutcome {
-    let start = Instant::now();
-    let response = my_service.call(input);
-    let elapsed = start.elapsed();
-
-    match validate(&response) {
-        Ok(()) => TrialOutcome::success(elapsed),
-        Err(reason) => TrialOutcome::failure(
-            ContractViolation::new("validation", reason),
-            elapsed,
-        ),
-    }
-};
+fn latency(&self) -> Option<LatencyCriterion> {
+    Some(
+        LatencyCriterion::meeting()
+            .at_most(Percentile::P95, Duration::from_millis(500))
+            .at_most(Percentile::P99, Duration::from_millis(1500)),
+    )
+}
 ```
+
+`None` — the default — means the contract makes no latency assertion.
 
 ---
 
@@ -456,31 +410,22 @@ See [Part 2](#step-2-measure) for a full example.
 
 ### Explore
 
-Compares multiple configurations with small sample sizes. Each configuration
-is executed independently with the same inputs and trial closure. Use this
-before committing to a configuration for measurement.
+Compares multiple configurations with small sample sizes. Each configuration is executed independently with the same inputs, driven by the contract instance the factory builds for its factor. Use this before committing to a configuration for measurement.
 
 See [Part 2](#step-1-explore-optional) for a full example.
 
 ### Optimize
 
-Iteratively refines a single factor to maximise or minimise a scoring
-function. The API shape mirrors `ExploreExperiment`: a factor is a
-user-defined type, a `service_contract(factory)` builds an instance from a
-factor, and the trial closure runs against the instance. The only
-structural difference is how factors are supplied — optimize takes a
-single `initial_factor` plus a `FactorMutator` that drives subsequent
-factors from history; explore takes them all upfront as `factors(vec)`.
+Iteratively refines a single factor to maximise or minimise a scoring function. The API shape mirrors `ExploreExperiment`: a factor is a user-defined type, a `service_contract(factory)` builds an instance from a factor, and the instance's own `invoke` and `criteria` drive each iteration's samples. The only structural difference is how factors are supplied — optimize takes a single `initial_factor` plus a `FactorMutator` that drives subsequent factors from history; explore takes them all upfront as `factors(vec)`.
 
 Requires a `Scorer` (evaluates each iteration) and a `FactorMutator<F>`
 (produces the next factor from the current one and the history).
 
 ```rust
 use feotest::experiment::{
-    ExecutionResult, FactorMutator, IterationRecord, Objective,
+    ContractExecutionResult, FactorMutator, IterationRecord, Objective,
     OptimizeExperiment, Scorer,
 };
-use feotest::model::TrialOutcome;
 use serde::Serialize;
 
 // The factor: what varies between iterations. `Serialize` lets it
@@ -489,18 +434,12 @@ use serde::Serialize;
 struct Temperature(f64);
 
 // The service contract: what the factory produces from each factor.
-struct MyService { temperature: f64 }
-impl MyService {
-    fn new(temperature: f64) -> Self { Self { temperature } }
-    fn call(&self, _instruction: &str) -> TrialOutcome {
-        // invoke the service using `self.temperature` and return a TrialOutcome
-        TrialOutcome::success(std::time::Duration::ZERO)
-    }
-}
+// `MyService` implements `ServiceContract` as shown in Part 1, using
+// `self.temperature` inside `invoke`.
 
 struct SuccessRateScorer;
 impl Scorer for SuccessRateScorer {
-    fn score(&self, result: &ExecutionResult) -> f64 {
+    fn score(&self, result: &ContractExecutionResult) -> f64 {
         result.summary().observed_pass_rate()
     }
 }
@@ -526,7 +465,6 @@ let result = OptimizeExperiment::builder()
     .mutator(StepMutator)
     .samples_per_iteration(20)
     .inputs(&inputs)
-    .trial(|uc: &MyService, input| uc.call(input))
     .objective(Objective::Maximize)
     .max_iterations(20)
     .no_improvement_window(5)
@@ -584,6 +522,8 @@ cost:
   avgTokensPerSample: 197
 ```
 
+The `useCaseId` key carries the service contract ID — the key name is fixed by the `feotest-spec-1` schema for compatibility with existing baselines.
+
 ### Spec resolution
 
 The `SpecResolver` searches for spec files by service contract ID:
@@ -591,7 +531,7 @@ The `SpecResolver` searches for spec files by service contract ID:
 1. The directory specified by `FEOTEST_SPEC_DIR` (if set)
 2. The directory passed to `SpecResolver::new` or `SpecResolver::with_dir`
 
-The spec file is expected at `{spec_dir}/{service_contract_id}.yaml`.
+For a contract without covariates, the spec file is expected at `{spec_dir}/{service_contract_id}.yaml`. Contracts that declare covariates write footprint-suffixed filenames instead, and the resolver performs covariate-aware baseline selection: configuration covariates must match exactly (a hard gate), while temporal, infrastructure, and other soft categories are scored with warnings on mismatch. A misaligned baseline can render the verdict Inconclusive rather than silently comparing unlike conditions.
 
 ### Spec lifecycle
 
@@ -604,9 +544,7 @@ experiment to produce a new baseline.
 
 ## Part 8: Verdict records
 
-Every probabilistic test produces a `VerdictRecord` — the single source of
-truth consumed by all rendering paths (JUnit XML, future HTML reports, console
-output).
+Every probabilistic test produces a `VerdictRecord` — the single source of truth consumed by all rendering paths (console output, JUnit XML, verdict XML, and HTML reports; see [Part 11](#part-11-transparent-statistics) and [Part 12](#part-12-html-reports)).
 
 A verdict record contains:
 
@@ -650,6 +588,8 @@ let config = ExecutionConfig::new(100).with_warmup(5);
 // 105 total invocations: 5 discarded, 100 counted
 ```
 
+A contract can also declare its own warm-up count by overriding the `warmup` method on `ServiceContract`; an explicit `ExecutionConfig` is applied to a test with `.execution_config(config)`.
+
 ### Budgets
 
 Time and token budgets prevent runaway experiments:
@@ -687,15 +627,19 @@ Zero completed samples always force `Fail` regardless of policy — there
 is nothing to evaluate. A `BUDGET_EXHAUSTED_NO_SAMPLES` warning is
 emitted in that case.
 
-The policy is settable directly on both the simplified API and the
-builder:
+The policy is settable directly on the test builder:
 
 ```rust
-use feotest::{BudgetExhaustedBehavior, ptest::ProbabilisticTest};
+use feotest::BudgetExhaustedBehavior;
+use feotest::ptest::ProbabilisticTest;
+use feotest::ptest::builder::ThresholdApproach;
 
-let record = ProbabilisticTest::new("my-service", &inputs, trial)
-    .samples(1000)
-    .threshold(0.95)
+let result = ProbabilisticTest::for_contract(MyService)
+    .inputs(&inputs)
+    .approach(ThresholdApproach::ThresholdFirst {
+        samples: 1000,
+        min_pass_rate: 0.95,
+    })
     .time_budget(Duration::from_secs(60))
     .on_budget_exhausted(BudgetExhaustedBehavior::EvaluatePartial)
     .run();
@@ -755,18 +699,17 @@ remainder of the run.
 
 ### Token tracking
 
-Trial closures can report token consumption via a `TokenRecorder`:
+A contract reports token consumption through the `Cost` handle passed to `invoke`:
 
 ```rust
-use feotest::controls::TokenRecorder;
-
-let recorder = TokenRecorder::new();
-recorder.record(150);  // report 150 tokens from this trial
-assert_eq!(recorder.total(), 150);
+fn invoke(&self, input: &String, cost: &mut Cost) -> Result<ChatResponse, Defect> {
+    let response = self.llm.chat(input);
+    cost.record_tokens(response.total_tokens());
+    Ok(response)
+}
 ```
 
-For simpler cases, a static `token_charge` per sample can be configured on the
-`ExecutionConfig`.
+For simpler cases, a static per-sample token charge can be configured on the `ExecutionConfig` with `.with_static_token_charge(tokens)`.
 
 ### Pacing
 
@@ -802,17 +745,88 @@ leaves the run unpaced.
 
 ---
 
-## Part 10: What's next
+## Part 10: The `#[probabilistic_test]` macro
 
-`feotest` is in active development. The roadmap includes:
+When a single criterion suffices, the whole test can be authored at the test site with the `#[probabilistic_test]` attribute — no separate `ServiceContract` type. The function body is the criterion's postcondition; the attribute carries the sampling plan.
 
-- **Latency dimension** — multi-dimensional verdicts (pass rate and latency)
-- **Covariate-aware baseline selection** — matching test conditions to baselines
-- **Early termination** — stopping when success or failure is inevitable
-- **Sentinel binary** — a standalone CLI for production reliability monitoring
-- **`#[feotest]` proc-macro** — ergonomic test declaration
-- **Transparent statistics** — detailed statistical reasoning in verdict output
-- **HTML reports** — standalone report generation from verdict XML
+```rust
+use feotest::model::ContractViolation;
+use feotest::probabilistic_test;
 
-See [feotest-examples](https://github.com/mavai-org/feotest-examples) for
-worked examples demonstrating the framework's current capabilities.
+#[probabilistic_test(
+    samples = 100,
+    threshold = 0.99,
+    threshold_origin = "sla",
+    contract_ref = "Payment Provider SLA v2.0 §4.1",
+    intent = "smoke"
+)]
+fn payment_gateway_meets_sla(_input: &str) -> Result<(), ContractViolation> {
+    let result = gateway.charge("tok_visa_4242", 1999);
+    if result.is_success() {
+        Ok(())
+    } else {
+        Err(ContractViolation::new("transaction", "payment declined"))
+    }
+}
+```
+
+### Attribute grammar
+
+The macro detects the operational approach from the attribute combination:
+
+| Approach | Required attributes |
+|---|---|
+| Threshold-first | `samples` + `threshold` |
+| Sample-size-first | `samples` + `confidence` + `spec` |
+
+`spec` is a baseline-spec path relative to the invoking crate's `Cargo.toml`, loaded when the test runs.
+
+Optional attributes:
+
+- `intent` — `"verification"` (the default) or `"smoke"`.
+- `threshold_origin` — `"sla"`, `"slo"`, `"policy"`, or `"empirical"`.
+- `contract_ref` — a human-readable document reference recorded in the verdict.
+
+### Function shape
+
+The function must not be `async` and takes zero or one `&str` parameter. The body judges one response and returns either `bool` (passes on `true`) or `Result<(), ContractViolation>` (passes on `Ok(())`).
+
+The macro expands to a `#[test]` function that lowers the body into a single-criterion service contract named after the function and runs it through the contract-driven path; the generated test asserts that the verdict passed. The `&str` parameter receives a fixed placeholder input — the macro form is for self-contained checks. When sampling should cycle over a real input set, use the `ServiceContract` trait and `ProbabilisticTest::for_contract` instead.
+
+---
+
+## Part 11: Transparent statistics
+
+After every probabilistic test, a one-line verdict summary is printed to stderr. Enabling **transparent statistics** adds a detailed box-format report showing the full statistical reasoning behind the verdict — the hypotheses, any feasibility warning, the observed data and inference (confidence interval, z-statistic, p-value), early-termination reasoning where it applied, and the verdict itself:
+
+```rust
+ProbabilisticTest::for_contract(MyService)
+    .inputs(&inputs)
+    .approach(approach)
+    .transparent_stats(true)
+    .run();
+```
+
+The renderer formats already-computed verdict data — it performs no statistical calculations of its own, so the report always shows exactly the numbers the verdict was decided on.
+
+---
+
+## Part 12: HTML reports
+
+`HtmlReportWriter` generates a self-contained HTML5 report from verdict records by serialising them to verdict XML and applying the embedded XSLT stylesheet:
+
+```rust
+use feotest::reporting::HtmlReportWriter;
+use std::path::Path;
+
+let verdicts = vec![result.verdict_record().clone()];
+HtmlReportWriter::write_to_file(Path::new("report.html"), &verdicts, None).unwrap();
+```
+
+Generation shells out to `xsltproc`, which must be installed and on `PATH` (macOS: `brew install libxslt`; Debian/Ubuntu: `apt install xsltproc`). A showcase report covering all verdict elements can be produced with `cargo run --example sample_html_report`, which writes `target/sample-report.html`.
+
+---
+
+## Part 13: What's next
+
+`feotest` is in active development and the API is not yet stable. See the [CHANGELOG](../CHANGELOG.md) for what each release added, and [feotest-examples](https://github.com/mavai-org/feotest-examples) for worked examples demonstrating the framework's current capabilities — including the deployable reliability sentinel, covariate-matched baselines, budgets, pacing, and the threshold approaches side by side.
