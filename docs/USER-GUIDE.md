@@ -745,17 +745,88 @@ leaves the run unpaced.
 
 ---
 
-## Part 10: What's next
+## Part 10: The `#[probabilistic_test]` macro
 
-`feotest` is in active development. The roadmap includes:
+When a single criterion suffices, the whole test can be authored at the test site with the `#[probabilistic_test]` attribute — no separate `ServiceContract` type. The function body is the criterion's postcondition; the attribute carries the sampling plan.
 
-- **Latency dimension** — multi-dimensional verdicts (pass rate and latency)
-- **Covariate-aware baseline selection** — matching test conditions to baselines
-- **Early termination** — stopping when success or failure is inevitable
-- **Sentinel binary** — a standalone CLI for production reliability monitoring
-- **`#[feotest]` proc-macro** — ergonomic test declaration
-- **Transparent statistics** — detailed statistical reasoning in verdict output
-- **HTML reports** — standalone report generation from verdict XML
+```rust
+use feotest::model::ContractViolation;
+use feotest::probabilistic_test;
 
-See [feotest-examples](https://github.com/mavai-org/feotest-examples) for
-worked examples demonstrating the framework's current capabilities.
+#[probabilistic_test(
+    samples = 100,
+    threshold = 0.99,
+    threshold_origin = "sla",
+    contract_ref = "Payment Provider SLA v2.0 §4.1",
+    intent = "smoke"
+)]
+fn payment_gateway_meets_sla(_input: &str) -> Result<(), ContractViolation> {
+    let result = gateway.charge("tok_visa_4242", 1999);
+    if result.is_success() {
+        Ok(())
+    } else {
+        Err(ContractViolation::new("transaction", "payment declined"))
+    }
+}
+```
+
+### Attribute grammar
+
+The macro detects the operational approach from the attribute combination:
+
+| Approach | Required attributes |
+|---|---|
+| Threshold-first | `samples` + `threshold` |
+| Sample-size-first | `samples` + `confidence` + `spec` |
+
+`spec` is a baseline-spec path relative to the invoking crate's `Cargo.toml`, loaded when the test runs.
+
+Optional attributes:
+
+- `intent` — `"verification"` (the default) or `"smoke"`.
+- `threshold_origin` — `"sla"`, `"slo"`, `"policy"`, or `"empirical"`.
+- `contract_ref` — a human-readable document reference recorded in the verdict.
+
+### Function shape
+
+The function must not be `async` and takes zero or one `&str` parameter. The body judges one response and returns either `bool` (passes on `true`) or `Result<(), ContractViolation>` (passes on `Ok(())`).
+
+The macro expands to a `#[test]` function that lowers the body into a single-criterion service contract named after the function and runs it through the contract-driven path; the generated test asserts that the verdict passed. The `&str` parameter receives a fixed placeholder input — the macro form is for self-contained checks. When sampling should cycle over a real input set, use the `ServiceContract` trait and `ProbabilisticTest::for_contract` instead.
+
+---
+
+## Part 11: Transparent statistics
+
+After every probabilistic test, a one-line verdict summary is printed to stderr. Enabling **transparent statistics** adds a detailed box-format report showing the full statistical reasoning behind the verdict — the hypotheses, any feasibility warning, the observed data and inference (confidence interval, z-statistic, p-value), early-termination reasoning where it applied, and the verdict itself:
+
+```rust
+ProbabilisticTest::for_contract(MyService)
+    .inputs(&inputs)
+    .approach(approach)
+    .transparent_stats(true)
+    .run();
+```
+
+The renderer formats already-computed verdict data — it performs no statistical calculations of its own, so the report always shows exactly the numbers the verdict was decided on.
+
+---
+
+## Part 12: HTML reports
+
+`HtmlReportWriter` generates a self-contained HTML5 report from verdict records by serialising them to verdict XML and applying the embedded XSLT stylesheet:
+
+```rust
+use feotest::reporting::HtmlReportWriter;
+use std::path::Path;
+
+let verdicts = vec![result.verdict_record().clone()];
+HtmlReportWriter::write_to_file(Path::new("report.html"), &verdicts, None).unwrap();
+```
+
+Generation shells out to `xsltproc`, which must be installed and on `PATH` (macOS: `brew install libxslt`; Debian/Ubuntu: `apt install xsltproc`). A showcase report covering all verdict elements can be produced with `cargo run --example sample_html_report`, which writes `target/sample-report.html`.
+
+---
+
+## Part 13: What's next
+
+`feotest` is in active development and the API is not yet stable. See the [CHANGELOG](../CHANGELOG.md) for what each release added, and [feotest-examples](https://github.com/mavai-org/feotest-examples) for worked examples demonstrating the framework's current capabilities — including the deployable reliability sentinel, covariate-matched baselines, budgets, pacing, and the threshold approaches side by side.
