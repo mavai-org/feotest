@@ -220,6 +220,7 @@ fn build_per_criterion(
                 failures: counts.fail(),
                 failure_distribution: (!counts.failure_distribution().is_empty())
                     .then(|| counts.failure_distribution().clone()),
+                normative_judgement: None,
             };
             (counts.criterion().to_string(), stats)
         })

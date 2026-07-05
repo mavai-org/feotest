@@ -148,6 +148,57 @@ pub struct CriterionStatistics {
     /// Distribution of this criterion's failures by postcondition check name.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub failure_distribution: Option<std::collections::BTreeMap<String, u32>>,
+
+    /// Normative judgement rendered at measure time.
+    ///
+    /// Present only for criteria the measured contract declared with a
+    /// stipulated pass rate (a normative criterion); absent for empirical
+    /// criteria and for baselines generated before judgement recording
+    /// existed. Threshold derivation and spec resolution ignore this block —
+    /// it is a durable record for later readers of the file, not an input to
+    /// any computation.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub normative_judgement: Option<NormativeJudgementBlock>,
+}
+
+/// The recorded state of a normative judgement within a baseline spec.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum NormativeJudgementState {
+    /// The run's evidence cleared the stipulated threshold.
+    Met,
+    /// The run's evidence did not clear the stipulated threshold.
+    Failed,
+    /// The run's sample count could not support the stipulated threshold at
+    /// the judgement confidence, even with a perfect observation.
+    Unsupportable,
+}
+
+/// Normative judgement block within a baseline spec.
+///
+/// Records the relation of a measure run's evidence to a stipulation in
+/// force at measure time: the judgement state, the stipulated threshold it
+/// was judged against, and the confidence of the judgement. It states
+/// nothing further about the service under test — a failed judgement at
+/// measure time can be entirely expected (an aspirational bar measured
+/// mid-development, a fresh configuration characterised before tuning).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct NormativeJudgementBlock {
+    /// The judgement state.
+    pub state: NormativeJudgementState,
+
+    /// The stipulated threshold the run was judged against.
+    pub stipulated_threshold: f64,
+
+    /// The confidence level of the judgement.
+    pub confidence: f64,
+
+    /// The smallest sample count at which a perfect observation would clear
+    /// the stipulated threshold. Present only when `state` is
+    /// [`NormativeJudgementState::Unsupportable`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub feasible_minimum_samples: Option<u32>,
 }
 
 /// Latency block within a baseline spec.
@@ -439,6 +490,7 @@ mod tests {
                 successes: 950,
                 failures: 50,
                 failure_distribution: None,
+                normative_judgement: None,
             },
         );
         spec.statistics.per_criterion = Some(per_criterion);
@@ -451,6 +503,85 @@ mod tests {
         assert_eq!(criterion.successes, 950);
         assert_eq!(criterion.failures, 50);
         assert!((criterion.success_rate.observed - 0.95).abs() < 1e-10);
+    }
+
+    #[test]
+    fn normative_judgement_round_trips_through_yaml() {
+        let mut spec = sample_spec();
+        let mut per_criterion = BTreeMap::new();
+        per_criterion.insert(
+            "transaction succeeds".to_string(),
+            CriterionStatistics {
+                success_rate: SuccessRateBlock {
+                    observed: 0.983,
+                    standard_error: 0.0041,
+                    confidence_interval95: [0.9741, 0.9891],
+                },
+                successes: 983,
+                failures: 17,
+                failure_distribution: None,
+                normative_judgement: Some(NormativeJudgementBlock {
+                    state: NormativeJudgementState::Failed,
+                    stipulated_threshold: 0.99,
+                    confidence: 0.95,
+                    feasible_minimum_samples: None,
+                }),
+            },
+        );
+        spec.statistics.per_criterion = Some(per_criterion);
+
+        let yaml = spec.to_yaml().unwrap();
+        assert!(yaml.contains("normativeJudgement:"));
+        assert!(yaml.contains("state: failed"));
+        assert!(yaml.contains("stipulatedThreshold: 0.99"));
+        assert!(yaml.contains("confidence: 0.95"));
+
+        let restored = BaselineSpec::parse_yaml(&yaml).unwrap();
+        let judgement = restored.statistics.per_criterion.unwrap()["transaction succeeds"]
+            .normative_judgement
+            .clone()
+            .unwrap();
+        assert_eq!(judgement.state, NormativeJudgementState::Failed);
+        assert!((judgement.stipulated_threshold - 0.99).abs() < 1e-10);
+        assert!((judgement.confidence - 0.95).abs() < 1e-10);
+        assert!(judgement.feasible_minimum_samples.is_none());
+    }
+
+    #[test]
+    fn unsupportable_judgement_records_feasible_minimum() {
+        let block = NormativeJudgementBlock {
+            state: NormativeJudgementState::Unsupportable,
+            stipulated_threshold: 0.999,
+            confidence: 0.95,
+            feasible_minimum_samples: Some(2995),
+        };
+        let yaml = serde_yaml::to_string(&block).unwrap();
+        assert!(yaml.contains("state: unsupportable"));
+        assert!(yaml.contains("feasibleMinimumSamples: 2995"));
+
+        let restored: NormativeJudgementBlock = serde_yaml::from_str(&yaml).unwrap();
+        assert_eq!(restored.feasible_minimum_samples, Some(2995));
+    }
+
+    #[test]
+    fn normative_judgement_absent_by_default_and_pre_existing_specs_parse() {
+        // A per-criterion block written before judgement recording existed
+        // carries no normativeJudgement key — it must parse unchanged, with
+        // the judgement absent.
+        let yaml = "\
+successRate:
+  observed: 0.95
+  standardError: 0.0069
+  confidenceInterval95: [0.9364, 0.9636]
+successes: 950
+failures: 50
+";
+        let restored: CriterionStatistics = serde_yaml::from_str(yaml).unwrap();
+        assert!(restored.normative_judgement.is_none());
+
+        // And a freshly written block without a judgement omits the key.
+        let out = serde_yaml::to_string(&restored).unwrap();
+        assert!(!out.contains("normativeJudgement"));
     }
 
     #[test]
