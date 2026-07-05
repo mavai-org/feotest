@@ -366,10 +366,10 @@ mod tests {
             .write(&with_marker, &[], &CovariateProfile::empty())
             .unwrap();
 
-        let resolved = resolver.resolve("test-use-case").unwrap();
-        assert_eq!(resolved.statistics.successes, 90);
-        assert_eq!(resolved.statistics.failures, 10);
-        let criterion = &resolved.statistics.per_criterion.as_ref().unwrap()["content"];
+        let resolved_spec = resolver.resolve("test-use-case").unwrap();
+        assert_eq!(resolved_spec.statistics.successes, 90);
+        assert_eq!(resolved_spec.statistics.failures, 10);
+        let criterion = &resolved_spec.statistics.per_criterion.as_ref().unwrap()["content"];
         assert_eq!(criterion.successes, 90);
         assert_eq!(criterion.failures, 10);
         // The marker is carried through untouched for later readers.
