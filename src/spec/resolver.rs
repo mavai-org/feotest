@@ -324,6 +324,62 @@ mod tests {
     }
 
     #[test]
+    fn resolution_is_indifferent_to_the_normative_judgement_marker() {
+        use crate::spec::baseline::{
+            CriterionStatistics, NormativeJudgementBlock, NormativeJudgementState,
+        };
+        use std::collections::BTreeMap;
+
+        // Two identical specs, one carrying a normative-judgement marker.
+        // The resolver reads both, and everything threshold derivation
+        // consumes (successes, failures, per-criterion rates) is unchanged
+        // by the marker's presence.
+        let with_marker = {
+            let mut spec = sample_spec();
+            let mut per_criterion = BTreeMap::new();
+            per_criterion.insert(
+                "content".to_string(),
+                CriterionStatistics {
+                    success_rate: SuccessRateBlock {
+                        observed: 0.90,
+                        standard_error: 0.03,
+                        confidence_interval95: [0.85, 0.95],
+                    },
+                    successes: 90,
+                    failures: 10,
+                    failure_distribution: None,
+                    normative_judgement: Some(NormativeJudgementBlock {
+                        state: NormativeJudgementState::Failed,
+                        stipulated_threshold: 0.99,
+                        confidence: 0.95,
+                        feasible_minimum_samples: None,
+                    }),
+                },
+            );
+            spec.statistics.per_criterion = Some(per_criterion);
+            spec
+        };
+
+        let dir = tempfile::tempdir().unwrap();
+        let resolver = SpecResolver::with_dir(dir.path());
+        resolver
+            .write(&with_marker, &[], &CovariateProfile::empty())
+            .unwrap();
+
+        let resolved_spec = resolver.resolve("test-use-case").unwrap();
+        assert_eq!(resolved_spec.statistics.successes, 90);
+        assert_eq!(resolved_spec.statistics.failures, 10);
+        let criterion = &resolved_spec.statistics.per_criterion.as_ref().unwrap()["content"];
+        assert_eq!(criterion.successes, 90);
+        assert_eq!(criterion.failures, 10);
+        // The marker is carried through untouched for later readers.
+        assert_eq!(
+            criterion.normative_judgement.as_ref().unwrap().state,
+            NormativeJudgementState::Failed
+        );
+    }
+
+    #[test]
     fn write_and_resolve_round_trip() {
         let dir = tempfile::tempdir().unwrap();
         let resolver = SpecResolver::with_dir(dir.path());

@@ -11,11 +11,13 @@
 
 mod engine;
 mod explore;
+mod judgement;
 mod measure;
 mod optimize;
 
 pub use engine::{ContractExecutionResult, ExecutionEngine, ExecutionResult, SampleEvaluation};
 pub use explore::{ConfigResult, ExploreExperiment, ExploreResult};
+pub use judgement::{JudgementState, NormativeJudgement};
 pub use measure::MeasureExperiment;
 pub use optimize::{
     FactorMutator, IterationRecord, Objective, OptimizeExperiment, OptimizeResult, Scorer,

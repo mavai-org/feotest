@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- **Normative judgement at experiment time.** A measure experiment over a
+  contract that declares normative criteria
+  (`Criterion::meeting().pass_rate(..)`) now judges each one against its
+  stipulated threshold using the run's own samples — the one-sided Wilson
+  lower bound at the run's sample count, at the framework's default 95%
+  confidence. The judgement (met / failed / unsupportable-with-feasible-
+  minimum) is rendered in the experiment's output, recorded per criterion in
+  the baseline spec's additive, optional `normativeJudgement` block, and
+  exposed on `MeasureResult::judgements()`. Empirical criteria remain
+  unjudged at experiment time. `run()`'s completion semantics are unchanged —
+  it never fails on a failed judgement; the new `assert_meets()` terminal
+  (mutually exclusive with `run()`) performs the same run and persistence,
+  then fails the test case on a failed judgement and aborts it on an
+  unsupportable one, with the baseline spec on disk before any failure
+  propagates. Existing `feotest-spec-1` files parse unchanged; threshold
+  derivation and spec resolution ignore the new block.
+
 ## [0.1.2] - 2026-06-10
 
 ### Added

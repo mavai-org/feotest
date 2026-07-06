@@ -6,8 +6,9 @@ use std::time::Duration;
 use std::collections::BTreeMap;
 
 use crate::controls::{Cost, ExecutionConfig, PacingConfig, TokenRecorder};
-use crate::criteria::CriterionCounts;
+use crate::criteria::{CriterionCounts, CriterionTarget};
 use crate::experiment::engine::{ContractExecutionResult, ExecutionEngine, SampleEvaluation};
+use crate::experiment::judgement::{self, JudgementState, NormativeJudgement};
 use crate::service_contract::ServiceContract;
 use crate::spec::SpecResolver;
 use crate::spec::baseline::{
@@ -91,13 +92,99 @@ where
     /// side effect of writing the baseline spec to disk — so this
     /// method is deliberately **not** `#[must_use]`.
     ///
+    /// When the contract declares normative criteria
+    /// (`Criterion::meeting().pass_rate(..)`), each is judged against its
+    /// stipulated threshold using the run's own samples: the judgement is
+    /// rendered in the experiment's output and recorded in the baseline
+    /// spec, but never affects this method's completion — the judgement
+    /// states a relation to the stipulation, and characterising a service
+    /// below its bar is a legitimate outcome of a measurement. Use
+    /// [`assert_meets`](Self::assert_meets) to make the stipulations
+    /// binding instead.
+    ///
     /// # Panics
     ///
     /// Panics if a service invocation yields a defect (a transport failure or a
     /// caught panic) — a defect aborts the experiment.
+    #[allow(
+        clippy::must_use_candidate,
+        reason = "callers commonly run for the baseline-persistence side effect alone"
+    )]
     pub fn run(self) -> MeasureResult {
+        self.execute(false)
+    }
+
+    /// Runs the measure experiment and asserts every normative judgement.
+    ///
+    /// The gating alternative to [`run`](Self::run) — the two are mutually
+    /// exclusive terminals on the built experiment. `assert_meets` performs
+    /// the same run and the same baseline persistence, then asserts: the
+    /// baseline spec is on disk before any failure propagates, so a failed
+    /// stipulation never costs the baseline.
+    ///
+    /// Empirical criteria in the same contract are characterised exactly as
+    /// under [`run`](Self::run), never judged.
+    ///
+    /// # Panics
+    ///
+    /// - If the contract declares no normative criteria — nothing to assert;
+    ///   this is a configuration defect, use [`run`](Self::run). Detected
+    ///   before any samples execute.
+    /// - If any normative judgement is unsupportable at the run's sample
+    ///   count, with a message stating the feasible minimum sample count.
+    /// - If any normative judgement failed — the run's evidence did not
+    ///   clear a stipulated threshold.
+    /// - In every case in which [`run`](Self::run) panics (a defect aborts
+    ///   the experiment).
+    pub fn assert_meets(self) {
+        let result = self.execute(true);
+        // The baseline spec is already persisted inside execute; only now
+        // may a failure propagate.
+        let unsupportable: Vec<&NormativeJudgement> = result
+            .judgements()
+            .iter()
+            .filter(|j| matches!(j.state(), JudgementState::Unsupportable { .. }))
+            .collect();
+        assert!(
+            unsupportable.is_empty(),
+            "\n\nnormative judgement unsupportable at this sample size:\n{}\n",
+            render_judgement_lines(&unsupportable)
+        );
+        let failed: Vec<&NormativeJudgement> = result
+            .judgements()
+            .iter()
+            .filter(|j| j.state() == JudgementState::Failed)
+            .collect();
+        assert!(
+            failed.is_empty(),
+            "\n\nnormative judgement failed:\n{}\n",
+            render_judgement_lines(&failed)
+        );
+    }
+
+    /// The shared execution path behind [`run`](Self::run) and
+    /// [`assert_meets`](Self::assert_meets): sampling, normative judgement,
+    /// baseline persistence, and output rendering — in that order.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `require_normative` is set and the contract declares no
+    /// normative criteria, or if a service invocation yields a defect.
+    fn execute(self, require_normative: bool) -> MeasureResult {
         let service_contract = (self.factory)();
         let criteria = service_contract.criteria();
+        if require_normative {
+            let has_normative = criteria
+                .targets()
+                .iter()
+                .any(|(_, target)| matches!(target, CriterionTarget::NormativeRate(_)));
+            assert!(
+                has_normative,
+                "assert_meets() requires at least one normative criterion \
+                 (Criterion::meeting().pass_rate(..)) — a contract with no stipulated \
+                 thresholds has nothing to assert; use run()"
+            );
+        }
 
         let token_recorder = TokenRecorder::new();
         let result = {
@@ -126,12 +213,16 @@ where
             })
         };
 
+        let judgements =
+            judgement::judge_normative_criteria(&criteria.targets(), result.criteria_counts());
+
         let spec = build_spec(
             &self.service_contract_id,
             &self.config,
             &result,
             self.experiment_id.as_deref(),
             self.expires_in_days,
+            &judgements,
         );
 
         let cov_keys: Vec<&str> = self.covariate_keys.iter().map(String::as_str).collect();
@@ -141,12 +232,68 @@ where
                 .ok()
         });
 
+        render_output(
+            &self.service_contract_id,
+            &result,
+            &judgements,
+            spec_path.as_deref(),
+        );
+
         MeasureResult {
             execution: result,
             spec,
             spec_path,
+            judgements,
         }
     }
+}
+
+/// Renders the experiment's normative judgements to standard output, each
+/// against the criterion's measured characterisation. Silent for contracts
+/// with no normative criteria — the characterisation lives in the baseline
+/// spec, and there is no judgement to distinguish it from.
+fn render_output(
+    service_contract_id: &str,
+    result: &ContractExecutionResult,
+    judgements: &[NormativeJudgement],
+    spec_path: Option<&std::path::Path>,
+) {
+    if judgements.is_empty() {
+        return;
+    }
+    println!(
+        "measure \"{service_contract_id}\": {} samples",
+        result.summary().samples_executed()
+    );
+    for judgement in judgements {
+        let (pass, total) = result
+            .criteria_counts()
+            .get(judgement.criterion())
+            .map_or((0, 0), |tally| (tally.pass(), tally.total()));
+        match judgement.observed_rate() {
+            Some(rate) => println!(
+                "  criterion \"{}\": observed {rate:.4} ({pass}/{total})",
+                judgement.criterion()
+            ),
+            None => println!(
+                "  criterion \"{}\": no samples recorded",
+                judgement.criterion()
+            ),
+        }
+        println!("  {judgement}");
+    }
+    if let Some(path) = spec_path {
+        println!("  baseline written: {}", path.display());
+    }
+}
+
+/// Renders one line per judgement, for assertion messages.
+fn render_judgement_lines(judgements: &[&NormativeJudgement]) -> String {
+    judgements
+        .iter()
+        .map(|j| format!("  criterion \"{}\": {j}", j.criterion()))
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 fn build_spec(
@@ -155,6 +302,7 @@ fn build_spec(
     result: &ContractExecutionResult,
     experiment_id: Option<&str>,
     expires_in_days: u32,
+    judgements: &[NormativeJudgement],
 ) -> BaselineSpec {
     let summary = result.summary();
     let successes = summary.successes();
@@ -178,7 +326,7 @@ fn build_spec(
             ),
             // Each criterion's own measured rate, so an empirical criterion can
             // later derive its target from its own baseline.
-            per_criterion: build_per_criterion(result),
+            per_criterion: build_per_criterion(result, judgements),
         },
     );
 
@@ -201,14 +349,19 @@ fn build_spec(
 
 /// Builds the per-criterion baseline statistics from the run's tallies.
 ///
-/// Emitted only for multi-criterion contracts: with a single criterion the
-/// aggregate figures already describe it, and an empirical criterion testing
-/// against such a baseline falls back to the aggregate rate.
+/// Emitted for multi-criterion contracts — so an empirical criterion testing
+/// against the baseline can later derive its target from its own rate — and
+/// whenever a normative judgement was rendered, since the judgement marker is
+/// recorded per criterion. A single-criterion contract with no normative
+/// criterion emits no block: the aggregate figures already describe it, and
+/// an empirical criterion testing against such a baseline falls back to the
+/// aggregate rate.
 fn build_per_criterion(
     result: &ContractExecutionResult,
+    judgements: &[NormativeJudgement],
 ) -> Option<BTreeMap<String, CriterionStatistics>> {
     let per = result.criteria_counts().per_criterion();
-    if per.len() <= 1 {
+    if per.len() <= 1 && judgements.is_empty() {
         return None;
     }
     let map = per
@@ -220,6 +373,10 @@ fn build_per_criterion(
                 failures: counts.fail(),
                 failure_distribution: (!counts.failure_distribution().is_empty())
                     .then(|| counts.failure_distribution().clone()),
+                normative_judgement: judgements
+                    .iter()
+                    .find(|j| j.criterion() == counts.criterion())
+                    .map(NormativeJudgement::to_spec_block),
             };
             (counts.criterion().to_string(), stats)
         })
@@ -463,6 +620,7 @@ pub struct MeasureResult {
     execution: ContractExecutionResult,
     spec: BaselineSpec,
     spec_path: Option<PathBuf>,
+    judgements: Vec<NormativeJudgement>,
 }
 
 impl MeasureResult {
@@ -482,6 +640,15 @@ impl MeasureResult {
     #[must_use]
     pub fn spec_path(&self) -> Option<&std::path::Path> {
         self.spec_path.as_deref()
+    }
+
+    /// The normative judgements rendered for this run, one per normative
+    /// criterion the contract declared, in declaration order. Empty when the
+    /// contract declares no normative criteria — empirical criteria are
+    /// never judged at experiment time.
+    #[must_use]
+    pub fn judgements(&self) -> &[NormativeJudgement] {
+        &self.judgements
     }
 }
 
@@ -752,6 +919,324 @@ mod tests {
             exp.expiration_date,
             crate::spec::common::iso8601_plus_days(&exp.baseline_end_time, 30).unwrap()
         );
+    }
+
+    // --- Normative judgement at experiment time ---
+
+    use crate::spec::baseline::NormativeJudgementState;
+
+    /// A contract with one normative criterion at a configurable stipulated
+    /// rate, judging a service that fails every third invocation
+    /// (observed rate ≈ 2/3).
+    struct StipulatedService {
+        stipulated: f64,
+        calls: AtomicU32,
+    }
+
+    impl StipulatedService {
+        fn with_stipulation(stipulated: f64) -> Self {
+            Self {
+                stipulated,
+                calls: AtomicU32::new(0),
+            }
+        }
+    }
+
+    impl ServiceContract for StipulatedService {
+        type Input = String;
+        type Output = String;
+
+        fn id(&self) -> &'static str {
+            "stipulated-service"
+        }
+
+        fn invoke(&self, _input: &String, _cost: &mut Cost) -> Result<String, Defect> {
+            let n = self.calls.fetch_add(1, Ordering::Relaxed) + 1;
+            Ok(if n % 3 == 0 { "fail" } else { "ok" }.to_string())
+        }
+
+        fn criteria(&self) -> Criteria<String> {
+            let stipulated = self.stipulated;
+            Criteria::of([Criterion::meeting()
+                .pass_rate(stipulated)
+                .name("content")
+                .satisfies("parse", |r: &String| -> Outcome {
+                    if r == "fail" {
+                        Err(ContractViolation::new("parse", "bad json"))
+                    } else {
+                        Ok(())
+                    }
+                })
+                .build()])
+        }
+    }
+
+    /// A contract mixing a normative criterion with an empirical one.
+    struct MixedTargetsService;
+
+    impl ServiceContract for MixedTargetsService {
+        type Input = String;
+        type Output = String;
+
+        fn id(&self) -> &'static str {
+            "mixed-targets"
+        }
+
+        fn invoke(&self, input: &String, _cost: &mut Cost) -> Result<String, Defect> {
+            Ok(input.clone())
+        }
+
+        fn criteria(&self) -> Criteria<String> {
+            Criteria::of([
+                Criterion::meeting()
+                    .pass_rate(0.5)
+                    .name("stipulated")
+                    .satisfies("always", |_: &String| -> Outcome { Ok(()) })
+                    .build(),
+                Criterion::empirical()
+                    .pass_rate()
+                    .name("measured")
+                    .satisfies("always", |_: &String| -> Outcome { Ok(()) })
+                    .build(),
+            ])
+        }
+    }
+
+    /// A contract with only an empirical criterion. When `reachable` is
+    /// false, `invoke` panics — used to prove that `assert_meets` detects
+    /// the configuration defect before any sample executes.
+    struct EmpiricalOnlyService {
+        reachable: bool,
+    }
+
+    impl ServiceContract for EmpiricalOnlyService {
+        type Input = String;
+        type Output = String;
+
+        fn id(&self) -> &'static str {
+            "empirical-only"
+        }
+
+        fn invoke(&self, input: &String, _cost: &mut Cost) -> Result<String, Defect> {
+            assert!(
+                self.reachable,
+                "a configuration defect must be detected before sampling"
+            );
+            Ok(input.clone())
+        }
+
+        fn criteria(&self) -> Criteria<String> {
+            Criteria::of([Criterion::empirical()
+                .pass_rate()
+                .name("measured")
+                .satisfies("always", |_: &String| -> Outcome { Ok(()) })
+                .build()])
+        }
+    }
+
+    /// The number of baseline spec files written into `dir`.
+    fn written_spec_count(dir: &std::path::Path) -> usize {
+        std::fs::read_dir(dir)
+            .unwrap()
+            .filter(|e| {
+                e.as_ref()
+                    .unwrap()
+                    .path()
+                    .extension()
+                    .is_some_and(|x| x == "yaml")
+            })
+            .count()
+    }
+
+    fn measure_stipulated(stipulated: f64, samples: u32) -> MeasureResult {
+        let inputs = vec!["input".to_string()];
+        MeasureExperiment::builder()
+            .service_contract_id("stipulated-service")
+            .service_contract(move || StipulatedService::with_stipulation(stipulated))
+            .samples(samples)
+            .inputs(&inputs)
+            .build()
+            .run()
+    }
+
+    #[test]
+    fn clearing_evidence_reports_met_and_records_the_marker() {
+        // Observed ≈ 2/3 against a stipulation of 0.5: the Wilson lower
+        // bound at 300 samples clears it.
+        let result = measure_stipulated(0.5, 300);
+
+        assert_eq!(result.judgements().len(), 1);
+        assert_eq!(result.judgements()[0].state(), JudgementState::Met);
+
+        let marker = result.spec().statistics.per_criterion.as_ref().unwrap()["content"]
+            .normative_judgement
+            .clone()
+            .unwrap();
+        assert_eq!(marker.state, NormativeJudgementState::Met);
+        assert!((marker.stipulated_threshold - 0.5).abs() < 1e-12);
+        assert!((marker.confidence - 0.95).abs() < 1e-12);
+    }
+
+    #[test]
+    fn short_evidence_reports_failed_and_run_still_completes() {
+        // Observed ≈ 2/3 against a stipulation of 0.9: failed — and run()
+        // completes regardless, with the baseline spec intact.
+        let result = measure_stipulated(0.9, 300);
+
+        assert_eq!(result.judgements()[0].state(), JudgementState::Failed);
+        assert_eq!(result.spec().statistics.successes, 200);
+
+        let marker = result.spec().statistics.per_criterion.as_ref().unwrap()["content"]
+            .normative_judgement
+            .clone()
+            .unwrap();
+        assert_eq!(marker.state, NormativeJudgementState::Failed);
+        assert!(marker.feasible_minimum_samples.is_none());
+    }
+
+    #[test]
+    fn undersized_run_reports_unsupportable_with_feasible_minimum() {
+        // 10 samples cannot support a 0.99 stipulation at 95% confidence,
+        // even with a perfect observation. No panic, no silent omission.
+        let result = measure_stipulated(0.99, 10);
+
+        let JudgementState::Unsupportable {
+            feasible_minimum_samples,
+        } = result.judgements()[0].state()
+        else {
+            panic!("expected unsupportable");
+        };
+        assert!(feasible_minimum_samples > 10);
+
+        let marker = result.spec().statistics.per_criterion.as_ref().unwrap()["content"]
+            .normative_judgement
+            .clone()
+            .unwrap();
+        assert_eq!(marker.state, NormativeJudgementState::Unsupportable);
+        assert_eq!(
+            marker.feasible_minimum_samples,
+            Some(feasible_minimum_samples)
+        );
+    }
+
+    #[test]
+    fn mixed_contract_judges_only_the_normative_criterion() {
+        let inputs = vec!["input".to_string()];
+        let result = MeasureExperiment::builder()
+            .service_contract_id("mixed-targets")
+            .service_contract(|| MixedTargetsService)
+            .samples(50)
+            .inputs(&inputs)
+            .build()
+            .run();
+
+        assert_eq!(result.judgements().len(), 1);
+        assert_eq!(result.judgements()[0].criterion(), "stipulated");
+
+        let per_criterion = result.spec().statistics.per_criterion.as_ref().unwrap();
+        assert!(per_criterion["stipulated"].normative_judgement.is_some());
+        assert!(per_criterion["measured"].normative_judgement.is_none());
+    }
+
+    #[test]
+    fn contract_without_normative_criteria_yields_no_judgements() {
+        let inputs = vec!["input".to_string()];
+        let result = MeasureExperiment::builder()
+            .service_contract_id("empirical-only")
+            .service_contract(|| EmpiricalOnlyService { reachable: true })
+            .samples(10)
+            .inputs(&inputs)
+            .build()
+            .run();
+        assert!(result.judgements().is_empty());
+        // A single empirical criterion also emits no per-criterion block —
+        // the aggregate figures already describe it.
+        assert!(result.spec().statistics.per_criterion.is_none());
+    }
+
+    #[test]
+    fn assert_meets_completes_when_every_judgement_is_met() {
+        let inputs = vec!["input".to_string()];
+        let dir = tempfile::tempdir().unwrap();
+        MeasureExperiment::builder()
+            .service_contract_id("stipulated-service")
+            .service_contract(|| StipulatedService::with_stipulation(0.5))
+            .samples(300)
+            .inputs(&inputs)
+            .baseline_dir(dir.path())
+            .build()
+            .assert_meets();
+        assert!(written_spec_count(dir.path()) == 1);
+    }
+
+    #[test]
+    fn assert_meets_fails_the_harness_after_persisting_the_baseline() {
+        let inputs = vec!["input".to_string()];
+        let dir = tempfile::tempdir().unwrap();
+
+        let path = dir.path().to_path_buf();
+        let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            MeasureExperiment::builder()
+                .service_contract_id("stipulated-service")
+                .service_contract(|| StipulatedService::with_stipulation(0.9))
+                .samples(300)
+                .inputs(&inputs)
+                .baseline_dir(path)
+                .build()
+                .assert_meets();
+        }));
+
+        let panic_payload = outcome.expect_err("a failed judgement must fail the harness");
+        let message = panic_payload
+            .downcast_ref::<String>()
+            .cloned()
+            .unwrap_or_default();
+        assert!(message.contains("normative judgement failed"));
+        assert!(message.contains("stipulated threshold 0.9"));
+        // Persistence strictly precedes assertion: the baseline spec is on
+        // disk even though the stipulation failed.
+        assert!(written_spec_count(dir.path()) == 1);
+    }
+
+    #[test]
+    fn assert_meets_reports_unsupportable_with_the_feasible_minimum() {
+        let inputs = vec!["input".to_string()];
+        let dir = tempfile::tempdir().unwrap();
+
+        let path = dir.path().to_path_buf();
+        let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            MeasureExperiment::builder()
+                .service_contract_id("stipulated-service")
+                .service_contract(|| StipulatedService::with_stipulation(0.99))
+                .samples(10)
+                .inputs(&inputs)
+                .baseline_dir(path)
+                .build()
+                .assert_meets();
+        }));
+
+        let panic_payload = outcome.expect_err("an unsupportable judgement must abort the case");
+        let message = panic_payload
+            .downcast_ref::<String>()
+            .cloned()
+            .unwrap_or_default();
+        assert!(message.contains("unsupportable at this sample size"));
+        assert!(message.contains("feasible minimum"));
+        // The baseline spec is still persisted before the abort.
+        assert!(written_spec_count(dir.path()) == 1);
+    }
+
+    #[test]
+    #[should_panic(expected = "requires at least one normative criterion")]
+    fn assert_meets_on_a_contract_without_normative_criteria_is_a_defect() {
+        let inputs = vec!["input".to_string()];
+        MeasureExperiment::builder()
+            .service_contract_id("empirical-only")
+            .service_contract(|| EmpiricalOnlyService { reachable: false })
+            .samples(10)
+            .inputs(&inputs)
+            .build()
+            .assert_meets();
     }
 
     // --- Builder precondition tests (setter-level validation) ---

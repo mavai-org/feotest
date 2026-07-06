@@ -408,6 +408,26 @@ interval, and derived threshold.
 
 See [Part 2](#step-2-measure) for a full example.
 
+#### Normative judgement at experiment time
+
+When the measured contract declares normative criteria (`Criterion::meeting().pass_rate(..)`), the measure experiment judges each one against its stipulated threshold using the run's own samples: the criterion is **met** when the one-sided Wilson lower bound of its observed rate — at the run's sample count, at 95% confidence — clears the stipulation, **failed** when it does not, and **unsupportable** when the run's sample count cannot support the stipulated threshold at that confidence even with a perfect observation (the output states the feasible minimum sample count). Empirical criteria are never judged at experiment time — their bar does not exist until a baseline supplies it.
+
+The judgement is rendered in the experiment's console output alongside the measured characterisation, and recorded per criterion in the baseline spec's `normativeJudgement` block (state, stipulated threshold, confidence). It states a relation to the stipulation, nothing more: a failed judgement at measure time can be entirely expected — an aspirational bar measured mid-development, a fresh configuration characterised before tuning.
+
+`run()` never fails on a failed judgement. To make the stipulations binding, finish the builder with `assert_meets()` instead of `run()` — the two are mutually exclusive terminals:
+
+```rust
+MeasureExperiment::builder()
+    .service_contract_id("my-service")
+    .service_contract(|| MyService)
+    .samples(1000)
+    .inputs(&inputs)
+    .build()
+    .assert_meets();
+```
+
+`assert_meets()` performs the same run and the same baseline persistence — the spec file is on disk before any failure propagates — then fails the test case if any normative judgement failed, and aborts it (stating the feasible minimum) if any judgement is unsupportable at the run's sample count. Calling it on a contract with no normative criteria is a configuration defect, detected before any samples execute.
+
 ### Explore
 
 Compares multiple configurations with small sample sizes. Each configuration is executed independently with the same inputs, driven by the contract instance the factory builds for its factor. Use this before committing to a configuration for measurement.
@@ -523,6 +543,26 @@ cost:
 ```
 
 The `useCaseId` key carries the service contract ID — the key name is fixed by the `feotest-spec-1` schema for compatibility with existing baselines.
+
+Multi-criterion contracts additionally emit a `perCriterion` block under `statistics`, carrying each criterion's own counts and rate. A criterion the contract declared with a stipulated pass rate also carries a `normativeJudgement` block there — the judgement rendered at measure time (see [Normative judgement at experiment time](#normative-judgement-at-experiment-time)):
+
+```yaml
+statistics:
+  perCriterion:
+    transaction succeeds:
+      successRate:
+        observed: 0.983
+        standardError: 0.0041
+        confidenceInterval95: [0.9741, 0.9891]
+      successes: 983
+      failures: 17
+      normativeJudgement:
+        state: failed            # met | failed | unsupportable
+        stipulatedThreshold: 0.99
+        confidence: 0.95
+```
+
+Both blocks are additive and optional: spec files written before they existed parse unchanged, and threshold derivation and spec resolution ignore the `normativeJudgement` block entirely — it is a durable record for later readers of the file.
 
 ### Spec resolution
 
