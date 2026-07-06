@@ -131,7 +131,11 @@ where
     ///   this is a configuration defect, use [`run`](Self::run). Detected
     ///   before any samples execute.
     /// - If any normative judgement is unsupportable at the run's sample
-    ///   count, with a message stating the feasible minimum sample count.
+    ///   count. The cargo harness has no abort channel, so the failure's
+    ///   distinct wording — `unsupportable judgement at this sample size`,
+    ///   with the feasible minimum stated — is what distinguishes a run
+    ///   that could not answer the question from one that answered it
+    ///   unfavourably (`normative judgement failed`).
     /// - If any normative judgement failed — the run's evidence did not
     ///   clear a stipulated threshold.
     /// - In every case in which [`run`](Self::run) panics (a defect aborts
@@ -147,7 +151,7 @@ where
             .collect();
         assert!(
             unsupportable.is_empty(),
-            "\n\nnormative judgement unsupportable at this sample size:\n{}\n",
+            "\n\nunsupportable judgement at this sample size:\n{}\n",
             render_judgement_lines(&unsupportable)
         );
         let failed: Vec<&NormativeJudgement> = result
@@ -1220,7 +1224,8 @@ mod tests {
             .downcast_ref::<String>()
             .cloned()
             .unwrap_or_default();
-        assert!(message.contains("unsupportable at this sample size"));
+        assert!(message.contains("unsupportable judgement at this sample size"));
+        assert!(!message.contains("normative judgement failed"));
         assert!(message.contains("feasible minimum"));
         // The baseline spec is still persisted before the abort.
         assert!(written_spec_count(dir.path()) == 1);

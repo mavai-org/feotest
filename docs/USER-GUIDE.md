@@ -426,7 +426,7 @@ MeasureExperiment::builder()
     .assert_meets();
 ```
 
-`assert_meets()` performs the same run and the same baseline persistence — the spec file is on disk before any failure propagates — then fails the test case if any normative judgement failed, and aborts it (stating the feasible minimum) if any judgement is unsupportable at the run's sample count. Calling it on a contract with no normative criteria is a configuration defect, detected before any samples execute.
+`assert_meets()` performs the same run and the same baseline persistence — the spec file is on disk before any failure propagates — then fails the test case if any judgement did not come out as met. The two situations carry distinct wording, because they mean different things: a panic headed `normative judgement failed` says the run's evidence did not clear a stipulation; one headed `unsupportable judgement at this sample size` says the run could not answer the question at this sample count (the message states the feasible minimum). The cargo harness has no abort/skip channel, so the wording is the discriminator — it mirrors punit's typed `UnsupportableJudgementException` abort. Calling `assert_meets()` on a contract with no normative criteria is a configuration defect, detected before any samples execute.
 
 ### Explore
 

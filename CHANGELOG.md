@@ -21,8 +21,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   unjudged at experiment time. `run()`'s completion semantics are unchanged —
   it never fails on a failed judgement; the new `assert_meets()` terminal
   (mutually exclusive with `run()`) performs the same run and persistence,
-  then fails the test case on a failed judgement and aborts it on an
-  unsupportable one, with the baseline spec on disk before any failure
+  then fails the test case on a failed judgement (`normative judgement
+  failed`) and on an unsupportable one under distinct wording
+  (`unsupportable judgement at this sample size`, stating the feasible
+  minimum), with the baseline spec on disk before any failure
   propagates. Existing `feotest-spec-1` files parse unchanged; threshold
   derivation and spec resolution ignore the new block.
 
