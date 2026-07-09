@@ -14,7 +14,10 @@
         "confidence": 0.95
       },
       "expected": {
-        "threshold": 0.872384625855458
+        "threshold": 0.872384625855458,
+        "wilson_lower_real": 0.872384625855458,
+        "cutoff_integer": 44,
+        "achieved_size": 0.0117864477972644
       }
     },
     {
@@ -27,7 +30,10 @@
         "confidence": 0.95
       },
       "expected": {
-        "threshold": 0.900838914720947
+        "threshold": 0.900838914720947,
+        "wilson_lower_real": 0.900838914720947,
+        "cutoff_integer": 91,
+        "achieved_size": 0.0281882941634163
       }
     },
     {
@@ -40,7 +46,10 @@
         "confidence": 0.95
       },
       "expected": {
-        "threshold": 0.905664335522471
+        "threshold": 0.905664335522471,
+        "wilson_lower_real": 0.905664335522471,
+        "cutoff_integer": 46,
+        "achieved_size": 0.0100504382370853
       }
     },
     {
@@ -53,7 +62,10 @@
         "confidence": 0.95
       },
       "expected": {
-        "threshold": 0.968628914619744
+        "threshold": 0.968628914619744,
+        "wilson_lower_real": 0.968628914619744,
+        "cutoff_integer": 97,
+        "achieved_size": 0.000169061205239264
       }
     },
     {
@@ -66,7 +78,10 @@
         "confidence": 0.95
       },
       "expected": {
-        "threshold": 0.872384625855458
+        "threshold": 0.872384625855458,
+        "wilson_lower_real": 0.872384625855458,
+        "cutoff_integer": 44,
+        "achieved_size": 0.0117864477972644
       }
     },
     {
@@ -79,7 +94,10 @@
         "confidence": 0.95
       },
       "expected": {
-        "threshold": 0.918108167081791
+        "threshold": 0.918108167081791,
+        "wilson_lower_real": 0.918108167081791,
+        "cutoff_integer": 184,
+        "achieved_size": 0.023799459747173
       }
     },
     {
@@ -92,7 +110,26 @@
         "confidence": 0.99
       },
       "expected": {
-        "threshold": 0.824989729472328
+        "threshold": 0.824989729472328,
+        "wilson_lower_real": 0.824989729472328,
+        "cutoff_integer": 42,
+        "achieved_size": 0.000755984691221479
+      }
+    },
+    {
+      "name": "ssf_sc_ru_02_worked_example",
+      "approach": "sample_size_first",
+      "inputs": {
+        "baseline_successes": 951,
+        "baseline_trials": 1000,
+        "test_samples": 100,
+        "confidence": 0.95
+      },
+      "expected": {
+        "threshold": 0.902123591001564,
+        "wilson_lower_real": 0.902123591001564,
+        "cutoff_integer": 91,
+        "achieved_size": 0.0249856283219066
       }
     },
     {

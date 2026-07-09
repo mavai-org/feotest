@@ -2,14 +2,14 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/mavai-org/mavai-R/schema/cases.schema.json",
   "title": "mavai-R conformance case suite",
-  "description": "Schema for statistical conformance reference datasets produced by mavai-R. Each JSON file represents one suite of test cases.",
+  "description": "Schema for statistical conformance reference datasets produced by mavai-R. Each JSON file represents one suite of test cases. Top-level shape is uniform across suites; the inputs/expected payloads vary per suite. See R/*.R generators for the per-suite payload shape.",
   "type": "object",
   "required": ["suite", "description", "method", "tolerance", "cases"],
   "additionalProperties": false,
   "properties": {
     "suite": {
       "type": "string",
-      "description": "Machine-readable suite identifier (e.g. 'wilson_ci', 'verdict')."
+      "description": "Machine-readable suite identifier (e.g. 'wilson_ci', 'verdict', 'criterion_verdict_inferential')."
     },
     "description": {
       "type": "string",
@@ -28,38 +28,62 @@
       "type": "array",
       "minItems": 1,
       "description": "The individual test cases in this suite.",
-      "items": {
-        "type": "object",
-        "required": ["name", "inputs", "expected"],
-        "properties": {
-          "name": {
-            "type": "string",
-            "description": "Unique, descriptive case identifier within this suite."
-          },
-          "approach": {
-            "type": "string",
-            "description": "Sub-approach within the suite (e.g. 'sample_size_first', 'threshold_first'). Present only in suites with multiple derivation strategies."
-          },
-          "inputs": {
-            "type": "object",
-            "description": "Input parameters for the statistical computation. Keys vary by suite.",
-            "additionalProperties": {
-              "oneOf": [
-                { "type": "number" },
-                { "type": "array", "items": { "type": "number" } }
-              ]
-            }
-          },
-          "expected": {
-            "type": "object",
-            "description": "Expected outputs from R's reference computation. Keys vary by suite. Numeric values should be compared within the suite's tolerance. Boolean and string values should be compared exactly.",
-            "additionalProperties": {
-              "type": ["number", "boolean", "string"]
-            }
-          }
+      "items": { "$ref": "#/$defs/case" }
+    }
+  },
+  "$defs": {
+    "case": {
+      "type": "object",
+      "required": ["name", "inputs", "expected"],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Unique, descriptive case identifier within this suite."
         },
-        "additionalProperties": false
+        "description": {
+          "type": "string",
+          "description": "Optional per-case description, used in suites where individual cases warrant prose explanation."
+        },
+        "approach": {
+          "type": "string",
+          "description": "Sub-approach within the suite (e.g. 'sample_size_first', 'threshold_first'). Present only in suites with multiple derivation strategies."
+        },
+        "procedure": {
+          "type": "string",
+          "enum": ["REGRESSION", "COMPLIANCE"],
+          "description": "Procedure direction per companion §3.2 / §1.4.6 (SC-RU-05). Present on inferential per-criterion cases."
+        },
+        "inputs": {
+          "description": "Input parameters for the statistical computation. Shape varies by suite. Computation suites use a flat numeric-keyed object; per-criterion verdict suites add procedure/denominator_policy strings; baseline-object and scenario suites carry nested baseline / test_run objects.",
+          "$ref": "#/$defs/anyJson"
+        },
+        "expected": {
+          "description": "Expected outputs from R's reference computation. Shape varies by suite. Numeric values are compared within the suite's tolerance; boolean / string values are compared exactly; nested objects are compared structurally.",
+          "$ref": "#/$defs/anyJson"
+        }
       }
+    },
+    "anyJson": {
+      "description": "Any JSON value: number, boolean, string, null, array, or object. Used where the schema cannot tightly constrain the shape because it varies per suite.",
+      "oneOf": [
+        { "type": "number" },
+        { "type": "boolean" },
+        { "type": "string" },
+        { "type": "null" },
+        { "type": "array", "items": { "$ref": "#/$defs/anyJson" } },
+        { "type": "object", "additionalProperties": { "$ref": "#/$defs/anyJson" } }
+      ]
+    },
+    "denominatorPolicy": {
+      "type": "string",
+      "enum": ["CONDITIONAL_ON_EVALUABLE", "MARGINAL_COUNT_UNEVALUABLE_AS_FAIL"],
+      "description": "Per companion §1.4.5a, the methodology defines exactly two denominator policies. Cited from R generators that need to validate this enum explicitly."
+    },
+    "criterionMode": {
+      "type": "string",
+      "enum": ["inferential", "observational"],
+      "description": "Per companion §1.4.5."
     }
   }
 }

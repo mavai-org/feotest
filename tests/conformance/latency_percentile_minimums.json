@@ -1,0 +1,136 @@
+{
+  "suite": "latency_percentile_minimums",
+  "description": "Minimum sample sizes for empirical latency percentiles (p50/p90/p95/p99) — the single published standard every mavai framework's gating table must equal exactly. Cases with approach 'emission_non_degeneracy' carry the Statistical Companion §12.5.2 minimums for emitting a percentile in experiment artefacts (baseline, exploration, optimization) and verdicts: below the minimum the percentile key is omitted entirely and renderers display a placeholder. Cases with approach 'bound_existence' carry the §12.5.2.1 minimums for the exact binomial order-statistic construction to admit a non-saturated one-sided upper confidence bound on the p-quantile at the stated confidence — judgement-time minimums for latency-criterion evaluation, not emission rules. All values are integers; conformance is exact equality (tolerance: 0).",
+  "method": "Emission minimums per companion §12.5.2 (non-degeneracy: 5/10/20/100 for p50/p90/p95/p99); bound-existence minimums per §12.5.2.1, n_s >= ceiling(log(alpha) / log(p)) (Wilks).",
+  "tolerance": 0,
+  "cases": [
+    {
+      "name": "emission_minimum_p50",
+      "approach": "emission_non_degeneracy",
+      "inputs": {
+        "percentile": 0.5
+      },
+      "expected": {
+        "minimum_contributing_samples": 5
+      }
+    },
+    {
+      "name": "emission_minimum_p90",
+      "approach": "emission_non_degeneracy",
+      "inputs": {
+        "percentile": 0.9
+      },
+      "expected": {
+        "minimum_contributing_samples": 10
+      }
+    },
+    {
+      "name": "emission_minimum_p95",
+      "approach": "emission_non_degeneracy",
+      "inputs": {
+        "percentile": 0.95
+      },
+      "expected": {
+        "minimum_contributing_samples": 20
+      }
+    },
+    {
+      "name": "emission_minimum_p99",
+      "approach": "emission_non_degeneracy",
+      "inputs": {
+        "percentile": 0.99
+      },
+      "expected": {
+        "minimum_contributing_samples": 100
+      }
+    },
+    {
+      "name": "bound_existence_minimum_p50_c95",
+      "approach": "bound_existence",
+      "inputs": {
+        "percentile": 0.5,
+        "confidence": 0.95
+      },
+      "expected": {
+        "minimum_baseline_samples": 5
+      }
+    },
+    {
+      "name": "bound_existence_minimum_p90_c95",
+      "approach": "bound_existence",
+      "inputs": {
+        "percentile": 0.9,
+        "confidence": 0.95
+      },
+      "expected": {
+        "minimum_baseline_samples": 29
+      }
+    },
+    {
+      "name": "bound_existence_minimum_p95_c95",
+      "approach": "bound_existence",
+      "inputs": {
+        "percentile": 0.95,
+        "confidence": 0.95
+      },
+      "expected": {
+        "minimum_baseline_samples": 59
+      }
+    },
+    {
+      "name": "bound_existence_minimum_p99_c95",
+      "approach": "bound_existence",
+      "inputs": {
+        "percentile": 0.99,
+        "confidence": 0.95
+      },
+      "expected": {
+        "minimum_baseline_samples": 299
+      }
+    },
+    {
+      "name": "bound_existence_minimum_p50_c99",
+      "approach": "bound_existence",
+      "inputs": {
+        "percentile": 0.5,
+        "confidence": 0.99
+      },
+      "expected": {
+        "minimum_baseline_samples": 7
+      }
+    },
+    {
+      "name": "bound_existence_minimum_p90_c99",
+      "approach": "bound_existence",
+      "inputs": {
+        "percentile": 0.9,
+        "confidence": 0.99
+      },
+      "expected": {
+        "minimum_baseline_samples": 44
+      }
+    },
+    {
+      "name": "bound_existence_minimum_p95_c99",
+      "approach": "bound_existence",
+      "inputs": {
+        "percentile": 0.95,
+        "confidence": 0.99
+      },
+      "expected": {
+        "minimum_baseline_samples": 90
+      }
+    },
+    {
+      "name": "bound_existence_minimum_p99_c99",
+      "approach": "bound_existence",
+      "inputs": {
+        "percentile": 0.99,
+        "confidence": 0.99
+      },
+      "expected": {
+        "minimum_baseline_samples": 459
+      }
+    }
+  ]
+}
