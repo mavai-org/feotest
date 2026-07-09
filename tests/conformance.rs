@@ -609,3 +609,65 @@ fn conformance_latency_threshold() {
         );
     }
 }
+
+// ---------------------------------------------------------------------------
+// latency_percentile_minimums
+// ---------------------------------------------------------------------------
+
+#[derive(Deserialize)]
+struct PercentileMinimumsCase {
+    name: String,
+    approach: String,
+    inputs: PercentileMinimumsInputs,
+    expected: PercentileMinimumsExpected,
+}
+
+#[derive(Deserialize)]
+struct PercentileMinimumsInputs {
+    percentile: f64,
+}
+
+#[derive(Deserialize)]
+struct PercentileMinimumsExpected {
+    #[serde(default)]
+    minimum_contributing_samples: Option<u32>,
+}
+
+/// The per-percentile emission gate must equal the published family
+/// standard exactly (the companion's non-degeneracy minimums; suite
+/// tolerance 0 — every value is an integer).
+///
+/// The suite's `bound_existence` cases (the judgement-time minimums for a
+/// non-saturated order-statistic upper bound) are not asserted here: the
+/// threshold deriver does not yet expose its saturation boundary. They
+/// become conformance targets when saturation reporting lands.
+#[test]
+fn conformance_latency_percentile_minimums() {
+    let suite: Suite<PercentileMinimumsCase> =
+        serde_json::from_str(include_str!("conformance/latency_percentile_minimums.json")).unwrap();
+
+    let emission: Vec<&PercentileMinimumsCase> = suite
+        .cases
+        .iter()
+        .filter(|c| c.approach == "emission_non_degeneracy")
+        .collect();
+    assert_eq!(
+        emission.len(),
+        4,
+        "expected one emission case per percentile level"
+    );
+
+    for case in emission {
+        let expected = case
+            .expected
+            .minimum_contributing_samples
+            .expect("emission case carries minimum_contributing_samples");
+        assert_eq!(
+            latency::min_samples_for(case.inputs.percentile),
+            expected,
+            "{}: emission minimum for p{}",
+            case.name,
+            case.inputs.percentile * 100.0
+        );
+    }
+}
