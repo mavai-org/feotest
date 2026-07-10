@@ -4,14 +4,26 @@
 //! a [`VerdictWithConfidence`] that includes the pass/fail decision, the
 //! observed rate, and the false positive probability.
 
-use crate::statistics::types::{DerivedThreshold, VerdictWithConfidence};
+use crate::statistics::proportion;
+use crate::statistics::types::{ConfidenceLevel, DerivedThreshold, VerdictWithConfidence};
 
-/// Evaluates test results against a derived threshold.
+/// Evaluates test results against a **derived** (baseline-anchored)
+/// threshold.
 ///
 /// The test passes if the observed success rate (successes / samples) is
-/// at or above the threshold value. The false positive probability is
-/// the significance level α = 1 − confidence from the threshold's
-/// derivation context.
+/// at or above the threshold value. Because the success count is an
+/// integer, this comparison is exactly the regression decision rule of
+/// statistical companion §3.4 — pass iff `K ≥ c` where
+/// `c = ⌈n_test · p*⌉` is the integer cutoff
+/// ([`DerivedThreshold::decision_cutoff`] states `c` explicitly for
+/// sample-size-first derivations). The false positive probability is the
+/// significance level α = 1 − confidence from the threshold's derivation
+/// context.
+///
+/// This rule is specific to derived thresholds, where the sampling
+/// uncertainty was already priced into `p*`. A **declared** (normative)
+/// rate must instead be judged with [`meets_declared_rate`] — comparing
+/// the point rate to a declared rate is anti-conservative.
 ///
 /// # Panics
 ///
@@ -39,6 +51,36 @@ pub fn evaluate(
         threshold.clone(),
         false_positive_probability,
     )
+}
+
+/// Judges test results against a **declared** (normative) rate.
+///
+/// The test passes iff the test sample's own one-sided Wilson lower bound
+/// at `confidence` clears the declared rate (statistical companion
+/// §3.2/§3.6).
+///
+/// This is the compliance posture — the threshold is given, so the test
+/// sample must carry its own sampling uncertainty: the evidence, not the
+/// point estimate, has to clear the bar. Contrast [`evaluate`], whose
+/// point-rate comparison is correct only for a baseline-derived threshold.
+///
+/// # Panics
+///
+/// Panics if `test_samples` is zero or `test_successes > test_samples`.
+#[must_use]
+pub fn meets_declared_rate(
+    test_successes: u32,
+    test_samples: u32,
+    declared_rate: f64,
+    confidence: ConfidenceLevel,
+) -> bool {
+    assert!(test_samples > 0, "test_samples must be positive");
+    assert!(
+        test_successes <= test_samples,
+        "test_successes ({test_successes}) cannot exceed test_samples ({test_samples})"
+    );
+
+    proportion::lower_bound(test_successes, test_samples, confidence) >= declared_rate
 }
 
 /// Summarises multiple independent verdict runs.
@@ -203,6 +245,54 @@ mod tests {
     fn panics_on_successes_exceeding_samples() {
         let threshold = make_threshold(0.80, 0.95);
         evaluate(101, 100, &threshold);
+    }
+
+    // --- meets_declared_rate ---
+
+    #[test]
+    fn declared_rate_passes_when_wilson_lower_clears_it() {
+        // 95/100 at 95%: Wilson lower ≈ 0.9008 clears a declared 0.80.
+        assert!(meets_declared_rate(
+            95,
+            100,
+            0.80,
+            ConfidenceLevel::new(0.95)
+        ));
+    }
+
+    #[test]
+    fn declared_rate_fails_when_only_the_point_rate_clears_it() {
+        // 92/100 against a declared 0.90: the point rate 0.92 is above the
+        // bar, but the Wilson lower bound ≈ 0.8635 is not — the evidence
+        // does not support compliance.
+        assert!(!meets_declared_rate(
+            92,
+            100,
+            0.90,
+            ConfidenceLevel::new(0.95)
+        ));
+    }
+
+    #[test]
+    fn declared_rate_fails_when_the_point_rate_is_below_it() {
+        assert!(!meets_declared_rate(
+            70,
+            100,
+            0.90,
+            ConfidenceLevel::new(0.95)
+        ));
+    }
+
+    #[test]
+    #[should_panic(expected = "test_samples must be positive")]
+    fn declared_rate_panics_on_zero_samples() {
+        meets_declared_rate(0, 0, 0.9, ConfidenceLevel::new(0.95));
+    }
+
+    #[test]
+    #[should_panic(expected = "cannot exceed test_samples")]
+    fn declared_rate_panics_on_successes_exceeding_samples() {
+        meets_declared_rate(101, 100, 0.9, ConfidenceLevel::new(0.95));
     }
 
     // --- summarize_multiple_runs ---

@@ -733,6 +733,36 @@ impl SpecProvenance {
     }
 }
 
+/// Renders the judged comparison behind a pass/fail verdict.
+///
+/// The figure named is the quantity the decision rule actually compared: a
+/// normative (declared) threshold is judged by the sample's own Wilson lower
+/// bound, so the reason states that bound; a derived threshold is judged by
+/// the observed rate (equivalently, the success count against the integer
+/// cutoff), so the reason states the observed rate.
+fn judged_comparison(
+    observed_pass_rate: f64,
+    analysis: Option<&StatisticalAnalysis>,
+    relation: &str,
+) -> String {
+    match analysis {
+        Some(analysis) if analysis.threshold_origin().is_normative() => {
+            format!(
+                "wilson lower {:.4} {relation} {:.4}",
+                analysis.wilson_lower(),
+                analysis.threshold()
+            )
+        }
+        Some(analysis) => {
+            format!(
+                "{observed_pass_rate:.4} {relation} {:.4}",
+                analysis.threshold()
+            )
+        }
+        None => format!("{observed_pass_rate:.4} {relation} 0.0000"),
+    }
+}
+
 /// Derives the verdict reason from the verdict, execution, and analysis context.
 fn derive_verdict_reason(
     verdict: Verdict,
@@ -744,16 +774,12 @@ fn derive_verdict_reason(
     let is_budget_exhausted = execution.termination().reason().is_budget_exhausted();
 
     match verdict {
-        Verdict::Pass => {
-            let threshold = analysis.map_or(0.0, StatisticalAnalysis::threshold);
-            format!("{observed_pass_rate:.4} >= {threshold:.4}")
-        }
+        Verdict::Pass => judged_comparison(observed_pass_rate, analysis, ">="),
         Verdict::Fail => {
             if is_budget_exhausted {
                 "budget exhausted".to_string()
             } else {
-                let threshold = analysis.map_or(0.0, StatisticalAnalysis::threshold);
-                format!("{observed_pass_rate:.4} < {threshold:.4}")
+                judged_comparison(observed_pass_rate, analysis, "<")
             }
         }
         Verdict::Inconclusive => {

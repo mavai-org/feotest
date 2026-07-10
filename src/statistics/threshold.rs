@@ -6,10 +6,12 @@
 //! - binary search for the implied confidence given an explicit threshold
 //!   ([`derive_threshold_first`]).
 
+use statrs::distribution::{Binomial, DiscreteCDF};
+
 use crate::statistics::defaults::SOUNDNESS_FLOOR;
 use crate::statistics::proportion;
 use crate::statistics::types::{
-    ConfidenceLevel, DerivationContext, DerivedThreshold, OperationalApproach,
+    ConfidenceLevel, DecisionCutoff, DerivationContext, DerivedThreshold, OperationalApproach,
 };
 
 /// Derives a threshold by applying the Wilson one-sided lower bound at
@@ -28,6 +30,12 @@ use crate::statistics::types::{
 /// 2. Apply the one-sided Wilson lower bound to that rate at the test
 ///    sample size — smaller test samples produce wider intervals and
 ///    therefore a lower threshold.
+///
+/// The returned threshold carries the integer decision artefacts
+/// ([`DerivedThreshold::decision_cutoff`]): the cutoff `c = ⌈n_test · p*⌉`
+/// on which the pass/fail decision is taken (`K ≥ c`), the cutoff as a
+/// displayed rate `c / n_test`, and the achieved size `P(K < c)` computed
+/// under the effective baseline rate from step 1.
 ///
 /// # Panics
 ///
@@ -59,6 +67,34 @@ pub fn derive_sample_size_first(
         context,
         true,
     )
+    .with_decision_cutoff(decision_cutoff(
+        threshold_value,
+        effective_rate,
+        test_samples,
+    ))
+}
+
+/// Computes the integer decision artefacts for a derived real-valued
+/// threshold: the cutoff `c = ⌈n_test · p*⌉`, the displayed rate
+/// `c / n_test`, and the achieved size `P(K ≤ c − 1)` under a
+/// `Binomial(n_test, effective_rate)` null (zero when `c = 0`, where the
+/// rule can never reject).
+fn decision_cutoff(threshold_value: f64, effective_rate: f64, test_samples: u32) -> DecisionCutoff {
+    #[allow(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        reason = "threshold is in [0, 1], so the ceiling is non-negative and at most test_samples, which fits u32"
+    )]
+    let cutoff = (f64::from(test_samples) * threshold_value).ceil() as u32;
+    let achieved_size = if cutoff == 0 {
+        0.0
+    } else {
+        Binomial::new(effective_rate, u64::from(test_samples))
+            .expect("effective rate is a probability and test_samples is positive")
+            .cdf(u64::from(cutoff - 1))
+    };
+    let displayed_rate = f64::from(cutoff) / f64::from(test_samples);
+    DecisionCutoff::new(cutoff, displayed_rate, achieved_size)
 }
 
 /// Derives the implied confidence for a given explicit threshold.
@@ -216,6 +252,47 @@ mod tests {
     }
 
     #[test]
+    fn sample_size_first_carries_the_decision_cutoff() {
+        // Companion §3.4 worked example: p̂ = 0.951, n_test = 100 at 95%
+        // confidence gives p* ≈ 0.902124, c = 91, achieved size ≈ 0.0250.
+        let dt = derive_sample_size_first(951, 1000, 100, cl(0.95));
+        let artefacts = dt.decision_cutoff().unwrap();
+        assert_eq!(artefacts.cutoff(), 91);
+        assert_relative_eq!(artefacts.displayed_rate(), 0.91, epsilon = 1e-12);
+        assert_relative_eq!(
+            artefacts.achieved_size(),
+            0.024_985_628_321_906_6,
+            epsilon = 1e-10
+        );
+    }
+
+    #[test]
+    fn perfect_baseline_achieved_size_uses_the_effective_rate() {
+        // With k = n the achieved size is computed at the §4.3.2 effective
+        // rate (the baseline's own Wilson lower bound), not at the raw 1.0
+        // (where any cutoff below n would have size zero).
+        let dt = derive_sample_size_first(50, 50, 50, cl(0.95));
+        let artefacts = dt.decision_cutoff().unwrap();
+        assert_eq!(artefacts.cutoff(), 44);
+        assert_relative_eq!(
+            artefacts.achieved_size(),
+            0.013_472_685_134_936_6,
+            epsilon = 1e-10
+        );
+    }
+
+    #[test]
+    fn zero_threshold_yields_a_zero_cutoff_with_zero_size() {
+        // A threshold of exactly 0 gives a cutoff of 0: the rule can never
+        // reject, so the achieved size is 0 (this branch also keeps the
+        // cutoff-minus-one CDF argument from underflowing).
+        let artefacts = decision_cutoff(0.0, 0.0, 100);
+        assert_eq!(artefacts.cutoff(), 0);
+        assert_relative_eq!(artefacts.achieved_size(), 0.0, epsilon = 1e-12);
+        assert_relative_eq!(artefacts.displayed_rate(), 0.0, epsilon = 1e-12);
+    }
+
+    #[test]
     #[should_panic(expected = "test_samples must be positive")]
     fn panics_on_zero_test_samples() {
         derive_sample_size_first(90, 100, 0, cl(0.95));
@@ -239,6 +316,14 @@ mod tests {
     fn threshold_first_approach_is_threshold_first() {
         let dt = derive_threshold_first(90, 100, 100, 0.85);
         assert_eq!(dt.approach(), OperationalApproach::ThresholdFirst);
+    }
+
+    #[test]
+    fn threshold_first_carries_no_decision_cutoff() {
+        // The cutoff artefacts belong to the sample-size-first construction;
+        // a given threshold's decision is not cutoff-based.
+        let dt = derive_threshold_first(90, 100, 100, 0.85);
+        assert!(dt.decision_cutoff().is_none());
     }
 
     #[test]

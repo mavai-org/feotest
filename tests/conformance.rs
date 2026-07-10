@@ -545,6 +545,10 @@ struct ThresholdExpected {
     #[serde(default)]
     wilson_lower_real: Option<f64>,
     #[serde(default)]
+    cutoff_integer: Option<u32>,
+    #[serde(default)]
+    achieved_size: Option<f64>,
+    #[serde(default)]
     implied_confidence: Option<f64>,
     #[serde(default)]
     is_sound: Option<bool>,
@@ -586,11 +590,29 @@ fn check_threshold_derivation(ledger: &mut Ledger) {
                         case.expected.wilson_lower_real.unwrap(),
                         suite.tolerance,
                     );
-                    // The manifest also classifies `cutoff_integer` and
-                    // `achieved_size` — the binding decision artefacts of the
-                    // regression procedure — but the deriver does not yet
-                    // produce them, so no assertion is possible here. The
-                    // coverage test counts them as gaps.
+                    // The binding decision artefacts of the regression
+                    // procedure, produced by the deriver alongside the
+                    // real-valued threshold.
+                    let artefacts = dt
+                        .decision_cutoff()
+                        .expect("a sample-size-first derivation carries its decision cutoff");
+                    assert_oracle_eq(
+                        ledger,
+                        "threshold_derivation",
+                        &case.name,
+                        "cutoff_integer",
+                        artefacts.cutoff(),
+                        case.expected.cutoff_integer.unwrap(),
+                    );
+                    assert_oracle_close(
+                        ledger,
+                        "threshold_derivation",
+                        &case.name,
+                        "achieved_size",
+                        artefacts.achieved_size(),
+                        case.expected.achieved_size.unwrap(),
+                        suite.tolerance,
+                    );
                 }
                 "threshold_first" => {
                     // test_samples is not provided for threshold-first cases;
@@ -1273,6 +1295,12 @@ struct DecisionExpected {
     #[serde(default)]
     threshold_real: Option<f64>,
     #[serde(default)]
+    cutoff_integer: Option<u32>,
+    #[serde(default)]
+    displayed_rate: Option<f64>,
+    #[serde(default)]
+    achieved_size: Option<f64>,
+    #[serde(default)]
     wilson_lower: Option<f64>,
     verdict: String,
 }
@@ -1333,11 +1361,44 @@ fn check_regression_case(ledger: &mut Ledger, case: &DecisionCase, tolerance: f6
         record.verdict().to_string().as_str(),
         case.expected.verdict.as_str(),
     );
-    // The manifest also classifies `cutoff_integer`, `displayed_rate`, and
-    // `achieved_size` — the binding decision artefacts and report
-    // obligations of the regression procedure — but the derivation does not
-    // yet produce them, so no assertion is possible here. The coverage test
-    // counts them as gaps.
+    // The binding decision artefact (the integer cutoff the verdict above
+    // was decided on) and the §3.4 report obligations, from the production
+    // deriver — the same construction the runner just performed.
+    let derived = threshold::derive_sample_size_first(
+        case.inputs.baseline_successes.unwrap(),
+        case.inputs.baseline_trials.unwrap(),
+        case.inputs.test_samples,
+        ConfidenceLevel::new(case.inputs.confidence),
+    );
+    let artefacts = derived
+        .decision_cutoff()
+        .expect("a sample-size-first derivation carries its decision cutoff");
+    assert_oracle_eq(
+        ledger,
+        "regression_decision",
+        &case.name,
+        "cutoff_integer",
+        artefacts.cutoff(),
+        case.expected.cutoff_integer.unwrap(),
+    );
+    assert_oracle_close(
+        ledger,
+        "regression_decision",
+        &case.name,
+        "displayed_rate",
+        artefacts.displayed_rate(),
+        case.expected.displayed_rate.unwrap(),
+        tolerance,
+    );
+    assert_oracle_close(
+        ledger,
+        "regression_decision",
+        &case.name,
+        "achieved_size",
+        artefacts.achieved_size(),
+        case.expected.achieved_size.unwrap(),
+        tolerance,
+    );
 }
 
 /// One compliance-procedure case through the production verdict path: the
