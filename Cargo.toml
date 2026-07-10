@@ -50,6 +50,11 @@ ureq = { version = "2", features = ["json"], optional = true }
 [dev-dependencies]
 approx = "0.5"
 insta = { version = "1", features = ["json"] }
+# The conformance coverage ledger verifies each vendored fixture file against
+# the MD5 content hash published in the oracle's manifest. The runtime `sha2`
+# dependency cannot compute MD5, so the RustCrypto `md-5` crate carries
+# exactly this one check.
+md-5 = "0.10"
 tempfile = "3"
 trybuild = "1"
 

@@ -1,0 +1,151 @@
+{
+  "manifestVersion": 1,
+  "fixtureVersion": "0.8.4",
+  "familyMandatory": ["wilson_ci", "wilson_lower", "threshold_derivation", "verdict", "latency_percentile", "latency_threshold", "regression_decision"],
+  "suites": {
+    "baseline_object": {
+      "file": "baseline_object.json",
+      "tolerance": 0,
+      "caseCount": 6,
+      "cases": ["consult_advice_eu_weekday", "guardrail_sentinel_observational_only", "consult_advice_us_weekend_divergent", "perfect_baseline_moderate_n", "consult_advice_cross_policy_counterexample", "paired_evaluability_content_pattern"],
+      "bindingFields": [],
+      "informationalFields": {},
+      "md5": "26f6a4ec7c3c259c866925f6f14756d1"
+    },
+    "composite_verdict": {
+      "file": "composite_verdict.json",
+      "tolerance": 1e-12,
+      "caseCount": 9,
+      "cases": ["all_pass_regression_only", "all_pass_compliance_only", "consult_advice_fail_single_trigger", "fail_multi_trigger_mixed_procedures", "inconclusive_some_pass_some_inconclusive", "inconclusive_all_inconclusive", "mixed_observational_excluded_from_envelopes", "observational_only_pass", "observational_only_fail"],
+      "bindingFields": ["composite_verdict", "false_compliance_envelope", "false_degradation_signal_envelope", "triggering_criteria"],
+      "informationalFields": {},
+      "md5": "f99cbe14f8477585721ae2e98fe6b8f0"
+    },
+    "criterion_verdict_inferential": {
+      "file": "criterion_verdict_inferential.json",
+      "tolerance": 1e-09,
+      "caseCount": 13,
+      "cases": ["regression_clear_pass_consult_advice_well_formed", "regression_clear_fail_K_far_below_cutoff", "regression_borderline_pass_K_equals_cutoff", "regression_borderline_fail_K_one_below_cutoff", "regression_inconclusive_zero_evaluable", "regression_inconclusive_feasibility_refused", "regression_policy_diff_conditional", "regression_policy_diff_marginal", "compliance_clear_pass", "compliance_clear_fail", "compliance_strands_disagree_consult_advice_layperson", "compliance_inconclusive_zero_evaluable", "compliance_inconclusive_feasibility_refused"],
+      "bindingFields": ["achieved_size", "cutoff_integer", "feasibility_gate", "n_c", "observed_rate_status", "operational_caution_category", "p_hat_c", "p_value", "p_value_method", "p_value_tail", "r_obs", "statistical_verdict", "verdict", "wilson_lower_real"],
+      "informationalFields": {},
+      "md5": "201ff3b7cfb0a45e572c7c3585dce5c2"
+    },
+    "criterion_verdict_observational": {
+      "file": "criterion_verdict_observational.json",
+      "tolerance": 0,
+      "caseCount": 9,
+      "cases": ["pass_200_probes_zero_failures_conditional", "pass_200_probes_zero_failures_marginal", "pass_sentinel_scale_10_million_marginal", "fail_one_failure_in_1000_conditional", "fail_one_failure_in_1000_marginal", "inconclusive_zero_attempts_conditional", "inconclusive_zero_attempts_marginal", "policy_diff_950_evaluable_conditional_passes", "policy_diff_950_evaluable_marginal_fails"],
+      "bindingFields": ["n_c", "r_obs", "statement", "verdict"],
+      "informationalFields": {},
+      "md5": "3bb36ce9cf2bffcc55bdb8539461d5e7"
+    },
+    "feasibility": {
+      "file": "feasibility.json",
+      "tolerance": 0,
+      "caseCount": 7,
+      "cases": ["fair_coin_n5_95pct", "high_rate_n30_95pct", "high_rate_n20_95pct_undersized", "very_high_rate_n55_95pct", "near_perfect_n100_95pct_undersized", "high_rate_n30_99pct", "high_rate_n60_99pct"],
+      "bindingFields": ["criterion", "feasible", "minimum_samples"],
+      "informationalFields": {},
+      "md5": "bc62dd73c804c291bae6ccf88a0c4d48"
+    },
+    "latency_percentile": {
+      "file": "latency_percentile.json",
+      "tolerance": 1e-10,
+      "caseCount": 22,
+      "cases": ["typical_skewed_p50", "typical_skewed_p90", "typical_skewed_p95", "typical_skewed_p99", "uniform_p50", "uniform_p95", "heavy_tail_p90", "heavy_tail_p95", "heavy_tail_p99", "minimal_sample_p50", "single_observation_p50", "single_observation_p99", "identical_values_p95", "large_sample_p50", "large_sample_p90", "large_sample_p95", "large_sample_p99", "typical_skewed_summary", "heavy_tail_summary", "large_sample_summary", "single_observation_summary", "identical_values_summary"],
+      "bindingFields": ["max", "mean", "value"],
+      "informationalFields": {},
+      "md5": "e0e8148bed48e98c3571ec0727e9d3bc"
+    },
+    "latency_percentile_minimums": {
+      "file": "latency_percentile_minimums.json",
+      "tolerance": 0,
+      "caseCount": 12,
+      "cases": ["emission_minimum_p50", "emission_minimum_p90", "emission_minimum_p95", "emission_minimum_p99", "bound_existence_minimum_p50_c95", "bound_existence_minimum_p90_c95", "bound_existence_minimum_p95_c95", "bound_existence_minimum_p99_c95", "bound_existence_minimum_p50_c99", "bound_existence_minimum_p90_c99", "bound_existence_minimum_p95_c99", "bound_existence_minimum_p99_c99"],
+      "bindingFields": ["minimum_baseline_samples", "minimum_contributing_samples"],
+      "informationalFields": {},
+      "md5": "b74bf384ed987f96a2522c7de132be6f"
+    },
+    "latency_threshold": {
+      "file": "latency_threshold.json",
+      "tolerance": 0,
+      "caseCount": 6,
+      "cases": ["worked_example_p95_935_samples", "small_baseline_p95_50_samples", "large_baseline_p95_5000_samples", "high_confidence_p95_500_samples", "identical_values_p95", "heavy_tailed_p99_100_samples"],
+      "bindingFields": ["baseline_percentile", "n", "rank", "threshold"],
+      "informationalFields": {},
+      "md5": "c543cc34bcdbfeb579fd8c234f4778b5"
+    },
+    "latency_threshold_bootstrap": {
+      "file": "latency_threshold_bootstrap.json",
+      "tolerance": 0,
+      "caseCount": 4,
+      "cases": ["lognormal_n200_p95", "lognormal_n200_p99", "lognormal_n935_p95", "lognormal_n935_p99"],
+      "bindingFields": ["baseline_percentile", "k_raw", "n", "rank", "saturated", "threshold"],
+      "informationalFields": ["bootstrap_upper", "diff", "point_estimate"],
+      "md5": "52900035f7456f511fbed6c12b8b1419"
+    },
+    "multi_criteria_scenario_consult_advice": {
+      "file": "multi_criteria_scenario_consult_advice.json",
+      "tolerance": 1e-09,
+      "caseCount": 4,
+      "cases": ["consult_advice_locked_section_10_3", "consult_advice_passing_counterfactual", "paired_evaluability_content_non_unit_r_obs", "cross_policy_structural_mismatch"],
+      "bindingFields": ["composite_verdict", "conformance_status", "false_compliance_envelope", "false_degradation_signal_envelope", "per_criterion_verdicts", "structural_error", "triggering_criteria"],
+      "informationalFields": {},
+      "md5": "52047d3cdf6c67b51e7792844407a3cf"
+    },
+    "power_analysis": {
+      "file": "power_analysis.json",
+      "tolerance": 1e-10,
+      "caseCount": 6,
+      "cases": ["typical_llm_95pct_5pct_effect_80power", "high_baseline_99pct_2pct_effect_80power", "fair_coin_50pct_10pct_effect_80power", "high_power_95pct_5pct_effect_95power", "small_effect_95pct_1pct_effect_80power", "high_confidence_95pct_5pct_effect_99conf"],
+      "bindingFields": ["achieved_power", "required_samples"],
+      "informationalFields": {},
+      "md5": "6637618e2c10a8919ee7604d3a1d8aef"
+    },
+    "regression_decision": {
+      "file": "regression_decision.json",
+      "tolerance": 1e-10,
+      "caseCount": 13,
+      "cases": ["worked_example_pass_at_cutoff", "worked_example_fail_below_cutoff", "worked_example_pass_above_cutoff", "worked_example_fail_deep_degradation", "small_test_pass_at_cutoff", "small_test_fail_below_cutoff", "perfect_baseline_pass_at_cutoff", "perfect_baseline_fail_below_cutoff", "worked_example_high_confidence_at_95_of_100", "compliance_pass_clear_margin", "compliance_fail_bound_below_threshold", "conflation_detector_regression_pass", "conflation_detector_compliance_fail"],
+      "bindingFields": ["achieved_size", "cutoff_integer", "displayed_rate", "threshold_real", "verdict", "wilson_lower"],
+      "informationalFields": {},
+      "md5": "88ae7828c641d2719196b58b912937ba"
+    },
+    "threshold_derivation": {
+      "file": "threshold_derivation.json",
+      "tolerance": 1e-06,
+      "caseCount": 11,
+      "cases": ["ssf_95_of_100_test50_95pct", "ssf_950_of_1000_test100_95pct", "ssf_perfect_baseline_test50_95pct", "ssf_perfect_baseline_n1000_test100_95pct", "ssf_950_of_1000_test50_95pct", "ssf_950_of_1000_test200_95pct", "ssf_95_of_100_test50_99pct", "ssf_sc_ru_02_worked_example", "tf_baseline_95pct_test100_threshold_90", "tf_baseline_95pct_test100_threshold_85", "tf_baseline_95pct_test100_threshold_94"],
+      "bindingFields": ["achieved_size", "cutoff_integer", "implied_confidence", "is_sound", "threshold", "wilson_lower_real"],
+      "informationalFields": {},
+      "md5": "91d47ecc7bf8580748848ce68f82d1cb"
+    },
+    "verdict": {
+      "file": "verdict.json",
+      "tolerance": 1e-10,
+      "caseCount": 6,
+      "cases": ["clear_pass_48_of_50_threshold_90", "clear_fail_40_of_50_threshold_90", "borderline_pass_45_of_50_threshold_90", "perfect_score_50_of_50_threshold_95", "zero_successes_0_of_50_threshold_90", "large_sample_pass_920_of_1000_threshold_90"],
+      "bindingFields": ["false_positive_probability", "observed_rate", "p_value", "passed", "test_statistic"],
+      "informationalFields": {},
+      "md5": "4e2b230fd80065a7d7ffc826514e0af2"
+    },
+    "wilson_ci": {
+      "file": "wilson_ci.json",
+      "tolerance": 1e-10,
+      "caseCount": 10,
+      "cases": ["fair_coin_100_trials_95pct", "high_rate_95_of_100_95pct", "perfect_baseline_100_of_100_95pct", "zero_successes_0_of_100_95pct", "small_sample_3_of_5_95pct", "large_sample_950_of_1000_95pct", "fair_coin_100_trials_90pct", "fair_coin_100_trials_99pct", "low_rate_2_of_100_95pct", "single_trial_success_95pct"],
+      "bindingFields": ["lower", "point", "upper"],
+      "informationalFields": {},
+      "md5": "009be61e5158cc66800c95d8305d5fd3"
+    },
+    "wilson_lower": {
+      "file": "wilson_lower.json",
+      "tolerance": 1e-10,
+      "caseCount": 12,
+      "cases": ["baseline_95_of_100_95pct", "perfect_baseline_100_of_100_95pct", "baseline_950_of_1000_95pct", "baseline_95_of_100_99pct", "baseline_95_of_100_90pct", "fair_coin_50_of_100_95pct", "small_sample_5_of_5_95pct", "zero_successes_0_of_100_95pct", "zero_successes_0_of_5_95pct", "zero_successes_0_of_100_99pct", "single_trial_failure_0_of_1_95pct", "single_trial_success_1_of_1_95pct"],
+      "bindingFields": "lower_bound",
+      "informationalFields": {},
+      "md5": "4b17ebc8d3804e5606a555e8add20feb"
+    }
+  }
+}
