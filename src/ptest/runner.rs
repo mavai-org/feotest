@@ -646,8 +646,10 @@ fn composite_verdict(rows: &[CriterionRow]) -> Verdict {
 /// Builds one criterion's verdict row. A criterion with no in-scope trials, or
 /// one whose feasibility gate fails, is `Inconclusive` (verdict-level only). A
 /// zero-failures criterion is observational — `Pass` iff it recorded no
-/// failures. Otherwise the criterion's Wilson lower bound is compared to its
-/// own target rate.
+/// failures. Otherwise the criterion is judged posture-explicitly (see
+/// [`criterion_meets_target`]): a normative target by the tally's own Wilson
+/// lower bound clearing the declared rate, an empirical target by the observed
+/// success count meeting the derived integer cutoff.
 fn build_criterion_row(
     name: &str,
     target: &CriterionTarget,
@@ -707,13 +709,42 @@ fn build_criterion_row(
         return CriterionRow::new(name, pass, fail, distribution, None, Verdict::Inconclusive);
     }
 
-    let verdict = if evaluator::evaluate(pass, total, &derived).passed() {
+    let verdict = if criterion_meets_target(pass, total, target, &derived, confidence) {
         Verdict::Pass
     } else {
         Verdict::Fail
     };
     let analysis = criterion_analysis(pass, total, &derived, threshold_origin);
     CriterionRow::new(name, pass, fail, distribution, Some(analysis), verdict)
+}
+
+/// Judges one criterion's tally against its target, posture-explicit.
+///
+/// A normative (declared) rate demands the tally's own Wilson lower bound
+/// clear it — the compliance posture, where the test sample carries its own
+/// sampling uncertainty. An empirical (baseline-derived) threshold decides on
+/// the derived integer cutoff, pass iff the success count meets it — the
+/// regression posture, where the uncertainty was priced into the derivation.
+fn criterion_meets_target(
+    pass: u32,
+    total: u32,
+    target: &CriterionTarget,
+    derived: &DerivedThreshold,
+    confidence: ConfidenceLevel,
+) -> bool {
+    match target {
+        CriterionTarget::NormativeRate(rate) => {
+            evaluator::meets_declared_rate(pass, total, *rate, confidence)
+        }
+        CriterionTarget::EmpiricalRate => {
+            let cutoff = derived
+                .decision_cutoff()
+                .expect("a sample-size-first derivation carries its decision cutoff")
+                .cutoff();
+            pass >= cutoff
+        }
+        CriterionTarget::ZeroFailures => unreachable!("judged before threshold derivation"),
+    }
 }
 
 /// Resolves the baseline successes and sample count for an empirical criterion,

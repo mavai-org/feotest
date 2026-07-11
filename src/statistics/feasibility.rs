@@ -6,8 +6,10 @@
 use crate::statistics::proportion;
 use crate::statistics::types::{ConfidenceLevel, FeasibilityResult};
 
-/// The statistical criterion used for feasibility assessment.
-const CRITERION: &str = "Wilson score one-sided lower bound";
+/// The statistical criterion used for feasibility assessment — the method
+/// identifier published by the reference oracle, asserted verbatim by the
+/// conformance suite.
+const CRITERION: &str = "wilson_score_one_sided_lower_bound";
 
 /// Checks whether a sample size is too small for compliance-grade evidence.
 ///
@@ -176,7 +178,7 @@ mod tests {
     #[test]
     fn records_criterion() {
         let result = feasibility_check(100, 0.9, cl(0.95));
-        assert_eq!(result.criterion(), "Wilson score one-sided lower bound");
+        assert_eq!(result.criterion(), "wilson_score_one_sided_lower_bound");
     }
 
     #[test]

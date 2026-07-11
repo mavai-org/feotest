@@ -126,7 +126,7 @@ mod tests {
     fn verbose_includes_criterion() {
         let result = feasibility_check(5, 0.95, cl(0.95));
         let msg = infeasibility_message("test", &result, true);
-        assert!(msg.contains("Wilson score"));
+        assert!(msg.contains("wilson_score_one_sided_lower_bound"));
     }
 
     #[test]

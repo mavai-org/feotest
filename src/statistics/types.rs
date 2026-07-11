@@ -246,6 +246,62 @@ impl DerivationContext {
 }
 
 // ---------------------------------------------------------------------------
+// DecisionCutoff
+// ---------------------------------------------------------------------------
+
+/// The integer decision artefacts of a sample-size-first derivation
+/// (statistical companion §3.4).
+///
+/// The real-valued threshold `p*` is a report obligation; the decision
+/// itself is taken on the integer cutoff `c = ⌈n_test · p*⌉` — the test
+/// passes iff the raw observed success count `K` satisfies `K ≥ c`. The
+/// achieved size is the discrete rule's actual Type I error,
+/// `P(K < c)` under the effective baseline rate; the displayed rate is
+/// the cutoff expressed as a rate, `c / n_test`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct DecisionCutoff {
+    /// The integer cutoff `c`.
+    cutoff: u32,
+    /// The cutoff as a rate: `c / n_test`.
+    displayed_rate: f64,
+    /// The achieved size `P(K < c)` at the effective baseline rate.
+    achieved_size: f64,
+}
+
+impl DecisionCutoff {
+    /// Creates a new `DecisionCutoff`.
+    pub(in crate::statistics) const fn new(
+        cutoff: u32,
+        displayed_rate: f64,
+        achieved_size: f64,
+    ) -> Self {
+        Self {
+            cutoff,
+            displayed_rate,
+            achieved_size,
+        }
+    }
+
+    /// The integer cutoff `c`: the smallest passing success count.
+    #[must_use]
+    pub const fn cutoff(&self) -> u32 {
+        self.cutoff
+    }
+
+    /// The cutoff expressed as a rate: `c / n_test`.
+    #[must_use]
+    pub const fn displayed_rate(&self) -> f64 {
+        self.displayed_rate
+    }
+
+    /// The achieved size: `P(K < c)` at the effective baseline rate.
+    #[must_use]
+    pub const fn achieved_size(&self) -> f64 {
+        self.achieved_size
+    }
+}
+
+// ---------------------------------------------------------------------------
 // DerivedThreshold
 // ---------------------------------------------------------------------------
 
@@ -260,6 +316,8 @@ pub struct DerivedThreshold {
     context: DerivationContext,
     /// Whether the derivation is considered statistically sound.
     is_statistically_sound: bool,
+    /// The integer decision artefacts, present on the sample-size-first path.
+    decision_cutoff: Option<DecisionCutoff>,
 }
 
 impl DerivedThreshold {
@@ -284,7 +342,19 @@ impl DerivedThreshold {
             approach,
             context,
             is_statistically_sound,
+            decision_cutoff: None,
         }
+    }
+
+    /// Attaches the integer decision artefacts of a sample-size-first
+    /// derivation.
+    #[must_use]
+    pub(in crate::statistics) const fn with_decision_cutoff(
+        mut self,
+        cutoff: DecisionCutoff,
+    ) -> Self {
+        self.decision_cutoff = Some(cutoff);
+        self
     }
 
     /// The threshold value.
@@ -317,6 +387,14 @@ impl DerivedThreshold {
     #[must_use]
     pub fn gap_from_baseline(&self) -> f64 {
         self.context.baseline_rate - self.value
+    }
+
+    /// The integer decision artefacts, if this threshold was derived on the
+    /// sample-size-first path (`None` for the other approaches, whose
+    /// decision is not cutoff-based).
+    #[must_use]
+    pub const fn decision_cutoff(&self) -> Option<&DecisionCutoff> {
+        self.decision_cutoff.as_ref()
     }
 }
 
