@@ -1,6 +1,6 @@
 {
   "manifestVersion": 1,
-  "fixtureVersion": "0.8.4",
+  "fixtureVersion": "0.8.5",
   "familyMandatory": ["wilson_ci", "wilson_lower", "threshold_derivation", "verdict", "latency_percentile", "latency_threshold", "regression_decision"],
   "suites": {
     "baseline_object": {
@@ -110,6 +110,15 @@
       "bindingFields": ["achieved_size", "cutoff_integer", "displayed_rate", "threshold_real", "verdict", "wilson_lower"],
       "informationalFields": {},
       "md5": "88ae7828c641d2719196b58b912937ba"
+    },
+    "risk_driven_sizing": {
+      "file": "risk_driven_sizing.json",
+      "tolerance": 1e-06,
+      "caseCount": 13,
+      "cases": ["companion_worked_example", "companion_scenario_walkthrough", "higher_confidence_costs_samples", "higher_power_costs_samples", "wide_tolerance_is_cheap", "high_baseline_tight_tolerance", "walkthrough_candidate_50", "walkthrough_candidate_150", "closed_form_seed_underpowers", "beyond_required_n", "companion_inversion_at_100", "roundtrip_worked_example", "roundtrip_walkthrough"],
+      "bindingFields": ["achieved_power", "detectable_rate", "floor", "power", "required_n"],
+      "informationalFields": {},
+      "md5": "fb9b9eb78c504fd44913d86558d8ae6d"
     },
     "threshold_derivation": {
       "file": "threshold_derivation.json",
