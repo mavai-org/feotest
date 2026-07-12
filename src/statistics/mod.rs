@@ -13,6 +13,7 @@
 //! - [`proportion`] — Wilson score confidence intervals and z-tests
 //! - [`threshold`] — deriving pass/fail thresholds from baseline data
 //! - [`sample_size`] — power analysis for sample size planning
+//! - [`risk_driven_sizing`] — sample sizing against the moving acceptance floor
 //! - [`evaluator`] — evaluating test outcomes against thresholds
 //! - [`feasibility`] — pre-flight checks on sample sizing
 //! - [`latency`] — empirical percentiles and latency threshold derivation
@@ -24,6 +25,7 @@ pub mod evaluator;
 pub mod feasibility;
 pub mod latency;
 pub mod proportion;
+pub mod risk_driven_sizing;
 pub mod sample_size;
 pub mod threshold;
 pub mod types;

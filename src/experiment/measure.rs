@@ -1170,7 +1170,7 @@ mod tests {
             .baseline_dir(dir.path())
             .build()
             .assert_meets();
-        assert!(written_spec_count(dir.path()) == 1);
+        assert_eq!(written_spec_count(dir.path()), 1);
     }
 
     #[test]
@@ -1199,7 +1199,7 @@ mod tests {
         assert!(message.contains("stipulated threshold 0.9"));
         // Persistence strictly precedes assertion: the baseline spec is on
         // disk even though the stipulation failed.
-        assert!(written_spec_count(dir.path()) == 1);
+        assert_eq!(written_spec_count(dir.path()), 1);
     }
 
     #[test]
@@ -1228,7 +1228,7 @@ mod tests {
         assert!(!message.contains("normative judgement failed"));
         assert!(message.contains("feasible minimum"));
         // The baseline spec is still persisted before the abort.
-        assert!(written_spec_count(dir.path()) == 1);
+        assert_eq!(written_spec_count(dir.path()), 1);
     }
 
     #[test]

@@ -1,0 +1,193 @@
+{
+  "suite": "risk_driven_sizing",
+  "description": "Self-consistent power for baseline-derived thresholds (companion S5.4.1). The acceptance floor p*(n) moves with the test's own sample size, so sizing is computed against the moving floor rather than a fixed threshold: POWER_AT cases give the floor and power at a candidate n; REQUIRED_N cases give the smallest n meeting a target power for a declared minimal acceptable rate; DETECTABLE_RATE cases invert to the largest tolerable rate detectable at a fixed n. Defined for minimum_acceptable_rate < baseline_rate only.",
+  "method": "floor = WilsonLower(baseline_rate, n, confidence) (from-rate form, shared z); Power(n) = pnorm((floor - p_min) / sqrt(p_min (1 - p_min) / n)); required_n = min{ n : Power(n) >= target_power } by doubling + bisection; detectable_rate by bisection on p_min over (0, p0) to 1e-10.",
+  "tolerance": 1e-06,
+  "cases": [
+    {
+      "name": "companion_worked_example",
+      "approach": "required_n",
+      "inputs": {
+        "baseline_rate": 0.87,
+        "minimum_acceptable_rate": 0.84,
+        "confidence": 0.95,
+        "target_power": 0.8
+      },
+      "expected": {
+        "required_n": 891,
+        "floor": 0.850342198223955,
+        "achieved_power": 0.800127719084018
+      }
+    },
+    {
+      "name": "companion_scenario_walkthrough",
+      "approach": "required_n",
+      "inputs": {
+        "baseline_rate": 0.96,
+        "minimum_acceptable_rate": 0.93,
+        "confidence": 0.95,
+        "target_power": 0.8
+      },
+      "expected": {
+        "required_n": 405,
+        "floor": 0.940694999361299,
+        "achieved_power": 0.800543316235589
+      }
+    },
+    {
+      "name": "higher_confidence_costs_samples",
+      "approach": "required_n",
+      "inputs": {
+        "baseline_rate": 0.96,
+        "minimum_acceptable_rate": 0.93,
+        "confidence": 0.99,
+        "target_power": 0.8
+      },
+      "expected": {
+        "required_n": 667,
+        "floor": 0.938331933755243,
+        "achieved_power": 0.800489272488643
+      }
+    },
+    {
+      "name": "higher_power_costs_samples",
+      "approach": "required_n",
+      "inputs": {
+        "baseline_rate": 0.96,
+        "minimum_acceptable_rate": 0.93,
+        "confidence": 0.95,
+        "target_power": 0.9
+      },
+      "expected": {
+        "required_n": 553,
+        "floor": 0.943905003015732,
+        "achieved_power": 0.900003663045442
+      }
+    },
+    {
+      "name": "wide_tolerance_is_cheap",
+      "approach": "required_n",
+      "inputs": {
+        "baseline_rate": 0.9,
+        "minimum_acceptable_rate": 0.8,
+        "confidence": 0.95,
+        "target_power": 0.8
+      },
+      "expected": {
+        "required_n": 90,
+        "floor": 0.835763381885699,
+        "achieved_power": 0.801837558016471
+      }
+    },
+    {
+      "name": "high_baseline_tight_tolerance",
+      "approach": "required_n",
+      "inputs": {
+        "baseline_rate": 0.99,
+        "minimum_acceptable_rate": 0.97,
+        "confidence": 0.95,
+        "target_power": 0.8
+      },
+      "expected": {
+        "required_n": 377,
+        "floor": 0.977412893239254,
+        "achieved_power": 0.800594429782472
+      }
+    },
+    {
+      "name": "walkthrough_candidate_50",
+      "approach": "power_at",
+      "inputs": {
+        "baseline_rate": 0.96,
+        "minimum_acceptable_rate": 0.93,
+        "confidence": 0.95,
+        "test_samples": 50
+      },
+      "expected": {
+        "floor": 0.88609975173007,
+        "power": 0.111870931803045
+      }
+    },
+    {
+      "name": "walkthrough_candidate_150",
+      "approach": "power_at",
+      "inputs": {
+        "baseline_rate": 0.96,
+        "minimum_acceptable_rate": 0.93,
+        "confidence": 0.95,
+        "test_samples": 150
+      },
+      "expected": {
+        "floor": 0.924522904770754,
+        "power": 0.396310365719903
+      }
+    },
+    {
+      "name": "closed_form_seed_underpowers",
+      "approach": "power_at",
+      "inputs": {
+        "baseline_rate": 0.87,
+        "minimum_acceptable_rate": 0.84,
+        "confidence": 0.95,
+        "test_samples": 826
+      },
+      "expected": {
+        "floor": 0.849538300802139,
+        "power": 0.77269710438157
+      }
+    },
+    {
+      "name": "beyond_required_n",
+      "approach": "power_at",
+      "inputs": {
+        "baseline_rate": 0.87,
+        "minimum_acceptable_rate": 0.84,
+        "confidence": 0.95,
+        "test_samples": 1200
+      },
+      "expected": {
+        "floor": 0.853195296867579,
+        "power": 0.893771613435378
+      }
+    },
+    {
+      "name": "companion_inversion_at_100",
+      "approach": "detectable_rate",
+      "inputs": {
+        "baseline_rate": 0.87,
+        "confidence": 0.95,
+        "target_power": 0.8,
+        "test_samples": 100
+      },
+      "expected": {
+        "detectable_rate": 0.769353242502843
+      }
+    },
+    {
+      "name": "roundtrip_worked_example",
+      "approach": "detectable_rate",
+      "inputs": {
+        "baseline_rate": 0.87,
+        "confidence": 0.95,
+        "target_power": 0.8,
+        "test_samples": 891
+      },
+      "expected": {
+        "detectable_rate": 0.840005754492288
+      }
+    },
+    {
+      "name": "roundtrip_walkthrough",
+      "approach": "detectable_rate",
+      "inputs": {
+        "baseline_rate": 0.96,
+        "confidence": 0.95,
+        "target_power": 0.8,
+        "test_samples": 405
+      },
+      "expected": {
+        "detectable_rate": 0.930026492134955
+      }
+    }
+  ]
+}

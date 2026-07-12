@@ -2,6 +2,7 @@
   "description": "feotest's conformance scope beyond the oracle's family-mandatory tier. Extend-only: suites listed here are additional obligations; nothing here can subtract from the manifest's familyMandatory roster. Owner-reviewed; a suite absent from both tiers is reported as unaddressed by every conformance run, never silently skipped. latency_percentile_minimums and latency_threshold_bootstrap stay out of scope: their bound_existence / saturation cases need a saturation boundary the latency threshold deriver does not yet expose; the emission-minimum cases are asserted anyway, as extra assertions outside scope.",
   "suites": [
     "feasibility",
-    "power_analysis"
+    "power_analysis",
+    "risk_driven_sizing"
   ]
 }
