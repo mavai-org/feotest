@@ -8,13 +8,14 @@
 //! machinery of the statistics module (threshold derivation, evaluation,
 //! feasibility checking) to produce [`VerdictRecord`]s.
 //!
-//! Three operational approaches are supported:
+//! Four operational approaches are supported:
 //!
 //! | Approach | User specifies | Framework computes |
 //! |---|---|---|
 //! | **Sample-size-first** | `samples` + `threshold_confidence` | `min_pass_rate` |
 //! | **Confidence-first** | `confidence` + `min_detectable_effect` + `power` | `samples` |
 //! | **Threshold-first** | `samples` + `min_pass_rate` | implied confidence |
+//! | **Risk-driven** | `minimum_acceptable_rate` + `confidence` + `target_power` | `samples` + `min_pass_rate` |
 //!
 //! [`VerdictRecord`]: crate::verdict::VerdictRecord
 
