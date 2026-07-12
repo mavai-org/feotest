@@ -1,7 +1,7 @@
 //! The threshold-derivation approach and the baseline-resolver helpers shared
 //! by the contract-driven probabilistic test.
 //!
-//! [`ThresholdApproach`] names the three ways a success-rate threshold and a
+//! [`ThresholdApproach`] names the four ways a success-rate threshold and a
 //! sample count relate; the resolver helpers locate a baseline spec on disk.
 
 use std::path::{Path, PathBuf};
@@ -11,8 +11,8 @@ use crate::spec::SpecResolver;
 /// Configures the threshold derivation approach.
 ///
 /// Exactly one approach applies to a test. Sample size, confidence, and
-/// threshold are mathematically linked: the caller fixes two, the framework
-/// derives the third.
+/// threshold are mathematically linked: the caller fixes some, the framework
+/// derives the rest.
 #[derive(Debug, Clone)]
 // javai-ref: JVI-0FVFYBM — do not remove (resolves in javai-orchestrator)
 // javai-ref: JVI-5YJVXGF — do not remove (resolves in javai-orchestrator)
@@ -51,6 +51,38 @@ pub enum ThresholdApproach {
         samples: u32,
         /// Explicit minimum pass rate.
         min_pass_rate: f64,
+    },
+
+    /// Declare a risk appetite; derive the sample count and the threshold.
+    ///
+    /// The caller states the worst true success rate they are willing to
+    /// tolerate, how confident the test must be, and how often a genuine
+    /// breach of that tolerance must be caught. The framework computes the
+    /// smallest sample count meeting that promise against the resolved
+    /// baseline — pricing the sizing against the acceptance floor the test
+    /// will actually apply at its own size, not against a fixed threshold —
+    /// and then proceeds exactly as [`SampleSizeFirst`](Self::SampleSizeFirst)
+    /// does at that count.
+    ///
+    /// With several baseline-derived criteria, each criterion is sized
+    /// against its own baseline rate and the largest requirement governs
+    /// the run.
+    ///
+    /// Resolving this approach panics if no baseline is available, or if
+    /// `minimum_acceptable_rate` does not sit strictly below the governing
+    /// baseline rate — the tolerance declares how far below the measured
+    /// baseline a true rate may drop, so to demand more than the baseline
+    /// delivered, re-measure the baseline rather than raising the tolerance.
+    RiskDriven {
+        /// The worst true success rate the caller tolerates — a declared
+        /// bound, not a measured estimate. Must sit strictly below the
+        /// baseline rate.
+        minimum_acceptable_rate: f64,
+        /// Confidence level for threshold derivation.
+        confidence: f64,
+        /// Probability that a service truly at the minimum acceptable rate
+        /// fails the test (0.80 is a conventional choice).
+        target_power: f64,
     },
 }
 

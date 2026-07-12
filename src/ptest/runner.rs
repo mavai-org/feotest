@@ -431,14 +431,15 @@ where
 
     let baseline_spec = resolve_baseline(baseline, &service_contract_id, &mut warnings);
 
-    let (samples, derived_threshold) = approach::resolve_threshold(
+    // The contract's criteria are resolved before the threshold: risk-driven
+    // sizing computes the governing sample count from each baseline-derived
+    // criterion's own baseline tally.
+    let contract_criteria = contract.criteria();
+    let (samples, derived_threshold, resolved_confidence, feas) = resolve_sampling_plan(
         &criteria.approach,
-        baseline_spec.as_ref().map(|s| &s.statistics),
-        baseline_spec.as_ref().map(|s| &s.execution),
+        baseline_spec.as_ref(),
+        &contract_criteria.targets(),
     );
-    let resolved_confidence = approach::resolved_confidence(&criteria.approach);
-    let feas =
-        feasibility::feasibility_check(samples, derived_threshold.value(), resolved_confidence);
     enforce_feasibility(&service_contract_id, criteria.intent, &feas, &mut warnings);
 
     let config = resolve_execution_config(
@@ -451,7 +452,6 @@ where
     );
 
     let token_recorder = TokenRecorder::new();
-    let contract_criteria = contract.criteria();
     let exec_result = run_contract_sampling(
         contract,
         inputs,
@@ -535,6 +535,28 @@ where
         verdict_record: builder.build(),
         approach: criteria.approach.clone(),
     }
+}
+
+/// Resolves the sampling plan for a run: the sample count, the derived
+/// threshold, the resolved confidence, and the feasibility check over them.
+/// Risk-driven plans size against the per-criterion baseline tallies of the
+/// contract's baseline-derived criteria (see [`empirical_criterion_tallies`]).
+fn resolve_sampling_plan(
+    approach: &ThresholdApproach,
+    baseline_spec: Option<&BaselineSpec>,
+    targets: &[(&str, &CriterionTarget)],
+) -> (u32, DerivedThreshold, ConfidenceLevel, FeasibilityResult) {
+    let criterion_tallies = empirical_criterion_tallies(targets, baseline_spec);
+    let (samples, derived_threshold) = approach::resolve_threshold(
+        approach,
+        baseline_spec.map(|s| &s.statistics),
+        baseline_spec.map(|s| &s.execution),
+        &criterion_tallies,
+    );
+    let resolved_confidence = approach::resolved_confidence(approach);
+    let feas =
+        feasibility::feasibility_check(samples, derived_threshold.value(), resolved_confidence);
+    (samples, derived_threshold, resolved_confidence, feas)
 }
 
 /// Synthesises the execution config for a run: an explicit caller override is
@@ -769,6 +791,32 @@ fn criterion_baseline(name: &str, baseline: Option<&BaselineSpec>) -> (u32, u32)
                 )
             },
         )
+}
+
+/// Resolves each baseline-derived criterion's baseline tally for risk-driven
+/// sizing, applying exactly the per-criterion resolution (and whole-contract
+/// aggregate fallback) of [`criterion_baseline`]. Returns an empty vector when
+/// no baseline is available — the approaches that need one panic on their own
+/// terms during threshold resolution.
+fn empirical_criterion_tallies(
+    targets: &[(&str, &CriterionTarget)],
+    baseline: Option<&BaselineSpec>,
+) -> Vec<approach::CriterionBaselineTally> {
+    let Some(spec) = baseline else {
+        return Vec::new();
+    };
+    targets
+        .iter()
+        .filter(|(_, target)| matches!(target, CriterionTarget::EmpiricalRate))
+        .map(|(name, _)| {
+            let (successes, trials) = criterion_baseline(name, Some(spec));
+            approach::CriterionBaselineTally {
+                criterion_name: (*name).to_owned(),
+                successes,
+                trials,
+            }
+        })
+        .collect()
 }
 
 /// Builds a criterion's statistical analysis from its observed tally against
