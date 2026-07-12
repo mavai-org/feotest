@@ -124,11 +124,11 @@ pub fn required_sample_size(
     let mut lower = upper / 2;
     while lower + 1 < upper {
         let mid = lower + (upper - lower) / 2;
-        if power_of(mid) >= target_power {
-            upper = mid;
+        (lower, upper) = if power_of(mid) >= target_power {
+            (lower, mid)
         } else {
-            lower = mid;
-        }
+            (mid, upper)
+        };
     }
     upper
 }
@@ -171,11 +171,13 @@ pub fn detectable_rate(
     )]
     while upper - lower > 1e-10 {
         let mid = f64::midpoint(lower, upper);
-        if self_consistent_power(sample_size, baseline_rate, mid, confidence) >= target_power {
-            lower = mid;
+        let meets_target =
+            self_consistent_power(sample_size, baseline_rate, mid, confidence) >= target_power;
+        (lower, upper) = if meets_target {
+            (mid, upper)
         } else {
-            upper = mid;
-        }
+            (lower, mid)
+        };
     }
     lower
 }
