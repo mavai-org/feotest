@@ -46,6 +46,7 @@ use feotest::statistics::evaluator;
 use feotest::statistics::feasibility;
 use feotest::statistics::latency;
 use feotest::statistics::proportion;
+use feotest::statistics::risk_driven_sizing;
 use feotest::statistics::sample_size;
 use feotest::statistics::threshold;
 use feotest::statistics::types::{
@@ -727,6 +728,151 @@ fn check_power_analysis(ledger: &mut Ledger) {
 #[test]
 fn conformance_power_analysis() {
     check_power_analysis(&mut Ledger::load());
+}
+
+// ---------------------------------------------------------------------------
+// risk_driven_sizing
+// ---------------------------------------------------------------------------
+
+#[derive(Deserialize)]
+struct RiskDrivenSizingCase {
+    name: String,
+    approach: String,
+    inputs: RiskDrivenSizingInputs,
+    expected: RiskDrivenSizingExpected,
+}
+
+#[derive(Deserialize)]
+struct RiskDrivenSizingInputs {
+    baseline_rate: f64,
+    #[serde(default)]
+    minimum_acceptable_rate: Option<f64>,
+    confidence: f64,
+    #[serde(default)]
+    target_power: Option<f64>,
+    #[serde(default)]
+    test_samples: Option<u32>,
+}
+
+#[derive(Deserialize)]
+struct RiskDrivenSizingExpected {
+    #[serde(default)]
+    required_n: Option<u32>,
+    #[serde(default)]
+    floor: Option<f64>,
+    #[serde(default)]
+    achieved_power: Option<f64>,
+    #[serde(default)]
+    power: Option<f64>,
+    #[serde(default)]
+    detectable_rate: Option<f64>,
+}
+
+fn check_risk_driven_sizing(ledger: &mut Ledger) {
+    let suite: Suite<RiskDrivenSizingCase> =
+        serde_json::from_str(include_str!("conformance/risk_driven_sizing.json")).unwrap();
+
+    assert_all_cases(
+        &suite.cases,
+        |case| case.name.as_str(),
+        |case| {
+            let cl = ConfidenceLevel::new(case.inputs.confidence);
+            match case.approach.as_str() {
+                "required_n" => {
+                    let minimum_acceptable_rate = case.inputs.minimum_acceptable_rate.unwrap();
+                    let n = risk_driven_sizing::required_sample_size(
+                        case.inputs.baseline_rate,
+                        minimum_acceptable_rate,
+                        cl,
+                        case.inputs.target_power.unwrap(),
+                    );
+                    assert_oracle_eq(
+                        ledger,
+                        "risk_driven_sizing",
+                        &case.name,
+                        "required_n",
+                        n,
+                        case.expected.required_n.unwrap(),
+                    );
+                    assert_oracle_close(
+                        ledger,
+                        "risk_driven_sizing",
+                        &case.name,
+                        "floor",
+                        proportion::lower_bound_from_rate(case.inputs.baseline_rate, n, cl),
+                        case.expected.floor.unwrap(),
+                        suite.tolerance,
+                    );
+                    assert_oracle_close(
+                        ledger,
+                        "risk_driven_sizing",
+                        &case.name,
+                        "achieved_power",
+                        risk_driven_sizing::self_consistent_power(
+                            n,
+                            case.inputs.baseline_rate,
+                            minimum_acceptable_rate,
+                            cl,
+                        ),
+                        case.expected.achieved_power.unwrap(),
+                        suite.tolerance,
+                    );
+                }
+                "power_at" => {
+                    let test_samples = case.inputs.test_samples.unwrap();
+                    assert_oracle_close(
+                        ledger,
+                        "risk_driven_sizing",
+                        &case.name,
+                        "floor",
+                        proportion::lower_bound_from_rate(
+                            case.inputs.baseline_rate,
+                            test_samples,
+                            cl,
+                        ),
+                        case.expected.floor.unwrap(),
+                        suite.tolerance,
+                    );
+                    assert_oracle_close(
+                        ledger,
+                        "risk_driven_sizing",
+                        &case.name,
+                        "power",
+                        risk_driven_sizing::self_consistent_power(
+                            test_samples,
+                            case.inputs.baseline_rate,
+                            case.inputs.minimum_acceptable_rate.unwrap(),
+                            cl,
+                        ),
+                        case.expected.power.unwrap(),
+                        suite.tolerance,
+                    );
+                }
+                "detectable_rate" => {
+                    assert_oracle_close(
+                        ledger,
+                        "risk_driven_sizing",
+                        &case.name,
+                        "detectable_rate",
+                        risk_driven_sizing::detectable_rate(
+                            case.inputs.test_samples.unwrap(),
+                            case.inputs.baseline_rate,
+                            cl,
+                            case.inputs.target_power.unwrap(),
+                        ),
+                        case.expected.detectable_rate.unwrap(),
+                        suite.tolerance,
+                    );
+                }
+                other => panic!("Unknown approach '{other}' in case '{}'", case.name),
+            }
+        },
+    );
+}
+
+#[test]
+fn conformance_risk_driven_sizing() {
+    check_risk_driven_sizing(&mut Ledger::load());
 }
 
 // ---------------------------------------------------------------------------
@@ -1519,11 +1665,12 @@ fn conformance_coverage_meets_manifest() {
     type SuiteCheck = fn(&mut Ledger);
 
     let mut ledger = Ledger::load();
-    let checks: [(&str, SuiteCheck); 10] = [
+    let checks: [(&str, SuiteCheck); 11] = [
         ("wilson_ci", check_wilson_ci),
         ("wilson_lower", check_wilson_lower),
         ("threshold_derivation", check_threshold_derivation),
         ("power_analysis", check_power_analysis),
+        ("risk_driven_sizing", check_risk_driven_sizing),
         ("feasibility", check_feasibility),
         ("verdict", check_verdict),
         ("latency_percentile", check_latency_percentile),

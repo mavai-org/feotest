@@ -171,6 +171,7 @@ fn write_header(
         ThresholdApproach::ThresholdFirst { .. } => "Threshold-first",
         ThresholdApproach::SampleSizeFirst { .. } => "Sample-size-first",
         ThresholdApproach::ConfidenceFirst { .. } => "Confidence-first",
+        ThresholdApproach::RiskDriven { .. } => "Risk-driven",
     };
     write_line(w, &format!("Approach:   {approach_label}"))?;
 
@@ -304,6 +305,18 @@ fn approach_detail(
         ThresholdApproach::ConfidenceFirst { .. } => {
             format!(
                 "(computed sample size: {})",
+                record.execution().samples_planned(),
+            )
+        }
+        // The threshold line above this detail carries the acceptance floor
+        // at the computed size; the detail names the size and the tolerance
+        // it was priced for.
+        ThresholdApproach::RiskDriven {
+            minimum_acceptable_rate,
+            ..
+        } => {
+            format!(
+                "(n={} sized to detect a true rate below {minimum_acceptable_rate:.3})",
                 record.execution().samples_planned(),
             )
         }
@@ -850,6 +863,34 @@ mod tests {
 
         assert!(buf.contains("Confidence-first"));
         assert!(buf.contains("computed sample size: 100"));
+    }
+
+    #[test]
+    fn pass_verdict_risk_driven() {
+        let record = pass_record();
+        let approach = ThresholdApproach::RiskDriven {
+            minimum_acceptable_rate: 0.85,
+            confidence: 0.95,
+            target_power: 0.80,
+        };
+        let mut buf = String::new();
+        render(&record, &approach, &mut buf).unwrap();
+        insta::assert_snapshot!(buf);
+    }
+
+    #[test]
+    fn risk_driven_approach_detail() {
+        let record = pass_record();
+        let approach = ThresholdApproach::RiskDriven {
+            minimum_acceptable_rate: 0.85,
+            confidence: 0.95,
+            target_power: 0.80,
+        };
+        let mut buf = String::new();
+        render(&record, &approach, &mut buf).unwrap();
+
+        assert!(buf.contains("Risk-driven"));
+        assert!(buf.contains("n=100 sized to detect a true rate below 0.850"));
     }
 
     #[test]

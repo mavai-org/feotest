@@ -37,10 +37,12 @@ pub fn build_config_overrides(
     let samples = match approach {
         ThresholdApproach::ThresholdFirst { samples, .. }
         | ThresholdApproach::SampleSizeFirst { samples, .. } => *samples,
-        // Confidence-first computes samples at runtime. The runner
-        // synthesises its own config in that case; we cannot pre-compute
-        // here.
-        ThresholdApproach::ConfidenceFirst { .. } => return None,
+        // Confidence-first and risk-driven compute samples at runtime. The
+        // runner synthesises its own config in those cases; we cannot
+        // pre-compute here.
+        ThresholdApproach::ConfidenceFirst { .. } | ThresholdApproach::RiskDriven { .. } => {
+            return None;
+        }
     };
 
     let mut config = ExecutionConfig::new(samples);

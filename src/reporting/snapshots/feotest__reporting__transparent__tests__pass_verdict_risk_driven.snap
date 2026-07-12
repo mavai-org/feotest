@@ -1,0 +1,35 @@
+---
+source: src/reporting/transparent.rs
+expression: buf
+---
+║═════════════════════════════════════════════════════════════║
+║ TRANSPARENT STATISTICS                                      ║
+║                                                             ║
+║ Test:       my-service                                      ║
+║ Approach:   Risk-driven                                     ║
+║ Intent:     VERIFICATION                                    ║
+║ Origin:     EMPIRICAL                                       ║
+║─────────────────────────────────────────────────────────────║
+║ HYPOTHESES                                                  ║
+║                                                             ║
+║ H0: p >= 0.900  (service meets threshold)                   ║
+║ H1: p <  0.900  (service is degraded)                       ║
+║─────────────────────────────────────────────────────────────║
+║ OBSERVED DATA AND INFERENCE                                 ║
+║                                                             ║
+║ Successes / Total:    96 / 100                              ║
+║ Observed pass rate:   0.960                                 ║
+║ Threshold:            0.900                                 ║
+║   (n=100 sized to detect a true rate below 0.850)           ║
+║ z-statistic:          2.294                                 ║
+║ p-value:              0.011                                 ║
+║ Wilson lower [95%]: 0.907                                   ║
+║ Standard error:       0.022                                 ║
+║─────────────────────────────────────────────────────────────║
+║ VERDICT                                                     ║
+║                                                             ║
+║ PASS                                                        ║
+║                                                             ║
+║ The observed success rate of 0.960 is consistent with the   ║
+║ baseline expectation. No evidence of degradation.           ║
+║═════════════════════════════════════════════════════════════║
