@@ -6,7 +6,7 @@ expression: buf
 ║ TRANSPARENT STATISTICS                                      ║
 ║                                                             ║
 ║ Test:       tiny-test                                       ║
-║ Approach:   Threshold-first                                 ║
+║ Approach:   threshold-first                                 ║
 ║ Intent:     VERIFICATION                                    ║
 ║ Origin:     SLA                                             ║
 ║─────────────────────────────────────────────────────────────║

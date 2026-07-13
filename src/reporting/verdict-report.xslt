@@ -190,6 +190,7 @@
         <details>
           <summary>Details</summary>
           <xsl:call-template name="verdict-detail"/>
+          <xsl:call-template name="run-design"/>
           <xsl:call-template name="misalignment-guidance"/>
           <xsl:call-template name="warnings-box"/>
           <xsl:call-template name="statistical-detail"/>
@@ -276,6 +277,131 @@
         </xsl:for-each>
       </xsl:if>
     </pre>
+  </xsl:template>
+
+  <!-- ===================================================================
+       Run design: the sizing-transparency disclosures. Every value is
+       read from the record (computed by the engine); this template only
+       formats.
+       =================================================================== -->
+
+  <xsl:template name="run-design">
+    <xsl:variable name="approach"
+                  select="v:environment/v:entry[@key='sizing-approach']/@value"/>
+    <xsl:if test="$approach">
+      <details>
+        <summary>Run design</summary>
+        <div class="run-design">
+          <p>
+            <strong>Approach: </strong>
+            <xsl:value-of select="$approach"/>
+            <xsl:choose>
+              <xsl:when test="$approach='confidence-first (risk-driven)'">
+                <xsl:text> &#x2014; the run size was computed from the declared tolerance and confidence, priced against the acceptance bar this very size derives</xsl:text>
+              </xsl:when>
+              <xsl:when test="$approach='confidence-first'">
+                <xsl:text> &#x2014; the run size was computed from the declared confidence, detectable effect, and power</xsl:text>
+              </xsl:when>
+              <xsl:when test="$approach='sample-size-first'">
+                <xsl:text> &#x2014; the sample size was chosen first; the acceptance bar was derived honestly at that size</xsl:text>
+              </xsl:when>
+              <xsl:when test="$approach='threshold-first'">
+                <xsl:text> &#x2014; the pass bar is externally stipulated; the run judges the evidence against it</xsl:text>
+              </xsl:when>
+            </xsl:choose>
+          </p>
+          <dl>
+            <xsl:if test="v:environment/v:entry[@key='sizing-declared-samples']">
+              <dt>Declared samples</dt>
+              <dd><xsl:value-of select="v:environment/v:entry[@key='sizing-declared-samples']/@value"/></dd>
+            </xsl:if>
+            <xsl:if test="v:environment/v:entry[@key='sizing-tolerated-rate']">
+              <dt>Tolerated rate</dt>
+              <dd><xsl:value-of select="format-number(v:environment/v:entry[@key='sizing-tolerated-rate']/@value, '0%')"/></dd>
+            </xsl:if>
+            <xsl:if test="v:environment/v:entry[@key='sizing-declared-min-pass-rate']">
+              <dt>Minimum pass rate</dt>
+              <dd><xsl:value-of select="format-number(v:environment/v:entry[@key='sizing-declared-min-pass-rate']/@value, '0%')"/></dd>
+            </xsl:if>
+            <xsl:if test="v:environment/v:entry[@key='sizing-declared-min-detectable-effect']">
+              <dt>Minimum detectable effect</dt>
+              <dd><xsl:value-of select="v:environment/v:entry[@key='sizing-declared-min-detectable-effect']/@value"/></dd>
+            </xsl:if>
+            <xsl:if test="v:environment/v:entry[@key='sizing-declared-confidence']">
+              <dt>Confidence</dt>
+              <dd><xsl:value-of select="format-number(v:environment/v:entry[@key='sizing-declared-confidence']/@value, '0%')"/></dd>
+            </xsl:if>
+            <xsl:if test="v:environment/v:entry[@key='sizing-declared-power']">
+              <dt>Target power</dt>
+              <dd><xsl:value-of select="format-number(v:environment/v:entry[@key='sizing-declared-power']/@value, '0%')"/></dd>
+            </xsl:if>
+            <xsl:if test="v:environment/v:entry[@key='sizing-computed-samples']">
+              <dt>Computed sample size</dt>
+              <dd><xsl:value-of select="v:environment/v:entry[@key='sizing-computed-samples']/@value"/></dd>
+            </xsl:if>
+          </dl>
+          <xsl:call-template name="sizing-trade"/>
+        </div>
+      </details>
+    </xsl:if>
+  </xsl:template>
+
+  <!-- The downsizing disclosure and its paired efficiency estimate. -->
+  <xsl:template name="sizing-trade">
+    <xsl:variable name="detectable"
+                  select="v:environment/v:entry[@key='sizing-detectable-rate']/@value"/>
+    <xsl:if test="$detectable">
+      <xsl:variable name="planned" select="v:execution/@planned-samples"/>
+      <xsl:variable name="baseline-samples" select="v:baseline/@samples"/>
+      <xsl:variable name="power"
+                    select="v:environment/v:entry[@key='sizing-detectable-power']/@value"/>
+      <p>
+        <xsl:text>This test was sized at </xsl:text>
+        <xsl:value-of select="$planned"/>
+        <xsl:text> samples against a baseline measured over </xsl:text>
+        <xsl:value-of select="$baseline-samples"/>
+        <xsl:text>. With </xsl:text>
+        <xsl:value-of select="$planned"/>
+        <xsl:text> samples, this test would only catch a drop below </xsl:text>
+        <xsl:value-of select="format-number($detectable, '0%')"/>
+        <xsl:choose>
+          <xsl:when test="number($power) = 0.8">
+            <xsl:text> four times out of five.</xsl:text>
+          </xsl:when>
+          <xsl:otherwise>
+            <xsl:text> about </xsl:text>
+            <xsl:value-of select="format-number($power, '0%')"/>
+            <xsl:text> of the time.</xsl:text>
+          </xsl:otherwise>
+        </xsl:choose>
+      </p>
+      <xsl:variable name="fraction"
+                    select="v:environment/v:entry[@key='sizing-saved-fraction']/@value"/>
+      <xsl:variable name="time-saved-ms"
+                    select="v:environment/v:entry[@key='sizing-time-saved-ms']/@value"/>
+      <xsl:variable name="tokens-saved"
+                    select="v:environment/v:entry[@key='sizing-tokens-saved']/@value"/>
+      <p>
+        <xsl:text>Estimated saving versus a run at the baseline's </xsl:text>
+        <xsl:value-of select="$baseline-samples"/>
+        <xsl:text> samples: about </xsl:text>
+        <xsl:value-of select="format-number($fraction, '0%')"/>
+        <xsl:choose>
+          <xsl:when test="$tokens-saved">
+            <xsl:text> less execution time and tokens (roughly </xsl:text>
+            <xsl:value-of select="format-number($time-saved-ms div 1000, '0.0')"/>
+            <xsl:text> seconds and </xsl:text>
+            <xsl:value-of select="$tokens-saved"/>
+            <xsl:text> tokens, from this run's own per-sample averages). Estimates only.</xsl:text>
+          </xsl:when>
+          <xsl:otherwise>
+            <xsl:text> less execution time (roughly </xsl:text>
+            <xsl:value-of select="format-number($time-saved-ms div 1000, '0.0')"/>
+            <xsl:text> seconds, from this run's own per-sample average). Estimates only; no token figures are recorded for this run.</xsl:text>
+          </xsl:otherwise>
+        </xsl:choose>
+      </p>
+    </xsl:if>
   </xsl:template>
 
   <!-- ===================================================================
@@ -468,6 +594,17 @@
       background: var(--bg-light); border: 1px solid var(--border-color);
       border-radius: 4px; white-space: pre-wrap; word-break: break-word;
     }
+    .run-design {
+      font-size: 0.85rem; line-height: 1.6; padding: 0.75rem 1rem; margin: 0.5rem 0;
+      background: var(--bg-light); border: 1px solid var(--border-color); border-radius: 4px;
+    }
+    .run-design p { margin: 0.35rem 0; }
+    .run-design dl {
+      display: grid; grid-template-columns: max-content 1fr;
+      gap: 0.15rem 1rem; margin: 0.5rem 0;
+    }
+    .run-design dt { font-weight: 600; }
+    .run-design dd { margin: 0; }
     .warning-box {
       background: #fff8e1; border-left: 4px solid var(--advisory-color);
       padding: 0.5rem 0.75rem; margin: 0.5rem 0; font-size: 0.8rem;

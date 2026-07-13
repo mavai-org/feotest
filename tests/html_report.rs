@@ -16,7 +16,8 @@ use feotest::model::{
 };
 use feotest::reporting::HtmlReportWriter;
 use feotest::verdict::{
-    CriterionRow, FunctionalAssessment, SpecProvenance, StatisticalAnalysis, Verdict, VerdictRecord,
+    BaselineProvenance, CriterionRow, FunctionalAssessment, SpecProvenance, StatisticalAnalysis,
+    Verdict, VerdictRecord,
 };
 
 const fn sample_execution(
@@ -80,6 +81,35 @@ fn inconclusive_record() -> VerdictRecord {
         TestIntent::Verification,
         sample_execution(10, 10, 7, 3),
         FunctionalAssessment::single(CriterionRow::result(7, 3, vec![], Verdict::Inconclusive)),
+    )
+    .build()
+}
+
+/// A record carrying the run-design facts of a downsized risk-driven run:
+/// sized at 100 samples against a baseline measured over 1,000, with both
+/// cost halves recorded.
+fn downsized_record(sizing_entries: Vec<(&str, &str)>) -> VerdictRecord {
+    let analysis = StatisticalAnalysis::new(0.95, 0.022, 0.907, 0.900, ThresholdOrigin::Empirical);
+    VerdictRecord::builder(
+        TestIdentity::new("sized-service").with_test_name("test_sized"),
+        Verdict::Pass,
+        TestIntent::Verification,
+        sample_execution(100, 100, 96, 4),
+        FunctionalAssessment::single(CriterionRow::result(96, 4, vec![], Verdict::Pass)),
+    )
+    .statistical_analysis(analysis)
+    .baseline_provenance(BaselineProvenance::new(
+        "sized-service.yaml",
+        "2026-07-01T00:00:00Z",
+        1000,
+        0.96,
+        0.9,
+    ))
+    .environment(
+        sizing_entries
+            .into_iter()
+            .map(|(k, v)| (k.to_owned(), v.to_owned()))
+            .collect(),
     )
     .build()
 }
@@ -186,6 +216,85 @@ fn report_groups_by_service_contract() {
 
     assert!(html.contains("my-service"));
     assert!(html.contains("payment-service"));
+}
+
+#[test]
+fn run_design_block_discloses_approach_and_sizing_trade() {
+    let record = downsized_record(vec![
+        ("sizing-approach", "confidence-first (risk-driven)"),
+        ("sizing-tolerated-rate", "0.93"),
+        ("sizing-declared-confidence", "0.95"),
+        ("sizing-declared-power", "0.8"),
+        ("sizing-computed-samples", "100"),
+        ("sizing-detectable-rate", "0.876"),
+        ("sizing-detectable-power", "0.8"),
+        ("sizing-saved-fraction", "0.9"),
+        ("sizing-time-saved-ms", "45000"),
+        ("sizing-tokens-saved", "1080000"),
+    ]);
+    let Some(html) = generate_or_skip(&[record], Some("2026-07-13T12:00:00Z")) else {
+        return;
+    };
+
+    assert!(html.contains("Run design"));
+    assert!(html.contains("confidence-first (risk-driven)"));
+    assert!(html.contains("priced against the acceptance bar"));
+    assert!(html.contains("Tolerated rate"));
+    assert!(html.contains("93%"));
+    assert!(html.contains("Target power"));
+    assert!(
+        html.contains("This test was sized at 100 samples against a baseline measured over 1000.")
+    );
+    assert!(html.contains("would only catch a drop below 88% four times out of five."));
+    assert!(html.contains("about 90% less execution time and tokens"));
+    assert!(html.contains("roughly 45.0 seconds and 1080000 tokens"));
+    assert!(html.contains("Estimates only."));
+}
+
+#[test]
+fn efficiency_disclosure_degrades_to_time_only_without_token_costs() {
+    let record = downsized_record(vec![
+        ("sizing-approach", "sample-size-first"),
+        ("sizing-declared-samples", "100"),
+        ("sizing-declared-confidence", "0.95"),
+        ("sizing-detectable-rate", "0.876"),
+        ("sizing-detectable-power", "0.8"),
+        ("sizing-saved-fraction", "0.9"),
+        ("sizing-time-saved-ms", "45000"),
+    ]);
+    let Some(html) = generate_or_skip(&[record], Some("2026-07-13T12:00:00Z")) else {
+        return;
+    };
+
+    assert!(html.contains("about 90% less execution time (roughly 45.0 seconds"));
+    assert!(html.contains("no token figures are recorded for this run."));
+    assert!(!html.contains("fewer tokens"));
+}
+
+#[test]
+fn approach_disclosure_stands_alone_on_a_full_size_run() {
+    let record = downsized_record(vec![
+        ("sizing-approach", "sample-size-first"),
+        ("sizing-declared-samples", "100"),
+        ("sizing-declared-confidence", "0.95"),
+    ]);
+    let Some(html) = generate_or_skip(&[record], Some("2026-07-13T12:00:00Z")) else {
+        return;
+    };
+
+    assert!(html.contains("Run design"));
+    assert!(html.contains("sample-size-first"));
+    assert!(!html.contains("would only catch a drop below"));
+    assert!(!html.contains("Estimated saving"));
+}
+
+#[test]
+fn records_without_sizing_facts_render_no_run_design_block() {
+    let Some(html) = generate_or_skip(&[pass_record()], Some("2026-07-13T12:00:00Z")) else {
+        return;
+    };
+
+    assert!(!html.contains("Run design"));
 }
 
 #[test]

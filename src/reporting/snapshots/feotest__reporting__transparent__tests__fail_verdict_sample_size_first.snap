@@ -6,7 +6,7 @@ expression: buf
 ║ TRANSPARENT STATISTICS                                      ║
 ║                                                             ║
 ║ Test:       my-service                                      ║
-║ Approach:   Sample-size-first                               ║
+║ Approach:   sample-size-first                               ║
 ║ Intent:     VERIFICATION                                    ║
 ║ Origin:     EMPIRICAL                                       ║
 ║─────────────────────────────────────────────────────────────║

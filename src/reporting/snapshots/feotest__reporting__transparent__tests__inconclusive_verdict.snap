@@ -1,13 +1,12 @@
 ---
 source: src/reporting/transparent.rs
-assertion_line: 542
 expression: buf
 ---
 ║═════════════════════════════════════════════════════════════║
 ║ TRANSPARENT STATISTICS                                      ║
 ║                                                             ║
 ║ Test:       flaky-service                                   ║
-║ Approach:   Threshold-first                                 ║
+║ Approach:   threshold-first                                 ║
 ║ Intent:     VERIFICATION                                    ║
 ║─────────────────────────────────────────────────────────────║
 ║ VERDICT                                                     ║

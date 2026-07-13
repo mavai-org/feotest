@@ -166,14 +166,8 @@ fn write_header(
         .unwrap_or_else(|| record.identity().service_contract_id());
     write_line(w, &format!("Test:       {name}"))?;
 
-    // Approach label
-    let approach_label = match approach {
-        ThresholdApproach::ThresholdFirst { .. } => "Threshold-first",
-        ThresholdApproach::SampleSizeFirst { .. } => "Sample-size-first",
-        ThresholdApproach::ConfidenceFirst { .. } => "Confidence-first",
-        ThresholdApproach::RiskDriven { .. } => "Risk-driven",
-    };
-    write_line(w, &format!("Approach:   {approach_label}"))?;
+    // Approach, by its canonical operational name
+    write_line(w, &format!("Approach:   {}", approach.canonical_name()))?;
 
     // Intent
     write_line(w, &format!("Intent:     {}", record.intent()))?;
@@ -846,7 +840,7 @@ mod tests {
         let mut buf = String::new();
         render(&record, &approach, &mut buf).unwrap();
 
-        assert!(buf.contains("Sample-size-first"));
+        assert!(buf.contains("sample-size-first"));
         assert!(buf.contains("derived from baseline at 0.950 confidence"));
     }
 
@@ -861,7 +855,7 @@ mod tests {
         let mut buf = String::new();
         render(&record, &approach, &mut buf).unwrap();
 
-        assert!(buf.contains("Confidence-first"));
+        assert!(buf.contains("Approach:   confidence-first"));
         assert!(buf.contains("computed sample size: 100"));
     }
 
@@ -889,7 +883,7 @@ mod tests {
         let mut buf = String::new();
         render(&record, &approach, &mut buf).unwrap();
 
-        assert!(buf.contains("Risk-driven"));
+        assert!(buf.contains("confidence-first (risk-driven)"));
         assert!(buf.contains("n=100 sized to detect a true rate below 0.850"));
     }
 
@@ -903,7 +897,7 @@ mod tests {
         let mut buf = String::new();
         render(&record, &approach, &mut buf).unwrap();
 
-        assert!(buf.contains("Threshold-first"));
+        assert!(buf.contains("threshold-first"));
         assert!(buf.contains("implied confidence: 0.950"));
     }
 
