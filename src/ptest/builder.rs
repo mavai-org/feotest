@@ -104,6 +104,24 @@ pub enum ThresholdApproach {
     },
 }
 
+impl ThresholdApproach {
+    /// The canonical operational-approach name, as the methodology states it.
+    ///
+    /// Risk-driven sizing is not a separate approach: it is the
+    /// confidence-first approach priced self-consistently against an
+    /// empirical baseline, so it is named `confidence-first (risk-driven)`.
+    /// Renderers and disclosures use this name verbatim.
+    #[must_use]
+    pub const fn canonical_name(&self) -> &'static str {
+        match self {
+            Self::SampleSizeFirst { .. } => "sample-size-first",
+            Self::ConfidenceFirst { .. } => "confidence-first",
+            Self::RiskDriven { .. } => "confidence-first (risk-driven)",
+            Self::ThresholdFirst { .. } => "threshold-first",
+        }
+    }
+}
+
 /// Resolves the default baseline directory path from `CARGO_MANIFEST_DIR`.
 pub(crate) fn default_baseline_dir() -> PathBuf {
     let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").unwrap_or_else(|_| ".".to_string());

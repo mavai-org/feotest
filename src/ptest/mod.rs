@@ -24,6 +24,7 @@ mod baseline;
 pub mod builder;
 mod contract;
 mod diagnostics;
+mod disclosure;
 mod probabilistic_test;
 mod runner;
 

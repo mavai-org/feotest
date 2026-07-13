@@ -14,6 +14,7 @@ use crate::model::{
 use crate::ptest::approach;
 use crate::ptest::builder::ThresholdApproach;
 use crate::ptest::diagnostics;
+use crate::ptest::disclosure;
 use crate::service_contract::CovariateContext;
 use crate::service_contract::ServiceContract;
 use crate::spec::{BaselineSpec, SpecResolver};
@@ -435,10 +436,12 @@ where
     // sizing computes the governing sample count from each baseline-derived
     // criterion's own baseline tally.
     let contract_criteria = contract.criteria();
+    let criterion_tallies =
+        empirical_criterion_tallies(&contract_criteria.targets(), baseline_spec.as_ref());
     let (samples, derived_threshold, resolved_confidence, feas) = resolve_sampling_plan(
         &criteria.approach,
         baseline_spec.as_ref(),
-        &contract_criteria.targets(),
+        &criterion_tallies,
     );
     enforce_feasibility(&service_contract_id, criteria.intent, &feas, &mut warnings);
 
@@ -474,20 +477,14 @@ where
         .first()
         .and_then(|row| row.statistical_analysis().cloned());
 
-    // Budget exhaustion and baseline expiration adjust the overall (composite)
-    // verdict, exactly as for the legacy single-criterion path.
-    let mut verdict = composite_verdict(&rows);
-    verdict = apply_budget_exhaustion_policy(summary, &config, verdict, &mut warnings);
-    let expiration_info = baseline_spec
-        .as_ref()
-        .map(crate::spec::expiration::evaluate);
-    verdict = apply_expiration_policy(
-        expiration_info.as_ref(),
-        criteria.fail_on_expired_baseline,
-        verdict,
+    let (verdict, expiration_info) = resolve_final_verdict(
+        &rows,
+        summary,
+        &config,
+        baseline_spec.as_ref(),
+        criteria,
         &mut warnings,
     );
-    record_smoke_normative_warning(criteria, &mut warnings);
 
     let assessment = FunctionalAssessment::new(verdict, rows);
 
@@ -499,13 +496,14 @@ where
         &mut warnings,
     );
 
-    let provenance = build_provenance(
-        criteria.threshold_origin,
+    let (provenance, baseline_prov, disclosure_entries) = build_record_provenance(
+        criteria,
         baseline_spec.as_ref(),
-        criteria.contract_ref.as_deref(),
         expiration_info,
+        resolved_confidence,
+        &criterion_tallies,
+        summary,
     );
-    let baseline_prov = baseline_spec.as_ref().map(build_baseline_provenance);
 
     let mut builder = VerdictRecord::builder(
         TestIdentity::new(service_contract_id),
@@ -514,7 +512,8 @@ where
         summary.clone(),
         assessment,
     )
-    .spec_provenance(provenance);
+    .spec_provenance(provenance)
+    .environment(disclosure_entries);
     if let Some(analysis) = analysis {
         builder = builder.statistical_analysis(analysis);
     }
@@ -537,6 +536,64 @@ where
     }
 }
 
+/// Builds the provenance the verdict record carries: the spec provenance,
+/// the baseline provenance (when a baseline resolved), and the
+/// sizing-transparency facts the report's run-design block renders —
+/// computed here, formatted there.
+fn build_record_provenance(
+    criteria: &AssessmentCriteria,
+    baseline_spec: Option<&BaselineSpec>,
+    expiration_info: Option<ExpirationInfo>,
+    resolved_confidence: ConfidenceLevel,
+    criterion_tallies: &[approach::CriterionBaselineTally],
+    summary: &ExecutionSummary,
+) -> (
+    SpecProvenance,
+    Option<BaselineProvenance>,
+    Vec<(String, String)>,
+) {
+    let provenance = build_provenance(
+        criteria.threshold_origin,
+        baseline_spec,
+        criteria.contract_ref.as_deref(),
+        expiration_info,
+    );
+    let baseline_prov = baseline_spec.map(build_baseline_provenance);
+    let disclosure_entries = disclosure::sizing_disclosure_entries(
+        &criteria.approach,
+        resolved_confidence,
+        baseline_prov.as_ref(),
+        criterion_tallies,
+        summary,
+    );
+    (provenance, baseline_prov, disclosure_entries)
+}
+
+/// Resolves the run's final composite verdict and the baseline's expiration
+/// status: budget exhaustion and baseline expiration adjust the composite
+/// verdict, exactly as for the legacy single-criterion path, and a smoke run
+/// against a normative threshold records its non-evidential warning.
+fn resolve_final_verdict(
+    rows: &[CriterionRow],
+    summary: &ExecutionSummary,
+    config: &ExecutionConfig,
+    baseline_spec: Option<&BaselineSpec>,
+    criteria: &AssessmentCriteria,
+    warnings: &mut Vec<Warning>,
+) -> (Verdict, Option<ExpirationInfo>) {
+    let mut verdict = composite_verdict(rows);
+    verdict = apply_budget_exhaustion_policy(summary, config, verdict, warnings);
+    let expiration_info = baseline_spec.map(crate::spec::expiration::evaluate);
+    verdict = apply_expiration_policy(
+        expiration_info.as_ref(),
+        criteria.fail_on_expired_baseline,
+        verdict,
+        warnings,
+    );
+    record_smoke_normative_warning(criteria, warnings);
+    (verdict, expiration_info)
+}
+
 /// Resolves the sampling plan for a run: the sample count, the derived
 /// threshold, the resolved confidence, and the feasibility check over them.
 /// Risk-driven plans size against the per-criterion baseline tallies of the
@@ -544,14 +601,13 @@ where
 fn resolve_sampling_plan(
     approach: &ThresholdApproach,
     baseline_spec: Option<&BaselineSpec>,
-    targets: &[(&str, &CriterionTarget)],
+    criterion_tallies: &[approach::CriterionBaselineTally],
 ) -> (u32, DerivedThreshold, ConfidenceLevel, FeasibilityResult) {
-    let criterion_tallies = empirical_criterion_tallies(targets, baseline_spec);
     let (samples, derived_threshold) = approach::resolve_threshold(
         approach,
         baseline_spec.map(|s| &s.statistics),
         baseline_spec.map(|s| &s.execution),
-        &criterion_tallies,
+        criterion_tallies,
     );
     let resolved_confidence = approach::resolved_confidence(approach);
     let feas =

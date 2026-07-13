@@ -6,7 +6,7 @@ expression: buf
 ║ TRANSPARENT STATISTICS                                      ║
 ║                                                             ║
 ║ Test:       my-service                                      ║
-║ Approach:   Threshold-first                                 ║
+║ Approach:   threshold-first                                 ║
 ║ Intent:     VERIFICATION                                    ║
 ║ Origin:     EMPIRICAL                                       ║
 ║─────────────────────────────────────────────────────────────║

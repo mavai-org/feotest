@@ -6,7 +6,7 @@ expression: buf
 ║ TRANSPARENT STATISTICS                                      ║
 ║                                                             ║
 ║ Test:       my-service                                      ║
-║ Approach:   Risk-driven                                     ║
+║ Approach:   confidence-first (risk-driven)                  ║
 ║ Intent:     VERIFICATION                                    ║
 ║ Origin:     EMPIRICAL                                       ║
 ║─────────────────────────────────────────────────────────────║

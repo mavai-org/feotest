@@ -89,7 +89,7 @@ fn render_with_sample_size_first_approach() {
     let mut buf = String::new();
     render_transparent_stats(result.verdict_record(), result.approach(), &mut buf).unwrap();
 
-    assert!(buf.contains("Sample-size-first"));
+    assert!(buf.contains("sample-size-first"));
     assert!(buf.contains("derived from baseline at 0.950 confidence"));
 }
 
