@@ -26,6 +26,7 @@ use crate::spec::baseline::ExecutionBlock;
 use crate::spec::common::{build_cost_block, build_failure_distribution, now_iso8601, round4};
 use crate::spec::explore::{
     ExplorationSpec, ExplorationStatisticsBlock, ExploreSpecWriter, FactorYamlValue,
+    build_criteria_blocks, build_latency_block,
 };
 use crate::spec::projection::{SampleProjection, build_projection, format_projections};
 
@@ -447,6 +448,7 @@ impl ExploreResult {
                 service_contract_id: self.service_contract_id.clone(),
                 generated_at: timestamp.clone(),
                 experiment_id: self.experiment_id.clone(),
+                configuration: Some(config.name().to_owned()),
                 execution_context: BTreeMap::new(),
                 execution: ExecutionBlock {
                     samples_planned: summary.samples_planned(),
@@ -458,7 +460,9 @@ impl ExploreResult {
                     successes: summary.successes(),
                     failures: summary.failures(),
                     failure_distribution: build_failure_distribution(agg),
+                    criteria: build_criteria_blocks(config.execution()),
                 },
+                latency: build_latency_block(config.projections()),
                 cost: Some(build_cost_block(summary.cost())),
             };
 

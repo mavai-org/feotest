@@ -9,6 +9,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- **Exploration comparison HTML report.** `ExploreHtmlReportWriter` renders a
+  single self-contained page over a directory of exploration YAMLs
+  (`<root>/<service>/*.yaml`): an overview of services with their best
+  configuration, and per service a ranked leaderboard (observed rate, then
+  median passing latency, then average cost — with a presentational
+  "too close to call" marker between equally-reliable configurations whose
+  medians are within 5%), a per-criterion comparison matrix over the union of
+  criteria, and per-configuration latency-distribution strips with the median
+  marked. No JavaScript, no external assets; every number is read from the
+  spec or is a nearest-rank percentile over the recorded passing latencies.
+- **Richer exploration YAML.** Each per-configuration exploration spec now
+  additionally carries its `configuration` display name, per-criterion
+  tallies (`statistics.criteria.<name>`: observed / successes / failures /
+  failure distribution), and the sorted passing-trial durations
+  (`latency.sortedPassingLatenciesMs`). All three are additive and optional —
+  existing `feotest-spec-1` files parse unchanged. `ExploreSpecWriter::write_one`
+  gains a `projections` parameter to source the latency detail.
+
 - **Normative judgement at experiment time.** A measure experiment over a
   contract that declares normative criteria
   (`Criterion::meeting().pass_rate(..)`) now judges each one against its
