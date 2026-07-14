@@ -10,12 +10,14 @@
 //! statistics mode.
 
 pub mod console;
+mod explore_html;
 mod html;
 mod junit;
 pub mod transparent;
 mod verdict_xml;
 
 pub use console::ConsoleRenderer;
+pub use explore_html::ExploreHtmlReportWriter;
 pub use html::HtmlReportWriter;
 pub use junit::JunitXmlWriter;
 pub use transparent::render as render_transparent_stats;
