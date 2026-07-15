@@ -600,17 +600,22 @@ fn append_latency_strips(out: &mut String, ranked: &[RankedVariant<'_>]) {
     let _ = writeln!(
         out,
         "<p class=\"strip-axis\">0ms \u{2013} {max_latency}ms \u{b7} \
-         <span class=\"mark-p50\">\u{258d}p50</span> \
-         <span class=\"mark-p95\">\u{258d}p95</span> \
-         <span class=\"mark-p99\">\u{258d}p99</span> \
-         \u{b7} percentiles are computed from every passing sample; the dots are an \
-         evenly-thinned subset, plotted for shape only</p>",
+         <span class=\"mark-fastest\">\u{25cf} Fastest</span> \
+         <span class=\"mark-p50\">\u{25cf} p50</span> \
+         <span class=\"mark-p95\">\u{25cf} p95</span> \
+         <span class=\"mark-p99\">\u{25cf} p99</span> \
+         <span class=\"mark-slowest\">\u{25cf} Slowest</span></p>\n\
+         <p class=\"strip-axis\">passing samples only; percentiles are computed from every \
+         passing sample, and the grey dots are an evenly-thinned subset, plotted for shape only</p>",
     );
     let _ = out.write_str("</div>\n");
 }
 
-/// Renders one configuration's strip: its passing latencies as dots on a
-/// shared 0..max axis, with markers at each stateable percentile.
+/// Renders one configuration's strip: its passing latencies as faint dots on
+/// a shared 0..max axis, with five colour-keyed landmark dots — fastest, the
+/// stated p50/p95/p99, and slowest — each carrying its exact value as a
+/// native tooltip. The landmarks are inherently ordered along the axis, so
+/// position and colour encode the same reading redundantly.
 fn append_latency_strip(out: &mut String, variant: &Variant, max_latency_ms: u64) {
     let _ = write!(
         out,
@@ -622,7 +627,9 @@ fn append_latency_strip(out: &mut String, variant: &Variant, max_latency_ms: u64
         return;
     }
     let scale = ms_to_f64(max_latency_ms).max(1.0);
-    let x = |ms: u64| -> f64 { (ms_to_f64(ms) / scale).mul_add(304.0, 8.0) };
+    let x = |ms: f64| -> f64 { (ms / scale).mul_add(304.0, 8.0) };
+    let fastest = ms_to_f64(variant.latencies_ms[0]);
+    let slowest = ms_to_f64(*variant.latencies_ms.last().unwrap_or(&0));
     let _ = out.write_str(
         "<svg class=\"latency-strip-svg\" width=\"320\" height=\"24\" viewBox=\"0 0 320 24\" \
          role=\"img\">",
@@ -630,28 +637,29 @@ fn append_latency_strip(out: &mut String, variant: &Variant, max_latency_ms: u64
     let _ = write!(
         out,
         "<line class=\"strip-range\" x1=\"{min:.1}\" y1=\"14\" x2=\"{max:.1}\" y2=\"14\"/>",
-        min = x(variant.latencies_ms[0]),
-        max = x(*variant.latencies_ms.last().unwrap_or(&0)),
+        min = x(fastest),
+        max = x(slowest),
     );
     let step = (variant.latencies_ms.len() / STRIP_MAX_POINTS).max(1);
     for &ms in variant.latencies_ms.iter().step_by(step) {
+        let cx = x(ms_to_f64(ms));
+        let (tx, anchor) = label_anchor(cx);
         let _ = write!(
             out,
-            "<circle class=\"strip-dot\" cx=\"{cx:.1}\" cy=\"14\" r=\"2.5\"/>",
-            cx = x(ms),
+            "<g class=\"pt\"><circle class=\"strip-dot\" cx=\"{cx:.1}\" cy=\"14\" r=\"2\"/>\
+             <text class=\"tip\" x=\"{tx:.1}\" y=\"9\" text-anchor=\"{anchor}\">{ms}ms</text></g>",
         );
     }
-    for (fraction, class) in [
-        (0.50, "strip-p50"),
-        (0.95, "strip-p95"),
-        (0.99, "strip-p99"),
+    // Landmarks, drawn range ends first so the percentiles win overlaps.
+    append_landmark(out, x(fastest), "strip-fastest", "Fastest", fastest);
+    append_landmark(out, x(slowest), "strip-slowest", "Slowest", slowest);
+    for (fraction, class, name) in [
+        (0.99, "strip-p99", "p99"),
+        (0.95, "strip-p95", "p95"),
+        (0.50, "strip-p50", "p50"),
     ] {
         if let Some(value) = variant.stated_ms(fraction) {
-            let cx = (value / scale).mul_add(304.0, 8.0);
-            let _ = write!(
-                out,
-                "<line class=\"{class}\" x1=\"{cx:.1}\" y1=\"4\" x2=\"{cx:.1}\" y2=\"22\"/>",
-            );
+            append_landmark(out, x(value), class, name, value);
         }
     }
     let _ = out.write_str("</svg>");
@@ -661,6 +669,31 @@ fn append_latency_strip(out: &mut String, variant: &Variant, max_latency_ms: u64
         count = variant.latencies_ms.len(),
     );
     let _ = out.write_str("</div>\n");
+}
+
+/// The x position and anchor for a hover label: labels near either edge
+/// anchor outward so their text stays inside the drawing instead of being
+/// clipped by it.
+fn label_anchor(cx: f64) -> (f64, &'static str) {
+    if cx < 60.0 {
+        (cx.max(8.0), "start")
+    } else if cx > 260.0 {
+        (cx.min(312.0), "end")
+    } else {
+        (cx, "middle")
+    }
+}
+
+/// Renders one landmark dot with its exact value revealed instantly on
+/// hover (a CSS-shown label — native tooltips carry a browser-fixed delay).
+fn append_landmark(out: &mut String, cx: f64, class: &str, name: &str, value_ms: f64) {
+    let (tx, anchor) = label_anchor(cx);
+    let _ = write!(
+        out,
+        "<g class=\"pt\"><circle class=\"landmark {class}\" cx=\"{cx:.1}\" cy=\"14\" r=\"4\"/>\
+         <text class=\"tip\" x=\"{tx:.1}\" y=\"9\" text-anchor=\"{anchor}\">\
+         {name} \u{b7} {value_ms:.0}ms</text></g>",
+    );
 }
 
 /// Escapes text for HTML.
@@ -678,6 +711,7 @@ const CSS: &str = "\
   --pass-color: #2e7d32; --fail-color: #c62828; --inconclusive-color: #6a1b9a;\
   --advisory-color: #f9a825; --border-color: #dee2e6; --bg-light: #f8f9fa;\
   --bg-white: #ffffff; --text-color: #212529; --text-muted: #6c757d;\
+  --accent-color: #009ed6; --tail-color: #e65100;\
 }\
 * { box-sizing: border-box; margin: 0; padding: 0; }\
 body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;\
@@ -708,17 +742,26 @@ td.num, td.rank { text-align: right; width: 1%; white-space: nowrap; }\
 .factor-list dl { margin: 0.25rem 0 0 0.75rem; font-size: 0.8rem; }\
 .factor-list dt { float: left; clear: left; margin-right: 0.4rem; color: var(--text-muted); }\
 .latency-strips .strip { display: flex; align-items: center; gap: 0.75rem; margin: 0.15rem 0; }\
+.latency-strip-svg { overflow: visible; }\
 .strip-label { width: 8rem; font-size: 0.8rem; }\
 .strip-range { stroke: var(--border-color); stroke-width: 6; stroke-linecap: round; }\
-.strip-dot { fill: var(--pass-color); fill-opacity: 0.25; }\
-.strip-p50 { stroke: var(--fail-color); stroke-width: 2; }\
-.strip-p95 { stroke: var(--advisory-color); stroke-width: 2; }\
-.strip-p99 { stroke: var(--inconclusive-color); stroke-width: 2; }\
+.strip-dot { fill: var(--text-muted); fill-opacity: 0.2; stroke: transparent; stroke-width: 10; pointer-events: all; }\
+.landmark { stroke: var(--bg-white); stroke-width: 1.5; }\
+.pt .tip { display: none; font-size: 9px; fill: var(--text-color);\
+  paint-order: stroke; stroke: var(--bg-white); stroke-width: 3; }\
+.pt:hover .tip { display: block; }\
+.strip-fastest { fill: var(--pass-color); }\
+.strip-p50 { fill: var(--accent-color); }\
+.strip-p95 { fill: var(--advisory-color); }\
+.strip-p99 { fill: var(--tail-color); }\
+.strip-slowest { fill: var(--fail-color); }\
 .strip-axis { font-size: 0.75rem; color: var(--text-muted); margin-left: 8.75rem; }\
 .strip-note { font-size: 0.75rem; color: var(--text-muted); }\
-.mark-p50 { color: var(--fail-color); }\
+.mark-fastest { color: var(--pass-color); }\
+.mark-p50 { color: var(--accent-color); }\
 .mark-p95 { color: var(--advisory-color); }\
-.mark-p99 { color: var(--inconclusive-color); }\
+.mark-p99 { color: var(--tail-color); }\
+.mark-slowest { color: var(--fail-color); }\
 ";
 
 #[cfg(test)]
@@ -899,8 +942,13 @@ mod tests {
         let html = ExploreHtmlReportWriter::generate(dir.path()).unwrap();
         assert!(html.contains("<th>p99</th>"));
         assert!(html.contains("198ms")); // nearest-rank p99 of 1..=200
-        assert!(html.contains("strip-p99"));
-        assert!(html.contains("strip-p95"));
+        assert!(html.contains("landmark strip-p99"));
+        assert!(html.contains("landmark strip-p95"));
+        // The range endpoints are named landmarks with exact-value tooltips.
+        assert!(html.contains("landmark strip-fastest"));
+        assert!(html.contains("landmark strip-slowest"));
+        assert!(html.contains(">Fastest \u{b7} 1ms</text>"));
+        assert!(html.contains(">Slowest \u{b7} 200ms</text>"));
     }
 
     #[test]
@@ -913,9 +961,11 @@ mod tests {
         );
 
         let html = ExploreHtmlReportWriter::generate(dir.path()).unwrap();
-        // The p99 column exists but the cell (and the strip marker) are absent.
+        // The p99 column exists but the cell and its strip landmark are
+        // absent; the range endpoints are always marked.
         assert!(html.contains("<th>p99</th>"));
-        assert!(!html.contains("<line class=\"strip-p99\""));
+        assert!(!html.contains("landmark strip-p99"));
+        assert!(html.contains("landmark strip-slowest"));
     }
 
     #[test]
