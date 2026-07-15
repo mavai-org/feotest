@@ -444,12 +444,12 @@ impl ExploreResult {
             let agg = config.execution().aggregate();
 
             let spec = ExplorationSpec {
-                schema_version: "feotest-spec-1".to_owned(),
+                schema_version: "mavai-explore-1".to_owned(),
                 service_contract_id: self.service_contract_id.clone(),
                 generated_at: timestamp.clone(),
                 experiment_id: self.experiment_id.clone(),
                 configuration: Some(config.name().to_owned()),
-                execution_context: BTreeMap::new(),
+                factors: BTreeMap::new(),
                 execution: ExecutionBlock {
                     samples_planned: summary.samples_planned(),
                     samples_executed: summary.samples_executed(),
@@ -462,7 +462,7 @@ impl ExploreResult {
                     failure_distribution: build_failure_distribution(agg),
                     criteria: build_criteria_blocks(config.execution()),
                 },
-                latency: build_latency_block(config.projections()),
+                latency: build_latency_block(config.projections(), summary.samples_executed()),
                 cost: Some(build_cost_block(summary.cost())),
             };
 

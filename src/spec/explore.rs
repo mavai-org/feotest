@@ -1,9 +1,15 @@
 //! Exploration YAML output: per-configuration specs with descriptive statistics.
 //!
-//! Each explored configuration produces its own YAML file containing aggregate
-//! statistics (observed pass rate, successes, failures) and optional per-sample
-//! result projections. Exploration output is descriptive, not inferential — no
+//! Each explored configuration produces its own YAML file in the family's
+//! canonical `mavai-explore-1` interchange format, containing aggregate
+//! statistics (observed pass rate, successes, failures), per-criterion
+//! tallies, stated latency percentiles, and optional per-sample result
+//! projections. Exploration output is descriptive, not inferential — no
 //! standard error, confidence intervals, or derived thresholds.
+//!
+//! Latency percentiles are **stated value-or-absent**: each is emitted only
+//! when the recorded passing samples clear that percentile's minimum-sample
+//! floor. Consumers render absence; they never compute a replacement.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -41,11 +47,10 @@ pub enum FactorYamlValue {
 #[serde(rename_all = "camelCase")]
 // javai-ref: JVI-8CHB31R — do not remove (resolves in javai-orchestrator)
 pub struct ExplorationSpec {
-    /// Schema version identifier.
+    /// Schema version identifier: `mavai-explore-1`.
     pub schema_version: String,
 
     /// The service contract identifier.
-    #[serde(rename = "useCaseId")]
     pub service_contract_id: String,
 
     /// ISO 8601 timestamp of when the spec was generated.
@@ -63,7 +68,7 @@ pub struct ExplorationSpec {
 
     /// Factor values that define this configuration.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-    pub execution_context: BTreeMap<String, FactorYamlValue>,
+    pub factors: BTreeMap<String, FactorYamlValue>,
 
     /// Execution details.
     pub execution: ExecutionBlock,
@@ -71,9 +76,8 @@ pub struct ExplorationSpec {
     /// Descriptive statistics.
     pub statistics: ExplorationStatisticsBlock,
 
-    /// Latency detail — the trial durations this configuration's passing
-    /// samples recorded, sorted ascending. Descriptive raw values, from
-    /// which a consumer may take percentiles; absent when no sample passed.
+    /// Latency detail — the passing-trial durations plus the stated
+    /// percentiles. Absent when no sample passed.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub latency: Option<ExplorationLatencyBlock>,
 
@@ -137,27 +141,52 @@ pub struct ExplorationStatisticsBlock {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ExplorationCriterionBlock {
-    /// Observed pass rate for this criterion (successes / total).
-    pub observed: f64,
+    /// Observed pass rate for this criterion (pass / (pass + fail)).
+    pub observed_pass_rate: f64,
 
     /// Number of trials where this criterion passed.
-    pub successes: u32,
+    pub pass: u32,
 
     /// Number of trials where this criterion failed.
-    pub failures: u32,
+    pub fail: u32,
 
     /// This criterion's failures keyed by the violating check's name.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub failure_distribution: Option<BTreeMap<String, u32>>,
 }
 
-/// Latency detail for an exploration configuration: the raw passing-trial
-/// durations, sorted ascending, from which consumers take percentiles.
+/// Latency detail for an exploration configuration.
+///
+/// Carries the raw passing-trial durations, sorted ascending, plus the
+/// percentiles **stated** under this crate's minimum-sample gates. An
+/// absent percentile means "not stateable at this sample count", never
+/// zero.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ExplorationLatencyBlock {
+    /// The population this block describes: always `passing-samples`.
+    pub basis: String,
+
+    /// How many samples passed (and so contributed durations).
+    pub contributing_samples: u32,
+
+    /// How many samples the run executed in total.
+    pub total_samples: u32,
+
+    /// Stated median, when the passing count clears its floor.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub p50_ms: Option<f64>,
+
+    /// Stated 95th percentile, when the passing count clears its floor.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub p95_ms: Option<f64>,
+
+    /// Stated 99th percentile, when the passing count clears its floor.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub p99_ms: Option<f64>,
+
     /// Wall-clock durations of the passing trials, in milliseconds, sorted
-    /// ascending.
+    /// ascending. For shape-only consumption.
     pub sorted_passing_latencies_ms: Vec<u64>,
 }
 
@@ -261,12 +290,12 @@ impl ExploreSpecWriter {
         let agg = execution.aggregate();
 
         ExplorationSpec {
-            schema_version: "feotest-spec-1".to_owned(),
+            schema_version: "mavai-explore-1".to_owned(),
             service_contract_id: service_contract_id.to_owned(),
             generated_at: now_iso8601(),
             experiment_id: experiment_id.map(str::to_owned),
             configuration: Some(config_name.to_owned()),
-            execution_context: factors.cloned().unwrap_or_default(),
+            factors: factors.cloned().unwrap_or_default(),
             execution: ExecutionBlock {
                 samples_planned: summary.samples_planned(),
                 samples_executed: summary.samples_executed(),
@@ -279,7 +308,7 @@ impl ExploreSpecWriter {
                 failure_distribution: build_failure_distribution(agg),
                 criteria: build_criteria_blocks(execution),
             },
-            latency: build_latency_block(projections),
+            latency: build_latency_block(projections, summary.samples_executed()),
             cost: Some(build_cost_block(summary.cost())),
         }
     }
@@ -308,9 +337,9 @@ pub(crate) fn build_criteria_blocks(
                 (
                     counts.criterion().to_owned(),
                     ExplorationCriterionBlock {
-                        observed: round4(counts.pass_rate().unwrap_or(0.0)),
-                        successes: counts.pass(),
-                        failures: counts.fail(),
+                        observed_pass_rate: round4(counts.pass_rate().unwrap_or(0.0)),
+                        pass: counts.pass(),
+                        fail: counts.fail(),
                         failure_distribution: (!distribution.is_empty())
                             .then(|| distribution.clone()),
                     },
@@ -320,9 +349,12 @@ pub(crate) fn build_criteria_blocks(
     )
 }
 
-/// The sorted passing-trial durations of a run; `None` when no sample passed.
+/// The latency block for a run: the sorted passing-trial durations plus the
+/// percentiles stated under this crate's minimum-sample gates. `None` when no
+/// sample passed.
 pub(crate) fn build_latency_block(
     projections: &[SampleProjection],
+    samples_executed: u32,
 ) -> Option<ExplorationLatencyBlock> {
     let mut latencies: Vec<u64> = projections
         .iter()
@@ -333,9 +365,32 @@ pub(crate) fn build_latency_block(
         return None;
     }
     latencies.sort_unstable();
+    let contributing =
+        u32::try_from(latencies.len()).expect("passing-sample count exceeds u32::MAX");
     Some(ExplorationLatencyBlock {
+        basis: "passing-samples".to_owned(),
+        contributing_samples: contributing,
+        total_samples: samples_executed,
+        p50_ms: stated_percentile(&latencies, 0.50),
+        p95_ms: stated_percentile(&latencies, 0.95),
+        p99_ms: stated_percentile(&latencies, 0.99),
         sorted_passing_latencies_ms: latencies,
     })
+}
+
+/// The nearest-rank percentile of the recorded passing latencies, stated only
+/// when the passing count clears the percentile's minimum-sample floor.
+pub(crate) fn stated_percentile(sorted_latencies_ms: &[u64], fraction: f64) -> Option<f64> {
+    use crate::statistics::latency::{min_samples_for, nearest_rank_percentile};
+    if sorted_latencies_ms.len() < min_samples_for(fraction) as usize {
+        return None;
+    }
+    #[allow(
+        clippy::cast_precision_loss,
+        reason = "trial durations in ms are far below 2^52"
+    )]
+    let values: Vec<f64> = sorted_latencies_ms.iter().map(|&ms| ms as f64).collect();
+    Some(nearest_rank_percentile(&values, fraction))
 }
 
 #[cfg(test)]
@@ -343,13 +398,31 @@ mod tests {
     use super::*;
 
     #[test]
+    fn percentiles_below_their_sample_floor_are_unstated() {
+        assert!(stated_percentile(&[1, 2, 3, 4], 0.50).is_none());
+        assert!(stated_percentile(&[1, 2, 3, 4, 5], 0.50).is_some());
+        assert!(stated_percentile(&(1..=19).collect::<Vec<u64>>(), 0.95).is_none());
+        assert!(stated_percentile(&(1..=20).collect::<Vec<u64>>(), 0.95).is_some());
+        assert!(stated_percentile(&(1..=99).collect::<Vec<u64>>(), 0.99).is_none());
+        assert!(stated_percentile(&(1..=100).collect::<Vec<u64>>(), 0.99).is_some());
+    }
+
+    #[test]
+    fn stated_percentiles_are_nearest_rank_values() {
+        let latencies: Vec<u64> = (1..=100).collect();
+        assert!((stated_percentile(&latencies, 0.50).unwrap() - 50.0).abs() < f64::EPSILON);
+        assert!((stated_percentile(&latencies, 0.95).unwrap() - 95.0).abs() < f64::EPSILON);
+        assert!((stated_percentile(&latencies, 0.99).unwrap() - 99.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
     fn exploration_spec_round_trips_yaml() {
         let spec = ExplorationSpec {
-            schema_version: "feotest-spec-1".to_owned(),
+            schema_version: "mavai-explore-1".to_owned(),
             service_contract_id: "shopping-basket".to_owned(),
             generated_at: "2026-04-04T10:00:00Z".to_owned(),
             experiment_id: Some("model-comparison".to_owned()),
-            execution_context: BTreeMap::from([
+            factors: BTreeMap::from([
                 (
                     "model".to_owned(),
                     FactorYamlValue::String("gpt-4".to_owned()),
@@ -376,20 +449,20 @@ mod tests {
         let yaml = spec.to_yaml().unwrap();
         let restored = ExplorationSpec::from_yaml(&yaml).unwrap();
 
-        assert_eq!(restored.schema_version, "feotest-spec-1");
+        assert_eq!(restored.schema_version, "mavai-explore-1");
         assert_eq!(restored.service_contract_id, "shopping-basket");
         assert_eq!(restored.statistics.successes, 4);
-        assert_eq!(restored.execution_context.len(), 2);
+        assert_eq!(restored.factors.len(), 2);
     }
 
     #[test]
     fn yaml_uses_camel_case() {
         let spec = ExplorationSpec {
-            schema_version: "feotest-spec-1".to_owned(),
+            schema_version: "mavai-explore-1".to_owned(),
             service_contract_id: "test".to_owned(),
             generated_at: "2026-04-04T10:00:00Z".to_owned(),
             experiment_id: None,
-            execution_context: BTreeMap::new(),
+            factors: BTreeMap::new(),
             execution: ExecutionBlock {
                 samples_planned: 5,
                 samples_executed: 5,
@@ -409,18 +482,18 @@ mod tests {
 
         let yaml = spec.to_yaml().unwrap();
         assert!(yaml.contains("schemaVersion"));
-        assert!(yaml.contains("useCaseId"));
+        assert!(yaml.contains("serviceContractId"));
         assert!(yaml.contains("samplesPlanned"));
     }
 
     #[test]
-    fn empty_execution_context_omitted() {
+    fn empty_factors_omitted() {
         let spec = ExplorationSpec {
-            schema_version: "feotest-spec-1".to_owned(),
+            schema_version: "mavai-explore-1".to_owned(),
             service_contract_id: "test".to_owned(),
             generated_at: "2026-04-04T10:00:00Z".to_owned(),
             experiment_id: None,
-            execution_context: BTreeMap::new(),
+            factors: BTreeMap::new(),
             execution: ExecutionBlock {
                 samples_planned: 5,
                 samples_executed: 5,
@@ -439,17 +512,17 @@ mod tests {
         };
 
         let yaml = spec.to_yaml().unwrap();
-        assert!(!yaml.contains("executionContext"));
+        assert!(!yaml.contains("factors"));
     }
 
     #[test]
     fn factor_values_serialize_as_natural_types() {
         let spec = ExplorationSpec {
-            schema_version: "feotest-spec-1".to_owned(),
+            schema_version: "mavai-explore-1".to_owned(),
             service_contract_id: "test".to_owned(),
             generated_at: "2026-04-04T10:00:00Z".to_owned(),
             experiment_id: None,
-            execution_context: BTreeMap::from([
+            factors: BTreeMap::from([
                 (
                     "model".to_owned(),
                     FactorYamlValue::String("gpt-4".to_owned()),
@@ -486,11 +559,11 @@ mod tests {
     #[test]
     fn descriptive_statistics_has_no_confidence_interval() {
         let spec = ExplorationSpec {
-            schema_version: "feotest-spec-1".to_owned(),
+            schema_version: "mavai-explore-1".to_owned(),
             service_contract_id: "test".to_owned(),
             generated_at: "2026-04-04T10:00:00Z".to_owned(),
             experiment_id: None,
-            execution_context: BTreeMap::new(),
+            factors: BTreeMap::new(),
             execution: ExecutionBlock {
                 samples_planned: 5,
                 samples_executed: 5,

@@ -6,19 +6,20 @@
 //! raw exploration YAML.
 //!
 //! The input is a directory laid out as `<root>/<service>/*.yaml`, as written
-//! by [`ExploreSpecWriter`](crate::spec::explore::ExploreSpecWriter). Files
-//! that are not `feotest-spec-1` exploration specs are skipped defensively.
-//! Grouping and labelling use the YAML body only (`useCaseId`,
-//! `configuration`) — filenames are never parsed.
+//! by [`ExploreSpecWriter`](crate::spec::explore::ExploreSpecWriter) in the
+//! family's canonical `mavai-explore-1` interchange format. Files carrying
+//! any other schema are skipped defensively. Grouping and labelling use the
+//! YAML body only (`serviceContractId`, `configuration`) — filenames are
+//! never parsed.
 //!
-//! The report introduces no statistics of its own: every number shown is read
-//! from the spec or is a nearest-rank percentile over the recorded passing
-//! latencies. Ranking is a plain ordered sort, deliberately not a statistical
-//! claim — no confidence intervals and no cross-configuration significance
-//! testing. The one comment the report makes on the *comparison* is the
-//! bounded "too close to call" marker between equally-reliable adjacent
-//! configurations whose median latencies differ by less than a fixed
-//! presentational margin.
+//! The report computes no statistics at all: every number shown — including
+//! each latency percentile — is read from the spec exactly as the emitter
+//! stated it, and an unstated percentile renders as absent. Ranking is a
+//! plain ordered sort, deliberately not a statistical claim — no confidence
+//! intervals and no cross-configuration significance testing. The one
+//! comment the report makes on the *comparison* is the bounded "too close
+//! to call" marker between equally-reliable adjacent configurations whose
+//! stated medians differ by less than a fixed presentational margin.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write as _;
@@ -26,7 +27,6 @@ use std::io;
 use std::path::Path;
 
 use crate::spec::explore::{ExplorationSpec, FactorYamlValue};
-use crate::statistics::latency::{min_samples_for, nearest_rank_percentile};
 
 /// Relative median-latency margin below which two equally-reliable adjacent
 /// configurations are flagged "too close to call". A presentational margin on
@@ -39,6 +39,7 @@ const STRIP_MAX_POINTS: usize = 150;
 
 /// Generates the exploration comparison report from a directory of
 /// exploration specs.
+// javai-ref: JVI-ZFQ8WNQ — do not remove (resolves in mavai-orchestrator)
 pub struct ExploreHtmlReportWriter;
 
 impl ExploreHtmlReportWriter {
@@ -49,7 +50,7 @@ impl ExploreHtmlReportWriter {
     /// # Errors
     ///
     /// Returns an error if `root` cannot be read. Individual files that fail
-    /// to parse, or that carry a schema other than `feotest-spec-1`, are
+    /// to parse, or that carry a schema other than `mavai-explore-1`, are
     /// skipped rather than failing the report.
     pub fn generate(root: &Path) -> io::Result<String> {
         let services = collect_services(root)?;
@@ -93,6 +94,11 @@ struct Variant {
     criteria: BTreeMap<String, CriterionCell>,
     /// Passing-trial durations, sorted ascending, as recorded in the spec.
     latencies_ms: Vec<u64>,
+    /// Percentiles as STATED by the emitter — value-or-absent under the
+    /// emitter's minimum-sample gate. This renderer never computes one.
+    stated_p50_ms: Option<f64>,
+    stated_p95_ms: Option<f64>,
+    stated_p99_ms: Option<f64>,
     factors: Vec<(String, String)>,
 }
 
@@ -104,10 +110,18 @@ struct CriterionCell {
 }
 
 impl Variant {
-    /// The median passing latency, when enough passing samples were recorded
-    /// to state one.
-    fn p50_ms(&self) -> Option<f64> {
-        percentile_ms(&self.latencies_ms, 0.50)
+    /// The stated median passing latency, when the emitter stated one.
+    const fn p50_ms(&self) -> Option<f64> {
+        self.stated_p50_ms
+    }
+
+    /// The stated percentile for one of the three rendered fractions.
+    fn stated_ms(&self, fraction: f64) -> Option<f64> {
+        match fraction {
+            f if (f - 0.50).abs() < f64::EPSILON => self.stated_p50_ms,
+            f if (f - 0.95).abs() < f64::EPSILON => self.stated_p95_ms,
+            _ => self.stated_p99_ms,
+        }
     }
 }
 
@@ -139,12 +153,12 @@ fn collect_services(root: &Path) -> io::Result<Vec<ServiceComparison>> {
             let Ok(spec) = ExplorationSpec::from_yaml(&body) else {
                 continue;
             };
-            if spec.schema_version != "feotest-spec-1" {
+            if spec.schema_version != "mavai-explore-1" {
                 continue;
             }
             let service = spec.service_contract_id.clone();
             let variants = by_service.entry(service).or_default();
-            let variant = build_variant(spec, variants.len());
+            let variant = build_variant(&spec, variants.len());
             variants.push(variant);
         }
     }
@@ -166,9 +180,10 @@ fn sorted_entries(dir: &Path) -> io::Result<Vec<std::path::PathBuf>> {
 
 /// Distils one spec into a comparison variant. `ordinal` labels a spec that
 /// carries neither a configuration name nor factors.
-fn build_variant(spec: ExplorationSpec, ordinal: usize) -> Variant {
+fn build_variant(spec: &ExplorationSpec, ordinal: usize) -> Variant {
+    let latency = spec.latency.as_ref();
     let factors: Vec<(String, String)> = spec
-        .execution_context
+        .factors
         .iter()
         .map(|(key, value)| (key.clone(), factor_display(value)))
         .collect();
@@ -188,9 +203,9 @@ fn build_variant(spec: ExplorationSpec, ordinal: usize) -> Variant {
                     (
                         name.clone(),
                         CriterionCell {
-                            observed: block.observed,
-                            successes: block.successes,
-                            failures: block.failures,
+                            observed: block.observed_pass_rate,
+                            successes: block.pass,
+                            failures: block.fail,
                         },
                     )
                 })
@@ -211,10 +226,12 @@ fn build_variant(spec: ExplorationSpec, ordinal: usize) -> Variant {
         avg_time_per_sample_ms: spec.cost.as_ref().map(|cost| cost.avg_time_per_sample_ms),
         avg_tokens_per_sample: spec.cost.as_ref().map(|cost| cost.avg_tokens_per_sample),
         criteria,
-        latencies_ms: spec
-            .latency
-            .map(|latency| latency.sorted_passing_latencies_ms)
+        latencies_ms: latency
+            .map(|block| block.sorted_passing_latencies_ms.clone())
             .unwrap_or_default(),
+        stated_p50_ms: latency.and_then(|block| block.p50_ms),
+        stated_p95_ms: latency.and_then(|block| block.p95_ms),
+        stated_p99_ms: latency.and_then(|block| block.p99_ms),
         factors,
     }
 }
@@ -311,16 +328,6 @@ fn is_near_tie(a: &Variant, b: &Variant) -> bool {
 }
 
 // ── percentiles ─────────────────────────────────────────────────────────────
-
-/// The nearest-rank percentile of the recorded passing latencies, or `None`
-/// when fewer samples passed than the percentile's minimum-sample floor.
-fn percentile_ms(latencies_ms: &[u64], fraction: f64) -> Option<f64> {
-    if latencies_ms.len() < min_samples_for(fraction) as usize {
-        return None;
-    }
-    let values: Vec<f64> = latencies_ms.iter().map(|&ms| ms_to_f64(ms)).collect();
-    Some(nearest_rank_percentile(&values, fraction))
-}
 
 /// A latency in milliseconds as `f64`.
 #[allow(
@@ -423,7 +430,7 @@ fn append_leaderboard(out: &mut String, ranked: &[RankedVariant<'_>]) {
         .flat_map(|r| {
             [0.50, 0.95, 0.99]
                 .into_iter()
-                .filter_map(|fraction| percentile_ms(&r.variant.latencies_ms, fraction))
+                .filter_map(|fraction| r.variant.stated_ms(fraction))
         })
         .fold(0.0_f64, f64::max);
     let _ = out.write_str(
@@ -465,7 +472,7 @@ fn append_leaderboard(out: &mut String, ranked: &[RankedVariant<'_>]) {
 /// Renders a leaderboard latency cell: a bar scaled to the service's largest
 /// stated percentile, or a dash when the percentile cannot be stated.
 fn append_latency_cell(out: &mut String, variant: &Variant, fraction: f64, max_stated: f64) {
-    match percentile_ms(&variant.latencies_ms, fraction) {
+    match variant.stated_ms(fraction) {
         Some(value) if max_stated > 0.0 => {
             let width = (value / max_stated * 100.0).min(100.0);
             let _ = writeln!(
@@ -639,7 +646,7 @@ fn append_latency_strip(out: &mut String, variant: &Variant, max_latency_ms: u64
         (0.95, "strip-p95"),
         (0.99, "strip-p99"),
     ] {
-        if let Some(value) = percentile_ms(&variant.latencies_ms, fraction) {
+        if let Some(value) = variant.stated_ms(fraction) {
             let cx = (value / scale).mul_add(304.0, 8.0);
             let _ = write!(
                 out,
@@ -730,16 +737,17 @@ mod tests {
         failures: u32,
         latencies: Vec<u64>,
     ) -> ExplorationSpec {
+        let total = successes + failures;
         ExplorationSpec {
-            schema_version: "feotest-spec-1".to_owned(),
+            schema_version: "mavai-explore-1".to_owned(),
             service_contract_id: service.to_owned(),
             generated_at: "2026-07-14T00:00:00Z".to_owned(),
             experiment_id: Some("comparison".to_owned()),
             configuration: Some(configuration.to_owned()),
-            execution_context: BTreeMap::new(),
+            factors: BTreeMap::new(),
             execution: ExecutionBlock {
-                samples_planned: successes + failures,
-                samples_executed: successes + failures,
+                samples_planned: total,
+                samples_executed: total,
                 termination_reason: Some("COMPLETED".to_owned()),
             },
             statistics: ExplorationStatisticsBlock {
@@ -750,14 +758,20 @@ mod tests {
                 criteria: Some(BTreeMap::from([(
                     "primary".to_owned(),
                     ExplorationCriterionBlock {
-                        observed,
-                        successes,
-                        failures,
+                        observed_pass_rate: observed,
+                        pass: successes,
+                        fail: failures,
                         failure_distribution: None,
                     },
                 )])),
             },
-            latency: (!latencies.is_empty()).then_some(ExplorationLatencyBlock {
+            latency: (!latencies.is_empty()).then(|| ExplorationLatencyBlock {
+                basis: "passing-samples".to_owned(),
+                contributing_samples: u32::try_from(latencies.len()).unwrap(),
+                total_samples: total,
+                p50_ms: crate::spec::explore::stated_percentile(&latencies, 0.50),
+                p95_ms: crate::spec::explore::stated_percentile(&latencies, 0.95),
+                p99_ms: crate::spec::explore::stated_percentile(&latencies, 0.99),
                 sorted_passing_latencies_ms: latencies,
             }),
             cost: Some(CostBlock {
@@ -769,7 +783,7 @@ mod tests {
         }
     }
 
-    fn variant_from(spec: ExplorationSpec) -> Variant {
+    fn variant_from(spec: &ExplorationSpec) -> Variant {
         build_variant(spec, 0)
     }
 
@@ -781,9 +795,9 @@ mod tests {
 
     #[test]
     fn ranks_by_rate_then_median_then_cost() {
-        let slow = variant_from(spec("svc", "slow", 0.9, 90, 10, vec![9; 20]));
-        let fast = variant_from(spec("svc", "fast", 0.9, 90, 10, vec![3; 20]));
-        let best = variant_from(spec("svc", "best", 0.95, 95, 5, vec![9; 20]));
+        let slow = variant_from(&spec("svc", "slow", 0.9, 90, 10, vec![9; 20]));
+        let fast = variant_from(&spec("svc", "fast", 0.9, 90, 10, vec![3; 20]));
+        let best = variant_from(&spec("svc", "best", 0.95, 95, 5, vec![9; 20]));
         let variants = vec![slow, fast, best];
 
         let ranked = ranked(&variants);
@@ -793,8 +807,8 @@ mod tests {
 
     #[test]
     fn equal_rates_with_close_medians_share_a_rank() {
-        let a = variant_from(spec("svc", "a", 0.9, 90, 10, vec![100; 20]));
-        let b = variant_from(spec("svc", "b", 0.9, 90, 10, vec![102; 20]));
+        let a = variant_from(&spec("svc", "a", 0.9, 90, 10, vec![100; 20]));
+        let b = variant_from(&spec("svc", "b", 0.9, 90, 10, vec![102; 20]));
         let variants = vec![a, b];
 
         let ranked = ranked(&variants);
@@ -805,24 +819,16 @@ mod tests {
 
     #[test]
     fn a_pass_rate_difference_is_never_a_near_tie() {
-        let a = variant_from(spec("svc", "a", 0.91, 91, 9, vec![100; 20]));
-        let b = variant_from(spec("svc", "b", 0.9, 90, 10, vec![100; 20]));
+        let a = variant_from(&spec("svc", "a", 0.91, 91, 9, vec![100; 20]));
+        let b = variant_from(&spec("svc", "b", 0.9, 90, 10, vec![100; 20]));
         assert!(!is_near_tie(&a, &b));
     }
 
     #[test]
     fn a_variant_without_a_median_never_ties() {
-        let a = variant_from(spec("svc", "a", 0.9, 90, 10, vec![100; 20]));
-        let b = variant_from(spec("svc", "b", 0.9, 90, 10, Vec::new()));
+        let a = variant_from(&spec("svc", "a", 0.9, 90, 10, vec![100; 20]));
+        let b = variant_from(&spec("svc", "b", 0.9, 90, 10, Vec::new()));
         assert!(!is_near_tie(&a, &b));
-    }
-
-    #[test]
-    fn percentiles_below_their_sample_floor_are_unstated() {
-        assert!(percentile_ms(&[1, 2, 3, 4], 0.50).is_none());
-        assert!(percentile_ms(&[1, 2, 3, 4, 5], 0.50).is_some());
-        assert!(percentile_ms(&(1..=19).collect::<Vec<u64>>(), 0.95).is_none());
-        assert!(percentile_ms(&(1..=20).collect::<Vec<u64>>(), 0.95).is_some());
     }
 
     #[test]
@@ -861,9 +867,9 @@ mod tests {
             criteria.insert(
                 "secondary".to_owned(),
                 ExplorationCriterionBlock {
-                    observed: 1.0,
-                    successes: 100,
-                    failures: 0,
+                    observed_pass_rate: 1.0,
+                    pass: 100,
+                    fail: 0,
                     failure_distribution: None,
                 },
             );

@@ -110,7 +110,7 @@ fn explore_yaml_contains_correct_content() {
     let yaml_content = std::fs::read_to_string(&paths[0]).unwrap();
     let spec: ExplorationSpec = ExplorationSpec::from_yaml(&yaml_content).unwrap();
 
-    assert_eq!(spec.schema_version, "feotest-spec-1");
+    assert_eq!(spec.schema_version, "mavai-explore-1");
     assert_eq!(spec.service_contract_id, "content-test");
     assert_eq!(spec.statistics.successes, 10);
     assert_eq!(spec.statistics.failures, 0);
