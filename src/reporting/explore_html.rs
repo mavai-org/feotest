@@ -6,19 +6,20 @@
 //! raw exploration YAML.
 //!
 //! The input is a directory laid out as `<root>/<service>/*.yaml`, as written
-//! by [`ExploreSpecWriter`](crate::spec::explore::ExploreSpecWriter). Files
-//! that are not `feotest-spec-1` exploration specs are skipped defensively.
-//! Grouping and labelling use the YAML body only (`useCaseId`,
-//! `configuration`) — filenames are never parsed.
+//! by [`ExploreSpecWriter`](crate::spec::explore::ExploreSpecWriter) in the
+//! family's canonical `mavai-explore-1` interchange format. Files carrying
+//! any other schema are skipped defensively. Grouping and labelling use the
+//! YAML body only (`serviceContractId`, `configuration`) — filenames are
+//! never parsed.
 //!
-//! The report introduces no statistics of its own: every number shown is read
-//! from the spec or is a nearest-rank percentile over the recorded passing
-//! latencies. Ranking is a plain ordered sort, deliberately not a statistical
-//! claim — no confidence intervals and no cross-configuration significance
-//! testing. The one comment the report makes on the *comparison* is the
-//! bounded "too close to call" marker between equally-reliable adjacent
-//! configurations whose median latencies differ by less than a fixed
-//! presentational margin.
+//! The report computes no statistics at all: every number shown — including
+//! each latency percentile — is read from the spec exactly as the emitter
+//! stated it, and an unstated percentile renders as absent. Ranking is a
+//! plain ordered sort, deliberately not a statistical claim — no confidence
+//! intervals and no cross-configuration significance testing. The one
+//! comment the report makes on the *comparison* is the bounded "too close
+//! to call" marker between equally-reliable adjacent configurations whose
+//! stated medians differ by less than a fixed presentational margin.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write as _;
@@ -26,7 +27,6 @@ use std::io;
 use std::path::Path;
 
 use crate::spec::explore::{ExplorationSpec, FactorYamlValue};
-use crate::statistics::latency::{min_samples_for, nearest_rank_percentile};
 
 /// Relative median-latency margin below which two equally-reliable adjacent
 /// configurations are flagged "too close to call". A presentational margin on
@@ -39,6 +39,7 @@ const STRIP_MAX_POINTS: usize = 150;
 
 /// Generates the exploration comparison report from a directory of
 /// exploration specs.
+// javai-ref: JVI-ZFQ8WNQ — do not remove (resolves in mavai-orchestrator)
 pub struct ExploreHtmlReportWriter;
 
 impl ExploreHtmlReportWriter {
@@ -49,7 +50,7 @@ impl ExploreHtmlReportWriter {
     /// # Errors
     ///
     /// Returns an error if `root` cannot be read. Individual files that fail
-    /// to parse, or that carry a schema other than `feotest-spec-1`, are
+    /// to parse, or that carry a schema other than `mavai-explore-1`, are
     /// skipped rather than failing the report.
     pub fn generate(root: &Path) -> io::Result<String> {
         let services = collect_services(root)?;
@@ -93,6 +94,11 @@ struct Variant {
     criteria: BTreeMap<String, CriterionCell>,
     /// Passing-trial durations, sorted ascending, as recorded in the spec.
     latencies_ms: Vec<u64>,
+    /// Percentiles as STATED by the emitter — value-or-absent under the
+    /// emitter's minimum-sample gate. This renderer never computes one.
+    stated_p50_ms: Option<f64>,
+    stated_p95_ms: Option<f64>,
+    stated_p99_ms: Option<f64>,
     factors: Vec<(String, String)>,
 }
 
@@ -104,10 +110,18 @@ struct CriterionCell {
 }
 
 impl Variant {
-    /// The median passing latency, when enough passing samples were recorded
-    /// to state one.
-    fn p50_ms(&self) -> Option<f64> {
-        percentile_ms(&self.latencies_ms, 0.50)
+    /// The stated median passing latency, when the emitter stated one.
+    const fn p50_ms(&self) -> Option<f64> {
+        self.stated_p50_ms
+    }
+
+    /// The stated percentile for one of the three rendered fractions.
+    fn stated_ms(&self, fraction: f64) -> Option<f64> {
+        match fraction {
+            f if (f - 0.50).abs() < f64::EPSILON => self.stated_p50_ms,
+            f if (f - 0.95).abs() < f64::EPSILON => self.stated_p95_ms,
+            _ => self.stated_p99_ms,
+        }
     }
 }
 
@@ -139,12 +153,12 @@ fn collect_services(root: &Path) -> io::Result<Vec<ServiceComparison>> {
             let Ok(spec) = ExplorationSpec::from_yaml(&body) else {
                 continue;
             };
-            if spec.schema_version != "feotest-spec-1" {
+            if spec.schema_version != "mavai-explore-1" {
                 continue;
             }
             let service = spec.service_contract_id.clone();
             let variants = by_service.entry(service).or_default();
-            let variant = build_variant(spec, variants.len());
+            let variant = build_variant(&spec, variants.len());
             variants.push(variant);
         }
     }
@@ -166,9 +180,10 @@ fn sorted_entries(dir: &Path) -> io::Result<Vec<std::path::PathBuf>> {
 
 /// Distils one spec into a comparison variant. `ordinal` labels a spec that
 /// carries neither a configuration name nor factors.
-fn build_variant(spec: ExplorationSpec, ordinal: usize) -> Variant {
+fn build_variant(spec: &ExplorationSpec, ordinal: usize) -> Variant {
+    let latency = spec.latency.as_ref();
     let factors: Vec<(String, String)> = spec
-        .execution_context
+        .factors
         .iter()
         .map(|(key, value)| (key.clone(), factor_display(value)))
         .collect();
@@ -188,9 +203,9 @@ fn build_variant(spec: ExplorationSpec, ordinal: usize) -> Variant {
                     (
                         name.clone(),
                         CriterionCell {
-                            observed: block.observed,
-                            successes: block.successes,
-                            failures: block.failures,
+                            observed: block.observed_pass_rate,
+                            successes: block.pass,
+                            failures: block.fail,
                         },
                     )
                 })
@@ -211,10 +226,12 @@ fn build_variant(spec: ExplorationSpec, ordinal: usize) -> Variant {
         avg_time_per_sample_ms: spec.cost.as_ref().map(|cost| cost.avg_time_per_sample_ms),
         avg_tokens_per_sample: spec.cost.as_ref().map(|cost| cost.avg_tokens_per_sample),
         criteria,
-        latencies_ms: spec
-            .latency
-            .map(|latency| latency.sorted_passing_latencies_ms)
+        latencies_ms: latency
+            .map(|block| block.sorted_passing_latencies_ms.clone())
             .unwrap_or_default(),
+        stated_p50_ms: latency.and_then(|block| block.p50_ms),
+        stated_p95_ms: latency.and_then(|block| block.p95_ms),
+        stated_p99_ms: latency.and_then(|block| block.p99_ms),
         factors,
     }
 }
@@ -312,16 +329,6 @@ fn is_near_tie(a: &Variant, b: &Variant) -> bool {
 
 // ── percentiles ─────────────────────────────────────────────────────────────
 
-/// The nearest-rank percentile of the recorded passing latencies, or `None`
-/// when fewer samples passed than the percentile's minimum-sample floor.
-fn percentile_ms(latencies_ms: &[u64], fraction: f64) -> Option<f64> {
-    if latencies_ms.len() < min_samples_for(fraction) as usize {
-        return None;
-    }
-    let values: Vec<f64> = latencies_ms.iter().map(|&ms| ms_to_f64(ms)).collect();
-    Some(nearest_rank_percentile(&values, fraction))
-}
-
 /// A latency in milliseconds as `f64`.
 #[allow(
     clippy::cast_precision_loss,
@@ -356,7 +363,7 @@ fn render(services: &[ServiceComparison]) -> String {
             append_service(&mut out, service);
         }
     }
-    let _ = out.write_str("</main>\n<footer>\n<p class=\"timestamp\">Generated by feotest</p>\n</footer>\n</body>\n</html>\n");
+    let _ = out.write_str("</main>\n<footer>\n<p class=\"timestamp\">Generated by Mavai</p>\n</footer>\n</body>\n</html>\n");
     out
 }
 
@@ -423,7 +430,7 @@ fn append_leaderboard(out: &mut String, ranked: &[RankedVariant<'_>]) {
         .flat_map(|r| {
             [0.50, 0.95, 0.99]
                 .into_iter()
-                .filter_map(|fraction| percentile_ms(&r.variant.latencies_ms, fraction))
+                .filter_map(|fraction| r.variant.stated_ms(fraction))
         })
         .fold(0.0_f64, f64::max);
     let _ = out.write_str(
@@ -465,7 +472,7 @@ fn append_leaderboard(out: &mut String, ranked: &[RankedVariant<'_>]) {
 /// Renders a leaderboard latency cell: a bar scaled to the service's largest
 /// stated percentile, or a dash when the percentile cannot be stated.
 fn append_latency_cell(out: &mut String, variant: &Variant, fraction: f64, max_stated: f64) {
-    match percentile_ms(&variant.latencies_ms, fraction) {
+    match variant.stated_ms(fraction) {
         Some(value) if max_stated > 0.0 => {
             let width = (value / max_stated * 100.0).min(100.0);
             let _ = writeln!(
@@ -593,17 +600,22 @@ fn append_latency_strips(out: &mut String, ranked: &[RankedVariant<'_>]) {
     let _ = writeln!(
         out,
         "<p class=\"strip-axis\">0ms \u{2013} {max_latency}ms \u{b7} \
-         <span class=\"mark-p50\">\u{258d}p50</span> \
-         <span class=\"mark-p95\">\u{258d}p95</span> \
-         <span class=\"mark-p99\">\u{258d}p99</span> \
-         \u{b7} percentiles are computed from every passing sample; the dots are an \
-         evenly-thinned subset, plotted for shape only</p>",
+         <span class=\"mark-fastest\">\u{25cf} Fastest</span> \
+         <span class=\"mark-p50\">\u{25cf} p50</span> \
+         <span class=\"mark-p95\">\u{25cf} p95</span> \
+         <span class=\"mark-p99\">\u{25cf} p99</span> \
+         <span class=\"mark-slowest\">\u{25cf} Slowest</span></p>\n\
+         <p class=\"strip-axis\">passing samples only; percentiles are computed from every \
+         passing sample, and the grey dots are an evenly-thinned subset, plotted for shape only</p>",
     );
     let _ = out.write_str("</div>\n");
 }
 
-/// Renders one configuration's strip: its passing latencies as dots on a
-/// shared 0..max axis, with markers at each stateable percentile.
+/// Renders one configuration's strip: its passing latencies as faint dots on
+/// a shared 0..max axis, with five colour-keyed landmark dots — fastest, the
+/// stated p50/p95/p99, and slowest — each carrying its exact value as a
+/// native tooltip. The landmarks are inherently ordered along the axis, so
+/// position and colour encode the same reading redundantly.
 fn append_latency_strip(out: &mut String, variant: &Variant, max_latency_ms: u64) {
     let _ = write!(
         out,
@@ -615,7 +627,9 @@ fn append_latency_strip(out: &mut String, variant: &Variant, max_latency_ms: u64
         return;
     }
     let scale = ms_to_f64(max_latency_ms).max(1.0);
-    let x = |ms: u64| -> f64 { (ms_to_f64(ms) / scale).mul_add(304.0, 8.0) };
+    let x = |ms: f64| -> f64 { (ms / scale).mul_add(304.0, 8.0) };
+    let fastest = ms_to_f64(variant.latencies_ms[0]);
+    let slowest = ms_to_f64(*variant.latencies_ms.last().unwrap_or(&0));
     let _ = out.write_str(
         "<svg class=\"latency-strip-svg\" width=\"320\" height=\"24\" viewBox=\"0 0 320 24\" \
          role=\"img\">",
@@ -623,28 +637,29 @@ fn append_latency_strip(out: &mut String, variant: &Variant, max_latency_ms: u64
     let _ = write!(
         out,
         "<line class=\"strip-range\" x1=\"{min:.1}\" y1=\"14\" x2=\"{max:.1}\" y2=\"14\"/>",
-        min = x(variant.latencies_ms[0]),
-        max = x(*variant.latencies_ms.last().unwrap_or(&0)),
+        min = x(fastest),
+        max = x(slowest),
     );
     let step = (variant.latencies_ms.len() / STRIP_MAX_POINTS).max(1);
     for &ms in variant.latencies_ms.iter().step_by(step) {
+        let cx = x(ms_to_f64(ms));
+        let (tx, anchor) = label_anchor(cx);
         let _ = write!(
             out,
-            "<circle class=\"strip-dot\" cx=\"{cx:.1}\" cy=\"14\" r=\"2.5\"/>",
-            cx = x(ms),
+            "<g class=\"pt\"><circle class=\"strip-dot\" cx=\"{cx:.1}\" cy=\"14\" r=\"2\"/>\
+             <text class=\"tip\" x=\"{tx:.1}\" y=\"9\" text-anchor=\"{anchor}\">{ms}ms</text></g>",
         );
     }
-    for (fraction, class) in [
-        (0.50, "strip-p50"),
-        (0.95, "strip-p95"),
-        (0.99, "strip-p99"),
+    // Landmarks, drawn range ends first so the percentiles win overlaps.
+    append_landmark(out, x(fastest), "strip-fastest", "Fastest", fastest);
+    append_landmark(out, x(slowest), "strip-slowest", "Slowest", slowest);
+    for (fraction, class, name) in [
+        (0.99, "strip-p99", "p99"),
+        (0.95, "strip-p95", "p95"),
+        (0.50, "strip-p50", "p50"),
     ] {
-        if let Some(value) = percentile_ms(&variant.latencies_ms, fraction) {
-            let cx = (value / scale).mul_add(304.0, 8.0);
-            let _ = write!(
-                out,
-                "<line class=\"{class}\" x1=\"{cx:.1}\" y1=\"4\" x2=\"{cx:.1}\" y2=\"22\"/>",
-            );
+        if let Some(value) = variant.stated_ms(fraction) {
+            append_landmark(out, x(value), class, name, value);
         }
     }
     let _ = out.write_str("</svg>");
@@ -654,6 +669,31 @@ fn append_latency_strip(out: &mut String, variant: &Variant, max_latency_ms: u64
         count = variant.latencies_ms.len(),
     );
     let _ = out.write_str("</div>\n");
+}
+
+/// The x position and anchor for a hover label: labels near either edge
+/// anchor outward so their text stays inside the drawing instead of being
+/// clipped by it.
+fn label_anchor(cx: f64) -> (f64, &'static str) {
+    if cx < 60.0 {
+        (cx.max(8.0), "start")
+    } else if cx > 260.0 {
+        (cx.min(312.0), "end")
+    } else {
+        (cx, "middle")
+    }
+}
+
+/// Renders one landmark dot with its exact value revealed instantly on
+/// hover (a CSS-shown label — native tooltips carry a browser-fixed delay).
+fn append_landmark(out: &mut String, cx: f64, class: &str, name: &str, value_ms: f64) {
+    let (tx, anchor) = label_anchor(cx);
+    let _ = write!(
+        out,
+        "<g class=\"pt\"><circle class=\"landmark {class}\" cx=\"{cx:.1}\" cy=\"14\" r=\"4\"/>\
+         <text class=\"tip\" x=\"{tx:.1}\" y=\"9\" text-anchor=\"{anchor}\">\
+         {name} \u{b7} {value_ms:.0}ms</text></g>",
+    );
 }
 
 /// Escapes text for HTML.
@@ -671,6 +711,7 @@ const CSS: &str = "\
   --pass-color: #2e7d32; --fail-color: #c62828; --inconclusive-color: #6a1b9a;\
   --advisory-color: #f9a825; --border-color: #dee2e6; --bg-light: #f8f9fa;\
   --bg-white: #ffffff; --text-color: #212529; --text-muted: #6c757d;\
+  --accent-color: #009ed6; --tail-color: #e65100;\
 }\
 * { box-sizing: border-box; margin: 0; padding: 0; }\
 body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;\
@@ -701,17 +742,26 @@ td.num, td.rank { text-align: right; width: 1%; white-space: nowrap; }\
 .factor-list dl { margin: 0.25rem 0 0 0.75rem; font-size: 0.8rem; }\
 .factor-list dt { float: left; clear: left; margin-right: 0.4rem; color: var(--text-muted); }\
 .latency-strips .strip { display: flex; align-items: center; gap: 0.75rem; margin: 0.15rem 0; }\
+.latency-strip-svg { overflow: visible; }\
 .strip-label { width: 8rem; font-size: 0.8rem; }\
 .strip-range { stroke: var(--border-color); stroke-width: 6; stroke-linecap: round; }\
-.strip-dot { fill: var(--pass-color); fill-opacity: 0.25; }\
-.strip-p50 { stroke: var(--fail-color); stroke-width: 2; }\
-.strip-p95 { stroke: var(--advisory-color); stroke-width: 2; }\
-.strip-p99 { stroke: var(--inconclusive-color); stroke-width: 2; }\
+.strip-dot { fill: var(--text-muted); fill-opacity: 0.2; stroke: transparent; stroke-width: 10; pointer-events: all; }\
+.landmark { stroke: var(--bg-white); stroke-width: 1.5; }\
+.pt .tip { display: none; font-size: 9px; fill: var(--text-color);\
+  paint-order: stroke; stroke: var(--bg-white); stroke-width: 3; }\
+.pt:hover .tip { display: block; }\
+.strip-fastest { fill: var(--pass-color); }\
+.strip-p50 { fill: var(--accent-color); }\
+.strip-p95 { fill: var(--advisory-color); }\
+.strip-p99 { fill: var(--tail-color); }\
+.strip-slowest { fill: var(--fail-color); }\
 .strip-axis { font-size: 0.75rem; color: var(--text-muted); margin-left: 8.75rem; }\
 .strip-note { font-size: 0.75rem; color: var(--text-muted); }\
-.mark-p50 { color: var(--fail-color); }\
+.mark-fastest { color: var(--pass-color); }\
+.mark-p50 { color: var(--accent-color); }\
 .mark-p95 { color: var(--advisory-color); }\
-.mark-p99 { color: var(--inconclusive-color); }\
+.mark-p99 { color: var(--tail-color); }\
+.mark-slowest { color: var(--fail-color); }\
 ";
 
 #[cfg(test)]
@@ -730,16 +780,17 @@ mod tests {
         failures: u32,
         latencies: Vec<u64>,
     ) -> ExplorationSpec {
+        let total = successes + failures;
         ExplorationSpec {
-            schema_version: "feotest-spec-1".to_owned(),
+            schema_version: "mavai-explore-1".to_owned(),
             service_contract_id: service.to_owned(),
             generated_at: "2026-07-14T00:00:00Z".to_owned(),
             experiment_id: Some("comparison".to_owned()),
             configuration: Some(configuration.to_owned()),
-            execution_context: BTreeMap::new(),
+            factors: BTreeMap::new(),
             execution: ExecutionBlock {
-                samples_planned: successes + failures,
-                samples_executed: successes + failures,
+                samples_planned: total,
+                samples_executed: total,
                 termination_reason: Some("COMPLETED".to_owned()),
             },
             statistics: ExplorationStatisticsBlock {
@@ -750,14 +801,20 @@ mod tests {
                 criteria: Some(BTreeMap::from([(
                     "primary".to_owned(),
                     ExplorationCriterionBlock {
-                        observed,
-                        successes,
-                        failures,
+                        observed_pass_rate: observed,
+                        pass: successes,
+                        fail: failures,
                         failure_distribution: None,
                     },
                 )])),
             },
-            latency: (!latencies.is_empty()).then_some(ExplorationLatencyBlock {
+            latency: (!latencies.is_empty()).then(|| ExplorationLatencyBlock {
+                basis: "passing-samples".to_owned(),
+                contributing_samples: u32::try_from(latencies.len()).unwrap(),
+                total_samples: total,
+                p50_ms: crate::spec::explore::stated_percentile(&latencies, 0.50),
+                p95_ms: crate::spec::explore::stated_percentile(&latencies, 0.95),
+                p99_ms: crate::spec::explore::stated_percentile(&latencies, 0.99),
                 sorted_passing_latencies_ms: latencies,
             }),
             cost: Some(CostBlock {
@@ -769,7 +826,7 @@ mod tests {
         }
     }
 
-    fn variant_from(spec: ExplorationSpec) -> Variant {
+    fn variant_from(spec: &ExplorationSpec) -> Variant {
         build_variant(spec, 0)
     }
 
@@ -781,9 +838,9 @@ mod tests {
 
     #[test]
     fn ranks_by_rate_then_median_then_cost() {
-        let slow = variant_from(spec("svc", "slow", 0.9, 90, 10, vec![9; 20]));
-        let fast = variant_from(spec("svc", "fast", 0.9, 90, 10, vec![3; 20]));
-        let best = variant_from(spec("svc", "best", 0.95, 95, 5, vec![9; 20]));
+        let slow = variant_from(&spec("svc", "slow", 0.9, 90, 10, vec![9; 20]));
+        let fast = variant_from(&spec("svc", "fast", 0.9, 90, 10, vec![3; 20]));
+        let best = variant_from(&spec("svc", "best", 0.95, 95, 5, vec![9; 20]));
         let variants = vec![slow, fast, best];
 
         let ranked = ranked(&variants);
@@ -793,8 +850,8 @@ mod tests {
 
     #[test]
     fn equal_rates_with_close_medians_share_a_rank() {
-        let a = variant_from(spec("svc", "a", 0.9, 90, 10, vec![100; 20]));
-        let b = variant_from(spec("svc", "b", 0.9, 90, 10, vec![102; 20]));
+        let a = variant_from(&spec("svc", "a", 0.9, 90, 10, vec![100; 20]));
+        let b = variant_from(&spec("svc", "b", 0.9, 90, 10, vec![102; 20]));
         let variants = vec![a, b];
 
         let ranked = ranked(&variants);
@@ -805,24 +862,16 @@ mod tests {
 
     #[test]
     fn a_pass_rate_difference_is_never_a_near_tie() {
-        let a = variant_from(spec("svc", "a", 0.91, 91, 9, vec![100; 20]));
-        let b = variant_from(spec("svc", "b", 0.9, 90, 10, vec![100; 20]));
+        let a = variant_from(&spec("svc", "a", 0.91, 91, 9, vec![100; 20]));
+        let b = variant_from(&spec("svc", "b", 0.9, 90, 10, vec![100; 20]));
         assert!(!is_near_tie(&a, &b));
     }
 
     #[test]
     fn a_variant_without_a_median_never_ties() {
-        let a = variant_from(spec("svc", "a", 0.9, 90, 10, vec![100; 20]));
-        let b = variant_from(spec("svc", "b", 0.9, 90, 10, Vec::new()));
+        let a = variant_from(&spec("svc", "a", 0.9, 90, 10, vec![100; 20]));
+        let b = variant_from(&spec("svc", "b", 0.9, 90, 10, Vec::new()));
         assert!(!is_near_tie(&a, &b));
-    }
-
-    #[test]
-    fn percentiles_below_their_sample_floor_are_unstated() {
-        assert!(percentile_ms(&[1, 2, 3, 4], 0.50).is_none());
-        assert!(percentile_ms(&[1, 2, 3, 4, 5], 0.50).is_some());
-        assert!(percentile_ms(&(1..=19).collect::<Vec<u64>>(), 0.95).is_none());
-        assert!(percentile_ms(&(1..=20).collect::<Vec<u64>>(), 0.95).is_some());
     }
 
     #[test]
@@ -861,9 +910,9 @@ mod tests {
             criteria.insert(
                 "secondary".to_owned(),
                 ExplorationCriterionBlock {
-                    observed: 1.0,
-                    successes: 100,
-                    failures: 0,
+                    observed_pass_rate: 1.0,
+                    pass: 100,
+                    fail: 0,
                     failure_distribution: None,
                 },
             );
@@ -893,8 +942,13 @@ mod tests {
         let html = ExploreHtmlReportWriter::generate(dir.path()).unwrap();
         assert!(html.contains("<th>p99</th>"));
         assert!(html.contains("198ms")); // nearest-rank p99 of 1..=200
-        assert!(html.contains("strip-p99"));
-        assert!(html.contains("strip-p95"));
+        assert!(html.contains("landmark strip-p99"));
+        assert!(html.contains("landmark strip-p95"));
+        // The range endpoints are named landmarks with exact-value tooltips.
+        assert!(html.contains("landmark strip-fastest"));
+        assert!(html.contains("landmark strip-slowest"));
+        assert!(html.contains(">Fastest \u{b7} 1ms</text>"));
+        assert!(html.contains(">Slowest \u{b7} 200ms</text>"));
     }
 
     #[test]
@@ -907,9 +961,11 @@ mod tests {
         );
 
         let html = ExploreHtmlReportWriter::generate(dir.path()).unwrap();
-        // The p99 column exists but the cell (and the strip marker) are absent.
+        // The p99 column exists but the cell and its strip landmark are
+        // absent; the range endpoints are always marked.
         assert!(html.contains("<th>p99</th>"));
-        assert!(!html.contains("<line class=\"strip-p99\""));
+        assert!(!html.contains("landmark strip-p99"));
+        assert!(html.contains("landmark strip-slowest"));
     }
 
     #[test]

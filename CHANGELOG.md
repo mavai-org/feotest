@@ -7,7 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed (breaking artefact format)
+
+- **Exploration output is now the family's canonical `mavai-explore-1`
+  interchange format.** The per-configuration YAML sheds the crate-local
+  schema: `schemaVersion` is `mavai-explore-1`; `useCaseId` becomes
+  `serviceContractId`; `executionContext` becomes `factors`; per-criterion
+  tallies are keyed `observedPassRate`/`pass`/`fail`; and the `latency`
+  block carries its basis (`passing-samples`), the contributing/total
+  sample counts, and the **stated** percentiles — `p50Ms`/`p95Ms`/`p99Ms`
+  emitted value-or-absent under this crate's minimum-sample gates —
+  alongside the sorted passing durations. The exploration comparison
+  report consumes the canonical format and no longer computes percentiles
+  itself: it renders what the emitter stated, and nothing else.
+  `ExploreSpecWriter::write_one` and the previous `feotest-spec-1`
+  exploration shape are superseded; verdict XML, baseline specs, and
+  optimize output are untouched.
+
 ### Added
+
+- **Interchange conformance tests.** Emitted exploration artefacts are
+  validated against the vendored copy of the published `mavai-explore-1`
+  JSON Schema (`tests/conformance/interchange/`, pinned per family schema
+  release), plus the semantic obligations the schema cannot express
+  (latency-vector sortedness, percentile gating). Emitted verdict XML is
+  now validated against the vendored published `verdict-1.2.xsd` via
+  `xmllint` (skipped gracefully where not installed) — previously it was
+  checked only against this crate's own snapshots.
 
 - **Exploration comparison HTML report.** `ExploreHtmlReportWriter` renders a
   single self-contained page over a directory of exploration YAMLs
