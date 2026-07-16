@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Removed
+
+- **The exploration comparison HTML renderer.** Rendering exploration
+  artefacts is now the job of the family's shared `mavai` tool
+  (`mavai explore <dir>`), whose public binaries for macOS, Linux, and
+  Windows are downloadable from
+  <https://github.com/mavai-org/mavai/releases>. `ExploreHtmlReportWriter`
+  is deleted without a deprecation cycle because it never shipped in any
+  release — it existed only on unreleased main. This crate keeps the emit
+  side: the canonical exploration artefacts and their conformance tests
+  are unchanged, and the test-suite verdict HTML report
+  (`HtmlReportWriter`) is untouched.
+
 ### Changed (breaking artefact format)
 
 - **Exploration output is now the family's canonical `mavai-explore-1`
@@ -17,9 +30,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   block carries its basis (`passing-samples`), the contributing/total
   sample counts, and the **stated** percentiles — `p50Ms`/`p95Ms`/`p99Ms`
   emitted value-or-absent under this crate's minimum-sample gates —
-  alongside the sorted passing durations. The exploration comparison
-  report consumes the canonical format and no longer computes percentiles
-  itself: it renders what the emitter stated, and nothing else.
+  alongside the sorted passing durations.
   `ExploreSpecWriter::write_one` and the previous `feotest-spec-1`
   exploration shape are superseded; verdict XML, baseline specs, and
   optimize output are untouched.
