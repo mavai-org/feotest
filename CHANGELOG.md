@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [0.2.0] - 2026-07-17
 
 ### Changed
 
@@ -24,6 +24,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   The `mavai optimize` report renders these documents directly.
 
 ### Added
+
+- **Risk-driven sizing.** Declare a risk appetite and let the framework
+  derive the sample size: the `RiskDriven` threshold approach expresses
+  the confidence-first design — the stipulated pass rate, the
+  detectable margin, and the tolerated error risks in, the required `n`
+  out, computed by bisection over the exact binomial design and
+  conformance-locked to the oracle's risk-driven sizing suite. The HTML
+  report discloses the run's sizing design; latency strips render five
+  named landmarks in place of bars.
 
 - **Named scorers, stated in the optimize artefact.** `Scorer` gains an
   optional identity (`Scorer::name`, default `None`) and a built-in
@@ -50,6 +59,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   (`HtmlReportWriter`) is untouched.
 
 ### Changed (breaking artefact format)
+
+- **Artefact key discipline, and the redesigned failure distribution.**
+  Emitted exploration and optimization artefacts follow the mavai
+  family's interchange key discipline (vendored conformance snapshot
+  re-pinned at mavai-R v0.9.0): `failureDistribution` is now a
+  *sequence* of `{condition, inputIndex?, inputExcerpt?, count}`
+  entries (previously a mapping keyed by check name), each failed
+  trial attributed to its first failing condition so counts sum to the
+  stated failures; every free-text identity and mapping key is bounded
+  at 256 characters, over-long identities truncated to a distinct
+  prefix-plus-hash form; and result-projection values are escaped with
+  genuine YAML escapes (the previous Debug-style escaping could emit
+  `\u{..}` forms that are not valid YAML). A conformance test drives a
+  >1,024-character input end to end: emitted documents must parse in a
+  spec-strict YAML parser and validate against the pinned schemas.
 
 - **Exploration output is now the family's canonical `mavai-explore-1`
   interchange format.** The per-configuration YAML sheds the crate-local
