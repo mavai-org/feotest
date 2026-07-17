@@ -12,6 +12,7 @@ pub mod baseline;
 pub mod common;
 pub mod expiration;
 pub mod explore;
+pub mod keys;
 pub(crate) mod matching;
 pub mod namer;
 pub mod optimization;

@@ -259,7 +259,8 @@ fn format_single_projection(yaml: &mut String, p: &SampleProjection) {
     if !p.postconditions().is_empty() {
         yaml.push_str("    postconditions:\n");
         for (name, status) in p.postconditions() {
-            let _ = writeln!(yaml, "      {name}: {status}");
+            let key = yaml_escape(&crate::spec::keys::bounded_identity(name));
+            let _ = writeln!(yaml, "      {key}: {status}");
         }
     }
 
@@ -282,19 +283,54 @@ fn format_single_projection(yaml: &mut String, p: &SampleProjection) {
 }
 
 /// Escapes a string for safe YAML inline scalar output.
+///
+/// Strings that read unambiguously as plain scalars pass through unchanged;
+/// anything else is emitted as a YAML double-quoted scalar with spec-valid
+/// escapes, so the whole emitted document stays parseable by spec-strict
+/// YAML parsers regardless of runtime content.
 fn yaml_escape(s: &str) -> String {
-    if s.contains(':')
-        || s.contains('#')
-        || s.contains('\'')
-        || s.contains('"')
-        || s.contains('\n')
-        || s.starts_with(' ')
-        || s.ends_with(' ')
-    {
-        format!("{s:?}")
-    } else {
+    if is_safe_plain_scalar(s) {
         s.to_owned()
+    } else {
+        yaml_double_quote(s)
     }
+}
+
+/// Whether a string can be emitted as a YAML plain scalar without changing
+/// meaning: it must be non-empty, start with an alphanumeric character, not
+/// carry surrounding whitespace, and contain none of the characters that
+/// are structural or ambiguous inside a plain scalar in this writer's
+/// flow-free context.
+fn is_safe_plain_scalar(s: &str) -> bool {
+    let starts_safely = s.chars().next().is_some_and(char::is_alphanumeric);
+    starts_safely
+        && !s.ends_with(' ')
+        && !s.chars().any(|c| {
+            matches!(c, ':' | '#' | '\'' | '"' | '\n' | '\t' | '\r' | '\\') || c.is_control()
+        })
+}
+
+/// Renders a string as a YAML double-quoted scalar, escaping the characters
+/// the double-quoted style requires (backslash, quote, and control
+/// characters via YAML's own escape sequences).
+fn yaml_double_quote(s: &str) -> String {
+    let mut out = String::with_capacity(s.len() + 2);
+    out.push('"');
+    for c in s.chars() {
+        match c {
+            '\\' => out.push_str("\\\\"),
+            '"' => out.push_str("\\\""),
+            '\n' => out.push_str("\\n"),
+            '\t' => out.push_str("\\t"),
+            '\r' => out.push_str("\\r"),
+            c if c.is_control() => {
+                let _ = write!(out, "\\u{:04X}", c as u32);
+            }
+            c => out.push(c),
+        }
+    }
+    out.push('"');
+    out
 }
 
 // ---------------------------------------------------------------------------
@@ -462,6 +498,35 @@ mod tests {
         // Both anchors present
         assert!(yaml.contains("anchor:0dfe8af7"));
         assert!(yaml.contains("anchor:0c45c028"));
+    }
+
+    #[test]
+    fn escapes_values_with_yaml_escape_sequences_not_debug_formatting() {
+        assert_eq!(yaml_escape("plain text"), "plain text");
+        assert_eq!(yaml_escape("a: b"), "\"a: b\"");
+        assert_eq!(yaml_escape("line\nbreak"), "\"line\\nbreak\"");
+        // A control character must use a YAML escape, not Rust's \u{..} form.
+        assert_eq!(yaml_escape("bell\u{7}"), "\"bell\\u0007\"");
+        assert_eq!(yaml_escape("- looks structural"), "\"- looks structural\"");
+        assert_eq!(yaml_escape(""), "\"\"");
+    }
+
+    #[test]
+    fn over_long_postcondition_names_emit_bounded_keys() {
+        let long_name = "n".repeat(2_000);
+        let proj = build_projection(0, "in", &[pass(&long_name)], Duration::from_millis(1));
+        let yaml = format_projections(&[proj]);
+
+        let parsed: serde_yaml::Value = serde_yaml::from_str(&yaml).unwrap();
+        let postconditions = &parsed["resultProjection"]["sample[0]"]["postconditions"];
+        let keys: Vec<&str> = postconditions
+            .as_mapping()
+            .unwrap()
+            .keys()
+            .map(|k| k.as_str().unwrap())
+            .collect();
+        assert_eq!(keys.len(), 1);
+        assert_eq!(keys[0].chars().count(), crate::spec::keys::MAX_KEY_CHARS);
     }
 
     #[test]
