@@ -4,7 +4,13 @@
   "title": "mavai-R conformance case suite",
   "description": "Schema for statistical conformance reference datasets produced by mavai-R. Each JSON file represents one suite of test cases. Top-level shape is uniform across suites; the inputs/expected payloads vary per suite. See R/*.R generators for the per-suite payload shape.",
   "type": "object",
-  "required": ["suite", "description", "method", "tolerance", "cases"],
+  "required": [
+    "suite",
+    "description",
+    "method",
+    "tolerance",
+    "cases"
+  ],
   "additionalProperties": false,
   "properties": {
     "suite": {
@@ -28,13 +34,19 @@
       "type": "array",
       "minItems": 1,
       "description": "The individual test cases in this suite.",
-      "items": { "$ref": "#/$defs/case" }
+      "items": {
+        "$ref": "#/$defs/case"
+      }
     }
   },
   "$defs": {
     "case": {
       "type": "object",
-      "required": ["name", "inputs", "expected"],
+      "required": [
+        "name",
+        "inputs",
+        "expected"
+      ],
       "additionalProperties": false,
       "properties": {
         "name": {
@@ -51,7 +63,10 @@
         },
         "procedure": {
           "type": "string",
-          "enum": ["REGRESSION", "COMPLIANCE"],
+          "enum": [
+            "REGRESSION",
+            "COMPLIANCE"
+          ],
           "description": "Procedure direction per companion §3.2 / §1.4.6 (SC-RU-05). Present on inferential per-criterion cases."
         },
         "inputs": {
@@ -67,22 +82,46 @@
     "anyJson": {
       "description": "Any JSON value: number, boolean, string, null, array, or object. Used where the schema cannot tightly constrain the shape because it varies per suite.",
       "oneOf": [
-        { "type": "number" },
-        { "type": "boolean" },
-        { "type": "string" },
-        { "type": "null" },
-        { "type": "array", "items": { "$ref": "#/$defs/anyJson" } },
-        { "type": "object", "additionalProperties": { "$ref": "#/$defs/anyJson" } }
+        {
+          "type": "number"
+        },
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        },
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/anyJson"
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/anyJson"
+          }
+        }
       ]
     },
     "denominatorPolicy": {
       "type": "string",
-      "enum": ["CONDITIONAL_ON_EVALUABLE", "MARGINAL_COUNT_UNEVALUABLE_AS_FAIL"],
+      "enum": [
+        "CONDITIONAL_ON_EVALUABLE",
+        "MARGINAL_COUNT_UNEVALUABLE_AS_FAIL"
+      ],
       "description": "Per companion §1.4.5a, the methodology defines exactly two denominator policies. Cited from R generators that need to validate this enum explicitly."
     },
     "criterionMode": {
       "type": "string",
-      "enum": ["inferential", "observational"],
+      "enum": [
+        "inferential",
+        "observational"
+      ],
       "description": "Per companion §1.4.5."
     }
   }

@@ -2,8 +2,11 @@
 
 use std::time::{Duration, SystemTime};
 
+use serde::{Deserialize, Serialize};
+
 use crate::model::{CostSummary, ExecutionSummary, SampleAggregate};
 use crate::spec::baseline::{CostBlock, ExecutionBlock, LatencyBlock, SuccessRateBlock};
+use crate::spec::keys;
 use crate::statistics::types::ConfidenceLevel;
 use crate::statistics::{defaults, proportion};
 
@@ -154,20 +157,98 @@ pub fn build_execution_block(summary: &ExecutionSummary, samples_planned: u32) -
     }
 }
 
-/// Builds a sorted failure distribution map from a sample aggregate.
+/// One entry of a `failureDistribution` sequence in interchange output.
+///
+/// The interchange formats carry failure attribution as a *sequence* of
+/// entries rather than a mapping, so no mapping key can grow with runtime
+/// content. `condition` is the violating condition's bounded identity —
+/// never embedding input or response content; per-input attribution, where
+/// an emitter tracks it, travels structurally in `input_index` with an
+/// optional bounded excerpt beside it in `input_excerpt`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FailureDistributionEntry {
+    /// The violating condition's bounded identity.
+    pub condition: String,
+
+    /// Zero-based index into the run's inputs list, when the entry is
+    /// attributed to a specific input. The input value itself is never
+    /// serialised as identity.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub input_index: Option<u32>,
+
+    /// Informational bounded excerpt of the driving input, for human
+    /// orientation only.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub input_excerpt: Option<String>,
+
+    /// Failed trials attributed to this entry.
+    pub count: u32,
+}
+
+/// Builds the failure distribution sequence from a sample aggregate.
+///
+/// Each failed trial was attributed to its first failing condition when the
+/// aggregate recorded it, so the entries' counts sum to the aggregate's
+/// failure total. Condition identities are bounded per the artefact key
+/// discipline. Returns `None` when no failures were recorded.
 #[must_use]
 pub fn build_failure_distribution(
     aggregate: &SampleAggregate,
-) -> Option<std::collections::BTreeMap<String, u32>> {
-    if aggregate.failure_distribution().is_empty() {
-        None
-    } else {
-        let mut map = std::collections::BTreeMap::new();
-        for (check, count) in aggregate.failure_distribution() {
-            map.insert(check.clone(), *count);
+) -> Option<Vec<FailureDistributionEntry>> {
+    build_failure_entries(aggregate.failure_distribution().iter().cloned())
+}
+
+/// Builds a failure distribution sequence from `(condition, count)` tallies.
+///
+/// Each condition identity is bounded; tallies whose identities collapse to
+/// the same bounded form are merged. Returns `None` for an empty tally.
+#[must_use]
+pub fn build_failure_entries(
+    tallies: impl IntoIterator<Item = (String, u32)>,
+) -> Option<Vec<FailureDistributionEntry>> {
+    let mut entries: Vec<FailureDistributionEntry> = Vec::new();
+    for (condition, count) in tallies {
+        let condition = keys::bounded_identity(&condition);
+        if let Some(entry) = entries.iter_mut().find(|e| e.condition == condition) {
+            entry.count += count;
+        } else {
+            entries.push(FailureDistributionEntry {
+                condition,
+                input_index: None,
+                input_excerpt: None,
+                count,
+            });
         }
-        Some(map)
     }
+    (!entries.is_empty()).then_some(entries)
+}
+
+/// Builds a sorted failure distribution map from a sample aggregate, with
+/// mapping keys bounded per the artefact key discipline.
+///
+/// The baseline spec still carries its failure distribution as a mapping;
+/// bounding the keys keeps the emitted document valid YAML even when a
+/// violating check's name grew with runtime content.
+#[must_use]
+pub fn build_failure_distribution_map(
+    aggregate: &SampleAggregate,
+) -> Option<std::collections::BTreeMap<String, u32>> {
+    bounded_distribution_map(aggregate.failure_distribution().iter().cloned())
+}
+
+/// Collects `(check, count)` tallies into a map with bounded keys, merging
+/// tallies whose keys collapse to the same bounded form. Returns `None`
+/// when there are no tallies.
+#[must_use]
+pub fn bounded_distribution_map(
+    tallies: impl IntoIterator<Item = (String, u32)>,
+) -> Option<std::collections::BTreeMap<String, u32>> {
+    let mut map = std::collections::BTreeMap::new();
+    for (check, count) in tallies {
+        *map.entry(keys::bounded_identity(&check)).or_insert(0) += count;
+    }
+    (!map.is_empty()).then_some(map)
 }
 
 /// Builds a success rate block from raw success and total counts.
@@ -313,5 +394,58 @@ mod tests {
         // 2025-12-28 + 10 days = 2026-01-07
         let result = iso8601_plus_days("2025-12-28T08:00:00Z", 10).unwrap();
         assert_eq!(result, "2026-01-07T08:00:00Z");
+    }
+
+    #[test]
+    fn failure_entries_preserve_order_and_counts() {
+        let entries = build_failure_entries([("parse".to_owned(), 2), ("empty".to_owned(), 1)])
+            .expect("non-empty tally");
+        assert_eq!(entries.len(), 2);
+        assert_eq!(
+            (entries[0].condition.as_str(), entries[0].count),
+            ("parse", 2)
+        );
+        assert_eq!(
+            (entries[1].condition.as_str(), entries[1].count),
+            ("empty", 1)
+        );
+        assert!(entries[0].input_index.is_none());
+    }
+
+    #[test]
+    fn failure_entries_are_none_for_an_empty_tally() {
+        assert!(build_failure_entries(std::iter::empty()).is_none());
+    }
+
+    #[test]
+    fn failure_entries_bound_over_long_conditions() {
+        let long = "c".repeat(2_000);
+        let entries = build_failure_entries([(long, 3)]).expect("non-empty tally");
+        assert_eq!(entries[0].condition.chars().count(), keys::MAX_KEY_CHARS);
+        assert_eq!(entries[0].count, 3);
+    }
+
+    #[test]
+    fn failure_entries_merge_tallies_with_the_same_bounded_condition() {
+        let long = "c".repeat(2_000);
+        let entries =
+            build_failure_entries([(long.clone(), 2), (long, 1)]).expect("non-empty tally");
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].count, 3);
+    }
+
+    #[test]
+    fn bounded_distribution_map_bounds_its_keys() {
+        let long = "k".repeat(2_000);
+        let map =
+            bounded_distribution_map([(long, 1), ("short".to_owned(), 2)]).expect("non-empty");
+        assert_eq!(map.len(), 2);
+        assert!(map.keys().all(|k| k.chars().count() <= keys::MAX_KEY_CHARS));
+        assert_eq!(map.get("short"), Some(&2));
+    }
+
+    #[test]
+    fn bounded_distribution_map_is_none_when_empty() {
+        assert!(bounded_distribution_map(std::iter::empty()).is_none());
     }
 }

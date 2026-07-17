@@ -18,7 +18,11 @@ use serde::{Deserialize, Serialize};
 
 use crate::experiment::{ContractExecutionResult, ExploreResult};
 use crate::spec::baseline::{CostBlock, ExecutionBlock};
-use crate::spec::common::{build_cost_block, build_failure_distribution, now_iso8601, round4};
+use crate::spec::common::{
+    FailureDistributionEntry, build_cost_block, build_failure_distribution, build_failure_entries,
+    now_iso8601, round4,
+};
+use crate::spec::keys;
 use crate::spec::projection::{SampleProjection, format_projections};
 
 /// A serde-friendly wrapper for factor values in YAML output.
@@ -123,9 +127,11 @@ pub struct ExplorationStatisticsBlock {
     /// Number of failed trials.
     pub failures: u32,
 
-    /// Distribution of failures by postcondition check name.
+    /// Failure attribution as a sequence of bounded entries: each failed
+    /// trial counted under its first failing condition, so the entries'
+    /// counts sum to `failures`. Absent when no trial failed.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub failure_distribution: Option<BTreeMap<String, u32>>,
+    pub failure_distribution: Option<Vec<FailureDistributionEntry>>,
 
     /// Per-criterion tallies, keyed by criterion name. Present whenever the
     /// run judged named criteria — including the single-criterion case, since
@@ -150,9 +156,11 @@ pub struct ExplorationCriterionBlock {
     /// Number of trials where this criterion failed.
     pub fail: u32,
 
-    /// This criterion's failures keyed by the violating check's name.
+    /// This criterion's failures as a sequence of bounded entries, in the
+    /// same shape as the run-level distribution. Omitted when it would
+    /// merely restate a single-condition criterion's `fail` count.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub failure_distribution: Option<BTreeMap<String, u32>>,
+    pub failure_distribution: Option<Vec<FailureDistributionEntry>>,
 }
 
 /// Latency detail for an exploration configuration.
@@ -333,20 +341,36 @@ pub(crate) fn build_criteria_blocks(
         per_criterion
             .iter()
             .map(|counts| {
-                let distribution = counts.failure_distribution();
                 (
-                    counts.criterion().to_owned(),
+                    keys::bounded_identity(counts.criterion()),
                     ExplorationCriterionBlock {
                         observed_pass_rate: round4(counts.pass_rate().unwrap_or(0.0)),
                         pass: counts.pass(),
                         fail: counts.fail(),
-                        failure_distribution: (!distribution.is_empty())
-                            .then(|| distribution.clone()),
+                        failure_distribution: criterion_failure_entries(counts),
                     },
                 )
             })
             .collect(),
     )
+}
+
+/// The per-criterion failure distribution, omitted where it carries no
+/// information beyond the criterion's own tally: a single entry whose
+/// condition is the criterion's name merely restates `fail`.
+fn criterion_failure_entries(
+    counts: &crate::criteria::CriterionCounts,
+) -> Option<Vec<FailureDistributionEntry>> {
+    let entries = build_failure_entries(
+        counts
+            .failure_distribution()
+            .iter()
+            .map(|(check, count)| (check.clone(), *count)),
+    )?;
+    let restates_the_tally = entries.len() == 1
+        && entries[0].condition == counts.criterion()
+        && entries[0].count == counts.fail();
+    (!restates_the_tally).then_some(entries)
 }
 
 /// The latency block for a run: the sorted passing-trial durations plus the
@@ -438,7 +462,12 @@ mod tests {
                 observed: 0.8,
                 successes: 4,
                 failures: 1,
-                failure_distribution: Some(BTreeMap::from([("relevance-check".to_owned(), 1)])),
+                failure_distribution: Some(vec![FailureDistributionEntry {
+                    condition: "relevance-check".to_owned(),
+                    input_index: None,
+                    input_excerpt: None,
+                    count: 1,
+                }]),
                 criteria: None,
             },
             configuration: None,

@@ -110,13 +110,18 @@ fn writes_yaml_to_service_contract_scoped_path() {
 
     let yaml = std::fs::read_to_string(&path).unwrap();
     let spec = OptimizationSpec::from_yaml(&yaml).unwrap();
-    assert_eq!(spec.schema_version, "feotest-spec-1");
+    assert_eq!(spec.schema_version, "mavai-optimize-1");
     assert_eq!(spec.service_contract_id, "shopping-basket");
     assert_eq!(spec.experiment_id, "temp-tune-v1");
     assert_eq!(spec.objective, "MAXIMIZE");
     assert_eq!(spec.iterations.len(), 3);
     assert_eq!(spec.convergence.total_iterations, 3);
-    assert_eq!(spec.convergence.best_iteration, Some(0));
+    assert_eq!(spec.convergence.best_iteration, 0);
+    // The unnamed hand-rolled scorer leaves the additive field absent.
+    assert!(spec.scorer.is_none());
+    // The convergence block restates the best iteration's values.
+    assert!((spec.convergence.best_score - spec.iterations[0].score).abs() < f64::EPSILON);
+    assert_eq!(spec.convergence.best_factors, spec.iterations[0].factors);
 }
 
 #[test]
@@ -146,9 +151,10 @@ fn multi_line_factor_value_uses_block_scalar() {
     let path = result.write_to(dir.path()).unwrap();
     let yaml = std::fs::read_to_string(&path).unwrap();
 
-    // Literal block scalar marker, not escaped newlines.
+    // Literal block scalar marker, not escaped newlines: the scalar
+    // prompt factor lands under the `factor` key of the factors mapping.
     assert!(
-        yaml.contains("factorValue: |") || yaml.contains("factorValue: |-"),
+        yaml.contains("factor: |") || yaml.contains("factor: |-"),
         "expected block scalar; got:\n{yaml}"
     );
     assert!(
@@ -274,8 +280,8 @@ fn iterations_record_samples_executed() {
     let spec = OptimizationSpec::from_yaml(&std::fs::read_to_string(&path).unwrap()).unwrap();
 
     let iter0 = &spec.iterations[0];
-    assert_eq!(iter0.successes + iter0.failures, 7);
-    assert_eq!(iter0.samples_executed, 7);
+    assert_eq!(iter0.statistics.successes + iter0.statistics.failures, 7);
+    assert_eq!(iter0.execution.samples_executed, 7);
 }
 
 #[test]
@@ -296,8 +302,35 @@ fn result_to_yaml_without_writing_to_disk() {
         .run();
 
     let yaml = result.to_yaml().unwrap();
-    assert!(yaml.contains("schemaVersion: feotest-spec-1"));
-    assert!(yaml.contains("useCaseId: yaml-only"));
+    assert!(yaml.contains("schemaVersion: mavai-optimize-1"));
+    assert!(yaml.contains("serviceContractId: yaml-only"));
+}
+
+#[test]
+fn the_built_in_scorer_is_stated_in_the_artefact() {
+    let inputs = vec!["input".to_string()];
+
+    let result = OptimizeExperiment::builder()
+        .service_contract_id("named-scorer")
+        .initial_factor(Temp(0.5))
+        .service_contract(build_service_from_temp)
+        .scorer(feotest::experiment::ObservedPassRate)
+        .mutator(FloatIncrementMutator(0.1))
+        .samples_per_iteration(3)
+        .inputs(&inputs)
+        .max_iterations(2)
+        .experiment_id("named")
+        .build()
+        .run();
+
+    let yaml = result.to_yaml().unwrap();
+    assert!(yaml.contains("scorer: observed-pass-rate"));
+    // The built-in scores by the observed pass rate the statistics
+    // block states, so score and observed agree by construction.
+    let spec = OptimizationSpec::from_yaml(&yaml).unwrap();
+    for iteration in &spec.iterations {
+        assert!((iteration.score - iteration.statistics.observed).abs() < 1e-4);
+    }
 }
 
 #[test]
