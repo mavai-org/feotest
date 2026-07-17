@@ -281,7 +281,9 @@ fn optimize_iterations_honour_the_latency_and_statistics_obligations() {
             .failure_distribution
             .as_ref()
             .expect("failures > 0 requires the distribution");
-        assert_eq!(distribution.get("well-formed"), Some(&1));
+        assert_eq!(distribution.len(), 1);
+        assert_eq!(distribution[0].condition, "well-formed");
+        assert_eq!(distribution[0].count, 1);
     }
 }
 
@@ -324,12 +326,143 @@ fn emitted_criteria_carry_names_and_consistent_tallies() {
             well_formed.pass + well_formed.fail,
             spec.execution.samples_executed
         );
-        // One in six inputs fails, so the distribution names the check.
+        // One in six inputs fails, so the distribution names the condition,
+        // and the entry counts sum to the stated failure total.
         assert_eq!(spec.statistics.failures, 1);
         let distribution = spec
             .statistics
             .failure_distribution
             .expect("failures > 0 requires the distribution");
-        assert_eq!(distribution.get("well-formed"), Some(&1));
+        assert_eq!(distribution.len(), 1);
+        assert_eq!(distribution[0].condition, "well-formed");
+        let total: u32 = distribution.iter().map(|entry| entry.count).sum();
+        assert_eq!(total, spec.statistics.failures);
     }
+}
+
+// ── artefact key discipline ─────────────────────────────────────────────────
+
+/// The character bound the interchange key discipline places on emitted
+/// mapping keys and condition identities.
+const KEY_BOUND_CHARS: usize = 256;
+
+/// A service whose violation check name embeds the full response — the
+/// runtime-content case the artefact key discipline exists to bound. The
+/// response echoes the input, so a long input drives a check identity far
+/// past YAML's 1,024-character implicit-key limit unless the emitter bounds
+/// it.
+struct ContentEmbeddingService;
+
+impl ServiceContract for ContentEmbeddingService {
+    type Input = String;
+    type Output = String;
+
+    fn id(&self) -> &'static str {
+        "content-embedding"
+    }
+
+    fn invoke(&self, input: &String, _cost: &mut Cost) -> Result<String, Defect> {
+        Ok(input.clone())
+    }
+
+    fn criteria(&self) -> Criteria<String> {
+        Criteria::of([Criterion::meeting()
+            .pass_rate(0.5)
+            .name("reference-match")
+            .satisfies("reference-match", |response: &String| {
+                if response.len() > 64 {
+                    Err(ContractViolation::new(
+                        format!("reference mismatch for '{response}'"),
+                        "response does not equal the reference",
+                    ))
+                } else {
+                    Ok(())
+                }
+            })
+            .build()])
+    }
+}
+
+/// Runs an exploration whose failing samples are driven by an input longer
+/// than YAML's implicit-key limit, and returns the emitted YAML.
+fn emit_long_input_artefact(dir: &Path) -> String {
+    let long_input = format!(
+        "a very long driving input: {}\nwith a second line",
+        "lorem ipsum dolor sit amet ".repeat(64)
+    );
+    assert!(long_input.chars().count() > 1_024);
+    let inputs = vec![long_input, "short".to_string()];
+    let result = ExploreExperiment::builder()
+        .service_contract_id("content-embedding")
+        .factors(vec![ConfigFactor { label: "config-a" }])
+        .service_contract(|_: &ConfigFactor| ContentEmbeddingService)
+        .samples_per_config(4)
+        .inputs(&inputs)
+        .experiment_id("key-discipline-run")
+        .output_dir(dir)
+        .build()
+        .run();
+
+    let paths = result.spec_paths().expect("output_dir was set");
+    std::fs::read_to_string(&paths[0]).unwrap()
+}
+
+/// Asserts every mapping key in the document tree stays within the bound.
+fn assert_keys_bounded(value: &serde_yaml::Value, path: &str) {
+    match value {
+        serde_yaml::Value::Mapping(mapping) => {
+            for (key, nested) in mapping {
+                let key_text = key.as_str().unwrap_or_default();
+                assert!(
+                    key_text.chars().count() <= KEY_BOUND_CHARS,
+                    "mapping key of {} characters at {path} exceeds the bound",
+                    key_text.chars().count()
+                );
+                assert_keys_bounded(nested, &format!("{path}.{key_text}"));
+            }
+        }
+        serde_yaml::Value::Sequence(sequence) => {
+            for (index, nested) in sequence.iter().enumerate() {
+                assert_keys_bounded(nested, &format!("{path}[{index}]"));
+            }
+        }
+        _ => {}
+    }
+}
+
+#[test]
+fn long_input_artefacts_parse_and_validate_with_bounded_keys() {
+    let dir = tempfile::tempdir().unwrap();
+    let yaml = emit_long_input_artefact(dir.path());
+
+    // The whole document — including the emitter-formatted result
+    // projection — parses in a spec-strict YAML parser.
+    let document: serde_yaml::Value =
+        serde_yaml::from_str(&yaml).expect("emitted artefact must parse as YAML");
+
+    // No mapping key anywhere in the document exceeds the bound.
+    assert_keys_bounded(&document, "$");
+
+    // The artefact validates against the pinned published schema.
+    assert_validates("mavai-explore-1.schema.json", &yaml);
+
+    // The failure entries carry bounded condition identities that do not
+    // embed the input, distinguished by a content hash after truncation,
+    // and their counts sum to the stated failures.
+    let spec = ExplorationSpec::from_yaml(&yaml).unwrap();
+    assert!(spec.statistics.failures > 0, "the long input must fail");
+    let distribution = spec
+        .statistics
+        .failure_distribution
+        .expect("failures > 0 requires the distribution");
+    let total: u32 = distribution.iter().map(|entry| entry.count).sum();
+    assert_eq!(total, spec.statistics.failures);
+    for entry in &distribution {
+        assert!(entry.condition.chars().count() <= KEY_BOUND_CHARS);
+        assert!(!entry.condition.contains("with a second line"));
+    }
+
+    // The input itself survives, full-length, as a value in the result
+    // projection — the bound governs keys and identities, not values.
+    assert!(yaml.contains("lorem ipsum dolor sit amet"));
 }

@@ -15,9 +15,9 @@ use crate::spec::baseline::{
     BaselineSpec, CriterionStatistics, ExpirationBlock, RequirementsBlock, StatisticsBlock,
 };
 use crate::spec::common::{
-    build_cost_block, build_execution_block, build_failure_distribution,
-    build_latency_distribution, build_success_rate_block, iso8601_plus_days, now_iso8601, round4,
-    wilson_lower_bound,
+    bounded_distribution_map, build_cost_block, build_execution_block,
+    build_failure_distribution_map, build_latency_distribution, build_success_rate_block,
+    iso8601_plus_days, now_iso8601, round4, wilson_lower_bound,
 };
 use crate::spec::namer::CovariateProfile;
 
@@ -324,7 +324,7 @@ fn build_spec(
             success_rate: build_success_rate_block(successes, total),
             successes,
             failures: summary.failures(),
-            failure_distribution: build_failure_distribution(result.aggregate()),
+            failure_distribution: build_failure_distribution_map(result.aggregate()),
             latency_distribution: build_latency_distribution(
                 result.aggregate().successful_latencies(),
             ),
@@ -375,8 +375,12 @@ fn build_per_criterion(
                 success_rate: build_success_rate_block(counts.pass(), counts.total()),
                 successes: counts.pass(),
                 failures: counts.fail(),
-                failure_distribution: (!counts.failure_distribution().is_empty())
-                    .then(|| counts.failure_distribution().clone()),
+                failure_distribution: bounded_distribution_map(
+                    counts
+                        .failure_distribution()
+                        .iter()
+                        .map(|(check, count)| (check.clone(), *count)),
+                ),
                 normative_judgement: judgements
                     .iter()
                     .find(|j| j.criterion() == counts.criterion())
