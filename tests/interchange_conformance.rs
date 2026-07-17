@@ -1,22 +1,28 @@
-//! Emitter conformance for the exploration interchange artefact.
+//! Emitter conformance for the exploration and optimization interchange
+//! artefacts.
 //!
-//! The exploration YAML this crate emits is a family-level interchange
+//! The experiment YAML this crate emits is a family-level interchange
 //! format, consumed by tooling that is not this crate. These tests validate
-//! real emitted artefacts against the vendored copy of the published JSON
-//! Schema (`tests/conformance/interchange/mavai-explore-1.schema.json`,
-//! pinned per family schema release), plus the semantic obligations the
-//! schema cannot express: the sortedness of the latency vector and the
-//! minimum-sample gating of the stated percentiles.
+//! real emitted artefacts against the vendored copies of the published JSON
+//! Schemas (`tests/conformance/interchange/mavai-explore-1.schema.json` and
+//! `mavai-optimize-1.schema.json`, pinned per family schema release), plus
+//! the semantic obligations the schemas cannot express: the sortedness of
+//! the latency vector, the minimum-sample gating of the stated percentiles,
+//! and the optimize convergence block's internal consistency with the
+//! iteration it names.
 
 use std::fmt;
 use std::path::Path;
 
 use feotest::controls::Cost;
 use feotest::criteria::{Criteria, Criterion};
-use feotest::experiment::ExploreExperiment;
+use feotest::experiment::{
+    ExploreExperiment, FactorMutator, IterationRecord, ObservedPassRate, OptimizeExperiment,
+};
 use feotest::model::{ContractViolation, Defect};
 use feotest::service_contract::ServiceContract;
 use feotest::spec::explore::ExplorationSpec;
+use feotest::spec::optimization::OptimizationSpec;
 use feotest::statistics::latency::min_samples_for;
 
 /// A factor variant; `Display` names the configuration.
@@ -94,15 +100,29 @@ fn emit_artefacts(dir: &Path) -> Vec<String> {
         .collect()
 }
 
-/// The vendored published schema, compiled.
-fn published_schema() -> jsonschema::Validator {
-    let schema_text = std::fs::read_to_string(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/tests/conformance/interchange/mavai-explore-1.schema.json"
-    ))
-    .unwrap();
+/// A vendored published schema, compiled.
+fn published_schema(name: &str) -> jsonschema::Validator {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/conformance/interchange")
+        .join(name);
+    let schema_text = std::fs::read_to_string(path).unwrap();
     let schema: serde_json::Value = serde_json::from_str(&schema_text).unwrap();
     jsonschema::validator_for(&schema).unwrap()
+}
+
+/// Asserts one YAML document validates against a vendored schema.
+fn assert_validates(schema_name: &str, yaml: &str) {
+    let validator = published_schema(schema_name);
+    let document = as_json(yaml);
+    let errors: Vec<String> = validator
+        .iter_errors(&document)
+        .map(|error| format!("{} at {}", error, error.instance_path()))
+        .collect();
+    assert!(
+        errors.is_empty(),
+        "emitted artefact violates the published schema:\n{}",
+        errors.join("\n")
+    );
 }
 
 /// A YAML document as a JSON value, for schema validation.
@@ -117,18 +137,8 @@ fn emitted_artefacts_validate_against_the_published_schema() {
     let artefacts = emit_artefacts(dir.path());
     assert_eq!(artefacts.len(), 2);
 
-    let validator = published_schema();
     for yaml in &artefacts {
-        let document = as_json(yaml);
-        let errors: Vec<String> = validator
-            .iter_errors(&document)
-            .map(|error| format!("{} at {}", error, error.instance_path()))
-            .collect();
-        assert!(
-            errors.is_empty(),
-            "emitted artefact violates the published schema:\n{}",
-            errors.join("\n")
-        );
+        assert_validates("mavai-explore-1.schema.json", yaml);
     }
 }
 
@@ -166,6 +176,132 @@ fn emitted_latency_detail_honours_the_semantic_obligations() {
                 "p{fraction} statedness must follow the minimum-sample gate at n={passing}",
             );
         }
+    }
+}
+
+// ── optimization ────────────────────────────────────────────────────────────
+
+/// A scalar factor for optimize runs; more bad inputs fail at higher indices.
+#[derive(Clone, serde::Serialize)]
+struct Strictness(u32);
+
+/// Steps the strictness up by one each iteration.
+struct StepMutator;
+impl FactorMutator<Strictness> for StepMutator {
+    fn mutate(&self, current: &Strictness, _history: &[IterationRecord<Strictness>]) -> Strictness {
+        Strictness(current.0 + 1)
+    }
+}
+
+/// Runs a small real optimize experiment and returns the emitted YAML.
+fn emit_optimize_artefact(dir: &Path) -> String {
+    let inputs = vec![
+        "ok-1".to_string(),
+        "bad-2".to_string(),
+        "ok-3".to_string(),
+        "ok-4".to_string(),
+        "ok-5".to_string(),
+        "ok-6".to_string(),
+    ];
+    let result = OptimizeExperiment::builder()
+        .service_contract_id("flaky-service")
+        .initial_factor(Strictness(0))
+        .service_contract(|_: &Strictness| FlakyService)
+        .scorer(ObservedPassRate)
+        .mutator(StepMutator)
+        .samples_per_iteration(6)
+        .inputs(&inputs)
+        .max_iterations(3)
+        .no_improvement_window(10)
+        .experiment_id("conformance-optimize")
+        .build()
+        .run();
+
+    let path = result.write_to(dir).unwrap();
+    std::fs::read_to_string(path).unwrap()
+}
+
+#[test]
+fn emitted_optimize_artefact_validates_against_the_published_schema() {
+    let dir = tempfile::tempdir().unwrap();
+    let yaml = emit_optimize_artefact(dir.path());
+    assert_validates("mavai-optimize-1.schema.json", &yaml);
+}
+
+#[test]
+fn optimize_iterations_honour_the_latency_and_statistics_obligations() {
+    let dir = tempfile::tempdir().unwrap();
+    let spec = OptimizationSpec::from_yaml(&emit_optimize_artefact(dir.path())).unwrap();
+
+    for iteration in &spec.iterations {
+        // One in six inputs fails, so every iteration has passing samples,
+        // a positive failure count, and the distribution naming the check.
+        let latency = iteration
+            .latency
+            .as_ref()
+            .expect("passing samples were recorded");
+        assert!(
+            latency
+                .sorted_passing_latencies_ms
+                .windows(2)
+                .all(|pair| pair[0] <= pair[1]),
+            "latency vector must be sorted ascending"
+        );
+        assert_eq!(
+            latency.sorted_passing_latencies_ms.len(),
+            latency.contributing_samples as usize
+        );
+        assert!(latency.contributing_samples <= latency.total_samples);
+        let passing = latency.contributing_samples;
+        for (stated, fraction) in [
+            (latency.p50_ms, 0.50),
+            (latency.p95_ms, 0.95),
+            (latency.p99_ms, 0.99),
+        ] {
+            assert_eq!(
+                stated.is_some(),
+                passing >= min_samples_for(fraction),
+                "p{fraction} statedness must follow the minimum-sample gate at n={passing}",
+            );
+        }
+
+        let criteria = iteration
+            .statistics
+            .criteria
+            .as_ref()
+            .expect("criteria are binding");
+        let well_formed = criteria.get("well-formed").expect("declared criterion");
+        assert_eq!(
+            well_formed.pass + well_formed.fail,
+            iteration.execution.samples_executed
+        );
+        assert_eq!(iteration.statistics.failures, 1);
+        let distribution = iteration
+            .statistics
+            .failure_distribution
+            .as_ref()
+            .expect("failures > 0 requires the distribution");
+        assert_eq!(distribution.get("well-formed"), Some(&1));
+    }
+}
+
+#[test]
+fn optimize_convergence_is_internally_consistent_and_the_scorer_is_stated() {
+    let dir = tempfile::tempdir().unwrap();
+    let spec = OptimizationSpec::from_yaml(&emit_optimize_artefact(dir.path())).unwrap();
+
+    assert_eq!(spec.schema_version, "mavai-optimize-1");
+    assert_eq!(spec.scorer.as_deref(), Some("observed-pass-rate"));
+    assert_eq!(
+        spec.convergence.total_iterations as usize,
+        spec.iterations.len()
+    );
+    let best = &spec.iterations[spec.convergence.best_iteration as usize];
+    assert!((spec.convergence.best_score - best.score).abs() < f64::EPSILON);
+    assert_eq!(spec.convergence.best_factors, best.factors);
+    // The built-in scorer scores by the stated observed rate.
+    for iteration in &spec.iterations {
+        assert!((iteration.score - iteration.statistics.observed).abs() < 1e-4);
     }
 }
 

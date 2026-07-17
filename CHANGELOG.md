@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- **Canonical interchange schema for optimization output (breaking).**
+  Optimize runs now emit the mavai family's canonical `mavai-optimize-1`
+  format in place of the `feotest-spec-1` shape: `serviceContractId`
+  replaces the legacy `useCaseId` wire name, each iteration carries its
+  full descriptive observation (per-criterion tallies, failure
+  distributions, cost, and the gated value-or-absent latency
+  percentiles — most are absent at optimization's small per-iteration
+  counts, which is the minimum-sample gate working), factor values land
+  in a `factors` mapping (a struct factor as its own mapping, a scalar
+  factor under the key `factor`), and the convergence block restates
+  the selected optimum's score and factors, cross-checked by the
+  interchange conformance test against the pinned published schema.
+  The `mavai optimize` report renders these documents directly.
+
+### Added
+
+- **Named scorers, stated in the optimize artefact.** `Scorer` gains an
+  optional identity (`Scorer::name`, default `None`) and a built-in
+  named implementation, `ObservedPassRate`, which scores each iteration
+  by the observed pass rate the artefact's statistics block states.
+  A named scorer is stated in the artefact's additive `scorer` field
+  (e.g. `scorer: observed-pass-rate`) so downstream consumers can label
+  what the score measures; a bespoke unnamed scorer leaves the field
+  absent. `OptimizeResult` additionally exposes the per-iteration
+  descriptive observations (`observations()`) and the scorer's name
+  (`scorer_name()`).
+
 ### Removed
 
 - **The exploration comparison HTML renderer.** Rendering exploration

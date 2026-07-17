@@ -25,6 +25,7 @@ use crate::controls::{Cost, ExecutionConfig, TokenRecorder};
 use crate::experiment::engine::{ContractExecutionResult, ExecutionEngine, SampleEvaluation};
 use crate::service_contract::ServiceContract;
 use crate::spec::optimization::{OptimizationSpec, OptimizeSpecWriter};
+use crate::spec::projection::{SampleProjection, build_projection};
 
 type ServiceContractFactory<'a, F, T> = Box<dyn Fn(&F) -> T + 'a>;
 
@@ -35,6 +36,34 @@ pub trait Scorer: Send + Sync {
     /// Higher scores are better for [`Objective::Maximize`]; lower for
     /// [`Objective::Minimize`].
     fn score(&self, result: &ContractExecutionResult) -> f64;
+
+    /// The scorer's stable domain name, when it has one.
+    ///
+    /// A named scorer is stated in the optimization artefact's `scorer`
+    /// field, so downstream consumers can label what the score measures.
+    /// A bespoke unnamed scorer leaves the field absent — the artefact
+    /// never claims an identity the author did not declare.
+    fn name(&self) -> Option<&str> {
+        None
+    }
+}
+
+/// The built-in observed-pass-rate scorer.
+///
+/// Scores each iteration by its observed pass rate — exactly the rate the
+/// artefact's statistics block states — and is named
+/// `observed-pass-rate` in the emitted artefact.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct ObservedPassRate;
+
+impl Scorer for ObservedPassRate {
+    fn score(&self, result: &ContractExecutionResult) -> f64 {
+        result.summary().observed_pass_rate()
+    }
+
+    fn name(&self) -> Option<&str> {
+        Some("observed-pass-rate")
+    }
 }
 
 /// Generates the next factor value from the current one and the
@@ -95,6 +124,33 @@ impl fmt::Display for TerminationReason {
     }
 }
 
+/// One iteration's full descriptive observation, retained beside the
+/// history.
+///
+/// The optimization artefact states what each iteration observed —
+/// per-criterion tallies, failure distributions, gated latency
+/// percentiles, and cost — rather than only its score and counts; this
+/// is where that detail survives the loop.
+#[derive(Debug)]
+pub struct IterationObservation {
+    execution: ContractExecutionResult,
+    projections: Vec<SampleProjection>,
+}
+
+impl IterationObservation {
+    /// The iteration's execution result.
+    #[must_use]
+    pub const fn execution(&self) -> &ContractExecutionResult {
+        &self.execution
+    }
+
+    /// The iteration's per-sample projections, in execution order.
+    #[must_use]
+    pub fn projections(&self) -> &[SampleProjection] {
+        &self.projections
+    }
+}
+
 /// Record of a single optimisation iteration.
 #[derive(Debug, Clone)]
 pub struct IterationRecord<F> {
@@ -146,8 +202,8 @@ impl<F> IterationRecord<F> {
 ///
 /// ```no_run
 /// use feotest::experiment::{
-///     ContractExecutionResult, FactorMutator, IterationRecord, Objective,
-///     OptimizeExperiment, Scorer,
+///     FactorMutator, IterationRecord, Objective, ObservedPassRate,
+///     OptimizeExperiment,
 /// };
 /// use feotest::controls::Cost;
 /// use feotest::criteria::{Criteria, Criterion};
@@ -174,13 +230,6 @@ impl<F> IterationRecord<F> {
 ///     }
 /// }
 ///
-/// struct PassRateScorer;
-/// impl Scorer for PassRateScorer {
-///     fn score(&self, result: &ContractExecutionResult) -> f64 {
-///         result.summary().observed_pass_rate()
-///     }
-/// }
-///
 /// struct StepMutator;
 /// impl FactorMutator<Temperature> for StepMutator {
 ///     fn mutate(
@@ -198,7 +247,7 @@ impl<F> IterationRecord<F> {
 ///     .service_contract_id("my-service")
 ///     .initial_factor(Temperature(0.3))
 ///     .service_contract(|f: &Temperature| MyService { temperature: f.0 })
-///     .scorer(PassRateScorer)
+///     .scorer(ObservedPassRate)
 ///     .mutator(StepMutator)
 ///     .samples_per_iteration(20)
 ///     .inputs(&inputs)
@@ -246,6 +295,7 @@ where
     /// caught panic) — a defect aborts the experiment.
     pub fn run(self) -> OptimizeResult<F> {
         let mut history: Vec<IterationRecord<F>> = Vec::new();
+        let mut observations: Vec<IterationObservation> = Vec::new();
         let mut current_factor = self.initial_factor.clone();
         let mut best_score: Option<f64> = None;
         let mut best_iteration: Option<u32> = None;
@@ -259,10 +309,14 @@ where
             let config = ExecutionConfig::new(self.samples_per_iteration);
             let recorder = TokenRecorder::new();
 
+            let mut projections = Vec::new();
+            let mut sample_idx: u32 = 0;
+
             let result = {
                 let cost_recorder = recorder.clone();
                 let criteria = &criteria;
                 let service_contract = &service_contract;
+                let projections = &mut projections;
                 ExecutionEngine::run_contract(
                     &config,
                     self.inputs,
@@ -275,10 +329,10 @@ where
                         let elapsed = start.elapsed();
                         cost_recorder.record(cost.tokens_recorded());
                         let expected = service_contract.expected(input);
-                        Ok(SampleEvaluation {
-                            results: criteria.evaluate(&output, expected.as_ref()),
-                            elapsed,
-                        })
+                        let results = criteria.evaluate(&output, expected.as_ref());
+                        projections.push(build_projection(sample_idx, "", &results, elapsed));
+                        sample_idx += 1;
+                        Ok(SampleEvaluation { results, elapsed })
                     },
                 )
                 .unwrap_or_else(|defect| {
@@ -294,6 +348,10 @@ where
                 score,
                 successes: result.summary().successes(),
                 failures: result.summary().failures(),
+            });
+            observations.push(IterationObservation {
+                execution: result,
+                projections,
             });
 
             let improved = match (best_score, self.objective) {
@@ -323,8 +381,10 @@ where
         OptimizeResult {
             service_contract_id: self.service_contract_id,
             objective: self.objective,
+            scorer_name: self.scorer.name().map(str::to_owned),
             experiment_id: self.experiment_id,
             history,
+            observations,
             best_iteration,
             best_score,
             termination_reason,
@@ -523,8 +583,10 @@ impl<'a, F, T: ServiceContract> OptimizeExperimentBuilder<'a, F, T> {
 pub struct OptimizeResult<F> {
     service_contract_id: String,
     objective: Objective,
+    scorer_name: Option<String>,
     experiment_id: Option<String>,
     history: Vec<IterationRecord<F>>,
+    observations: Vec<IterationObservation>,
     best_iteration: Option<u32>,
     best_score: Option<f64>,
     termination_reason: TerminationReason,
@@ -553,6 +615,20 @@ impl<F> OptimizeResult<F> {
     #[must_use]
     pub fn history(&self) -> &[IterationRecord<F>] {
         &self.history
+    }
+
+    /// The per-iteration descriptive observations, parallel to
+    /// [`history`](Self::history).
+    #[must_use]
+    pub fn observations(&self) -> &[IterationObservation] {
+        &self.observations
+    }
+
+    /// The scorer's stable domain name, when the run's scorer carries
+    /// one (see [`Scorer::name`]).
+    #[must_use]
+    pub fn scorer_name(&self) -> Option<&str> {
+        self.scorer_name.as_deref()
     }
 
     /// The iteration number with the best score.
