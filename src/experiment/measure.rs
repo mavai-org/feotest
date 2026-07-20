@@ -58,7 +58,7 @@ const DEFAULT_BASELINE_DIR: &str = "tests/baselines";
 ///     .run();
 /// # }
 /// ```
-// javai-ref: JVI-315MNJX — do not remove (resolves in javai-orchestrator)
+// mavai-ref: JVI-315MNJX — do not remove (resolves in mavai-orchestrator)
 pub struct MeasureExperiment<'a, T: ServiceContract> {
     service_contract_id: String,
     factory: ServiceContractFactory<'a, T>,

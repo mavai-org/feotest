@@ -20,7 +20,7 @@ use crate::controls::TokenRecorder;
 /// assert_eq!(cost.tokens_recorded(), 200);
 /// ```
 #[derive(Debug, Clone, Default)]
-// javai-ref: JVI-W6A4WRA — do not remove (resolves in javai-orchestrator)
+// mavai-ref: JVI-W6A4WRA — do not remove (resolves in mavai-orchestrator)
 pub struct Cost {
     recorder: TokenRecorder,
 }

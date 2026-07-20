@@ -190,7 +190,7 @@ impl SpecResolver {
     ///
     /// Returns an error if the directory cannot be created or the file
     /// cannot be written.
-    // javai-ref: JVI-EC8CPT3 — do not remove (resolves in javai-orchestrator)
+    // mavai-ref: JVI-EC8CPT3 — do not remove (resolves in mavai-orchestrator)
     pub fn write(
         &self,
         spec: &BaselineSpec,

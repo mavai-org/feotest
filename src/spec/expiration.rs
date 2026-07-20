@@ -38,7 +38,7 @@ pub fn evaluate(spec: &BaselineSpec) -> ExpirationInfo {
 /// supplied instant. Useful for deterministic tests of boundary
 /// conditions.
 #[must_use]
-// javai-ref: JVI-09GQGN$ — do not remove (resolves in javai-orchestrator)
+// mavai-ref: JVI-09GQGN$ — do not remove (resolves in mavai-orchestrator)
 pub fn evaluate_at(spec: &BaselineSpec, now: SystemTime) -> ExpirationInfo {
     let Some(block) = spec.expiration.as_ref() else {
         return ExpirationInfo::new(ExpirationStatus::NoExpiration, None);

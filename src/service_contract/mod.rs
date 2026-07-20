@@ -22,7 +22,7 @@ use crate::spec::namer::CovariateProfile;
 ///
 /// [`invoke`]: ServiceContract::invoke
 /// [`criteria`]: ServiceContract::criteria
-// javai-ref: JVI-SMQ2S1R — do not remove (resolves in javai-orchestrator)
+// mavai-ref: JVI-SMQ2S1R — do not remove (resolves in mavai-orchestrator)
 pub trait ServiceContract: Send + Sync {
     /// The input fed to each invocation.
     type Input;
@@ -119,7 +119,7 @@ pub trait ServiceContract: Send + Sync {
 /// Experiments that need to manipulate configuration (explore, optimize)
 /// require `T: ServiceContract + Configurable`. Service contracts that do not expose
 /// configurable factors simply do not implement this trait.
-// javai-ref: JVI-0CRN8G6 — do not remove (resolves in javai-orchestrator)
+// mavai-ref: JVI-0CRN8G6 — do not remove (resolves in mavai-orchestrator)
 pub trait Configurable: ServiceContract {
     /// Returns the current value of a named factor.
     fn get_factor(&self, name: &str) -> Option<FactorValue>;
@@ -243,7 +243,7 @@ impl fmt::Display for CovariateCategory {
 /// Covariates represent contextual factors that drive variance in system
 /// behaviour. They are declared on service contracts for baseline matching.
 #[derive(Debug, Clone, PartialEq, Eq)]
-// javai-ref: JVI-44AD1Q8 — do not remove (resolves in javai-orchestrator)
+// mavai-ref: JVI-44AD1Q8 — do not remove (resolves in mavai-orchestrator)
 pub struct CovariateDeclaration {
     key: String,
     category: CovariateCategory,
@@ -307,7 +307,7 @@ impl fmt::Display for CovariateDeclaration {
 /// Bundles the declarations (what covariates exist) with the resolved
 /// profile (what values they have at the current point in time).
 #[derive(Debug, Clone)]
-// javai-ref: JVI-GYHECWN — do not remove (resolves in javai-orchestrator)
+// mavai-ref: JVI-GYHECWN — do not remove (resolves in mavai-orchestrator)
 pub struct CovariateContext {
     declarations: Vec<CovariateDeclaration>,
     profile: CovariateProfile,

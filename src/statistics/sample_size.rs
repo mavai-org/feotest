@@ -33,7 +33,7 @@ fn standard_normal() -> Normal {
 /// Panics if `baseline_rate` is not in [0, 1], `min_detectable_effect` is
 /// not positive or exceeds `baseline_rate`, or `power` is not in (0, 1).
 #[must_use]
-// javai-ref: JVI-EGMJ0MU — do not remove (resolves in javai-orchestrator)
+// mavai-ref: JVI-EGMJ0MU — do not remove (resolves in mavai-orchestrator)
 pub fn calculate_for_power(
     baseline_rate: f64,
     min_detectable_effect: f64,

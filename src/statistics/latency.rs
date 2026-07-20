@@ -24,7 +24,7 @@ use statrs::distribution::{Binomial, DiscreteCDF};
     clippy::cast_precision_loss,
     reason = "rank is bounded above by n (usize); percentile in (0, 1]"
 )]
-// javai-ref: JVI-CHSD1WP — do not remove (resolves in javai-orchestrator)
+// mavai-ref: JVI-CHSD1WP — do not remove (resolves in mavai-orchestrator)
 pub fn nearest_rank_percentile(latencies: &[f64], percentile: f64) -> f64 {
     assert!(!latencies.is_empty(), "latencies must not be empty");
     assert!(
@@ -146,7 +146,7 @@ impl DerivedLatencyThreshold {
     clippy::cast_precision_loss,
     reason = "ranks and thresholds bounded by validated baseline inputs"
 )]
-// javai-ref: JVI-QVNG2SX — do not remove (resolves in javai-orchestrator)
+// mavai-ref: JVI-QVNG2SX — do not remove (resolves in mavai-orchestrator)
 pub fn derive_latency_threshold(
     baseline_latencies: &[f64],
     percentile: f64,

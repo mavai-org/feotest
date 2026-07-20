@@ -71,7 +71,7 @@ pub use sinks::{WebhookVerdictSink, WebhookVerdictSinkBuilder};
 /// are not normally written by hand. The trait exposes the minimum surface
 /// a runtime needs to identify, label, and invoke a specification: name,
 /// description, and a type-erased downcast via [`as_any`](Sentinel::as_any).
-// javai-ref: JVI-0PYEB09 — do not remove (resolves in javai-orchestrator)
+// mavai-ref: JVI-0PYEB09 — do not remove (resolves in mavai-orchestrator)
 pub trait Sentinel: Send + Sync {
     /// Stable symbolic identifier for this specification.
     ///

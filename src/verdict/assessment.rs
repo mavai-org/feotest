@@ -16,7 +16,7 @@ use crate::verdict::Verdict;
 /// Carries its name, its pass/fail tally (denominator `pass + fail`), the
 /// statistical analysis behind its verdict (absent for observational
 /// criteria), and its three-valued verdict.
-// javai-ref: JVI-8E4WNW5 — do not remove (resolves in javai-orchestrator)
+// mavai-ref: JVI-8E4WNW5 — do not remove (resolves in mavai-orchestrator)
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CriterionRow {
@@ -142,7 +142,7 @@ impl CriterionRow {
 /// The composite is the authoritative functional verdict. With one criterion
 /// it equals that criterion's verdict; with several it is their conjunction,
 /// becoming `Inconclusive` if any contributing row is.
-// javai-ref: JVI-60WEAWK — do not remove (resolves in javai-orchestrator)
+// mavai-ref: JVI-60WEAWK — do not remove (resolves in mavai-orchestrator)
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FunctionalAssessment {

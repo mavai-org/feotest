@@ -14,9 +14,9 @@ use crate::spec::SpecResolver;
 /// threshold are mathematically linked: the caller fixes some, the framework
 /// derives the rest.
 #[derive(Debug, Clone)]
-// javai-ref: JVI-0FVFYBM — do not remove (resolves in javai-orchestrator)
-// javai-ref: JVI-5YJVXGF — do not remove (resolves in javai-orchestrator)
-// javai-ref: JVI-6789AKT — do not remove (resolves in javai-orchestrator)
+// mavai-ref: JVI-0FVFYBM — do not remove (resolves in mavai-orchestrator)
+// mavai-ref: JVI-5YJVXGF — do not remove (resolves in mavai-orchestrator)
+// mavai-ref: JVI-6789AKT — do not remove (resolves in mavai-orchestrator)
 pub enum ThresholdApproach {
     /// Fix samples and confidence; derive threshold from baseline spec.
     ///

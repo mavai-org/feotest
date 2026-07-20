@@ -128,7 +128,7 @@ pub struct Constrained;
 /// one with `matching` / `matching_equality`; these terminals are reachable
 /// only in the [`Open`] state, so the two styles cannot be mixed on one
 /// criterion (a compile error, not a runtime check).
-// javai-ref: JVI-BD4F1AB — do not remove (resolves in javai-orchestrator)
+// mavai-ref: JVI-BD4F1AB — do not remove (resolves in mavai-orchestrator)
 pub struct CriterionBuild<O, S = Open> {
     target: CriterionTarget,
     name: Option<String>,
@@ -327,7 +327,7 @@ impl<O: 'static, T: 'static> TransformingBuild<O, T> {
 /// [`CriterionBuild::matching`] / [`CriterionBuild::matching_equality`] and
 /// **terminal** — only `name` and `build` remain, so a matching criterion
 /// cannot also carry `satisfies` / `transforming` clauses.
-// javai-ref: JVI-3P2SEQ4 — do not remove (resolves in javai-orchestrator)
+// mavai-ref: JVI-3P2SEQ4 — do not remove (resolves in mavai-orchestrator)
 pub struct MatchingBuild<O> {
     target: CriterionTarget,
     name: Option<String>,

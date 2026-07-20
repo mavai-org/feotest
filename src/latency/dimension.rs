@@ -118,7 +118,7 @@ impl LatencyEvaluation {
 /// The latency dimension of a verdict record.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-// javai-ref: JVI-ZCSHQ5K — do not remove (resolves in javai-orchestrator)
+// mavai-ref: JVI-ZCSHQ5K — do not remove (resolves in mavai-orchestrator)
 pub struct LatencyDimension {
     #[serde(serialize_with = "serialize_observed_percentiles")]
     observed_percentiles: Vec<(Percentile, Duration)>,

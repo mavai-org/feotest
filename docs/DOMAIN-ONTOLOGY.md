@@ -8,7 +8,7 @@
 > counterpart to
 > [`punit/docs/DOMAIN-ONTOLOGY.md`](../../punit/docs/DOMAIN-ONTOLOGY.md):
 > map the family domain ontology
-> ([`javai-orchestrator/inventory/DOMAIN-ONTOLOGY.md`](../../inventory/DOMAIN-ONTOLOGY.md))
+> ([`mavai-orchestrator/inventory/DOMAIN-ONTOLOGY.md`](../../inventory/DOMAIN-ONTOLOGY.md))
 > onto feotest's Rust idioms, modules, and types. This document is
 > **downstream** of the family ontology — when this document and
 > the family ontology disagree, the family ontology wins and this

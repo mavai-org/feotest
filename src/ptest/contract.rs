@@ -149,7 +149,7 @@ impl<'a, C: ServiceContract> ContractTest<'a, C> {
 
     /// Sets a human-readable contract reference for provenance.
     #[must_use]
-    // javai-ref: JVI-GQXC6W9 — do not remove (resolves in javai-orchestrator)
+    // mavai-ref: JVI-GQXC6W9 — do not remove (resolves in mavai-orchestrator)
     pub fn contract_ref(mut self, contract_ref: impl Into<String>) -> Self {
         self.contract_ref = Some(contract_ref.into());
         self

@@ -42,7 +42,7 @@ use crate::statistics::types::{
 /// Panics if `test_samples` is zero, `baseline_samples` is zero, or
 /// `baseline_successes > baseline_samples`.
 #[must_use]
-// javai-ref: JVI-9HJ92BC — do not remove (resolves in javai-orchestrator)
+// mavai-ref: JVI-9HJ92BC — do not remove (resolves in mavai-orchestrator)
 pub fn derive_sample_size_first(
     baseline_successes: u32,
     baseline_samples: u32,
@@ -113,7 +113,7 @@ fn decision_cutoff(threshold_value: f64, effective_rate: f64, test_samples: u32)
 /// `baseline_successes > baseline_samples`, or `explicit_threshold` is
 /// not in [0, 1].
 #[must_use]
-// javai-ref: JVI-HHV7KT0 — do not remove (resolves in javai-orchestrator)
+// mavai-ref: JVI-HHV7KT0 — do not remove (resolves in mavai-orchestrator)
 pub fn derive_threshold_first(
     baseline_successes: u32,
     baseline_samples: u32,

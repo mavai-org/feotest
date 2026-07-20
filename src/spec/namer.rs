@@ -108,7 +108,7 @@ impl CovariateProfile {
     /// Each hash is computed from `"{key}={value}"`. Different values for
     /// the same key produce different hashes.
     #[must_use]
-    // javai-ref: JVI-07HPCY* — do not remove (resolves in javai-orchestrator)
+    // mavai-ref: JVI-07HPCY* — do not remove (resolves in mavai-orchestrator)
     pub fn value_hashes(&self) -> Vec<String> {
         self.entries
             .iter()

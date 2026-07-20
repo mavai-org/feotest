@@ -12,7 +12,7 @@ use std::env;
 ///   unaffected.
 /// - `Strict` — violations fail the overall verdict.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-// javai-ref: JVI-9GVFJ2S — do not remove (resolves in javai-orchestrator)
+// mavai-ref: JVI-9GVFJ2S — do not remove (resolves in mavai-orchestrator)
 pub enum LatencyEnforcementMode {
     /// Violations warn only. The default.
     #[default]
