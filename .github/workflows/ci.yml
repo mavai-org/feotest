@@ -30,11 +30,11 @@ jobs:
         run: cargo fmt --all -- --check
 
       - name: Clippy
-        run: cargo clippy --workspace --all-targets -- -D warnings
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
 
       - name: Test
-        run: cargo nextest run --workspace
+        run: cargo nextest run --workspace --locked
 
       # nextest does not run doc-tests; run them separately.
       - name: Doc-tests
-        run: cargo test --workspace --doc
+        run: cargo test --workspace --doc --locked
