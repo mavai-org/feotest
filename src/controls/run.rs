@@ -36,8 +36,8 @@ pub const TOKEN_BUDGET_ENV: &str = "FEOTEST_RUN_TOKEN_BUDGET";
 /// `AtomicU64::fetch_add` with `Relaxed` ordering, matching the
 /// per-method [`TokenRecorder`](crate::controls::TokenRecorder).
 #[derive(Debug)]
-// javai-ref: JVI-9M5SBQZ — do not remove (resolves in javai-orchestrator)
-// javai-ref: JVI-N0WK25H — do not remove (resolves in javai-orchestrator)
+// mavai-ref: JVI-9M5SBQZ — do not remove (resolves in mavai-orchestrator)
+// mavai-ref: JVI-N0WK25H — do not remove (resolves in mavai-orchestrator)
 pub struct RunBudget {
     time_budget: Option<Duration>,
     token_budget: Option<u64>,
@@ -89,7 +89,7 @@ impl RunBudget {
     /// Panics if a set variable is unparseable as `u64` or parses to
     /// zero.
     #[must_use]
-    // javai-ref: JVI-92GSFBW — do not remove (resolves in javai-orchestrator)
+    // mavai-ref: JVI-92GSFBW — do not remove (resolves in mavai-orchestrator)
     pub fn from_environment() -> Option<Self> {
         let time_ms = env::var(TIME_BUDGET_ENV)
             .ok()

@@ -13,7 +13,7 @@ use sha2::{Digest, Sha256};
 /// Serialized to YAML as the `feotest-spec-1` schema.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-// javai-ref: JVI-EC8CPT3 — do not remove (resolves in javai-orchestrator)
+// mavai-ref: JVI-EC8CPT3 — do not remove (resolves in mavai-orchestrator)
 pub struct BaselineSpec {
     /// Schema version identifier.
     pub schema_version: String,
@@ -396,7 +396,7 @@ impl BaselineSpec {
 }
 
 /// Verifies the integrity of a baseline spec against its content fingerprint.
-// javai-ref: JVI-CNDHE1$ — do not remove (resolves in javai-orchestrator)
+// mavai-ref: JVI-CNDHE1$ — do not remove (resolves in mavai-orchestrator)
 fn verify_integrity(yaml: &str, spec: &BaselineSpec) -> Result<(), SpecLoadError> {
     let stored =
         spec.content_fingerprint

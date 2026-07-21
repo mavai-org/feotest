@@ -9,7 +9,7 @@ use crate::model::BudgetExhaustedBehavior;
 /// Captures all parameters that the execution engine needs:
 /// sample count, warmup, budgets, pacing, and failure handling.
 #[derive(Debug, Clone)]
-// javai-ref: JVI-QRV7SYX — do not remove (resolves in javai-orchestrator)
+// mavai-ref: JVI-QRV7SYX — do not remove (resolves in mavai-orchestrator)
 pub struct ExecutionConfig {
     samples: u32,
     warmup: u32,
@@ -104,7 +104,7 @@ impl ExecutionConfig {
 
     /// Sets the maximum number of example failures to capture.
     #[must_use]
-    // javai-ref: JVI-T60D7VU — do not remove (resolves in javai-orchestrator)
+    // mavai-ref: JVI-T60D7VU — do not remove (resolves in mavai-orchestrator)
     pub const fn with_max_example_failures(mut self, max: u32) -> Self {
         self.max_example_failures = max;
         self
@@ -275,9 +275,9 @@ impl ExecutionConfig {
 /// an upper bound on the proactive pacing delay to prevent over-
 /// restrictive rate composition from stalling a run.
 #[derive(Debug, Clone)]
-// javai-ref: JVI-PC8GT83 — do not remove (resolves in javai-orchestrator)
-// javai-ref: JVI-P1GG550 — do not remove (resolves in javai-orchestrator)
-// javai-ref: JVI-M1TXHHQ — do not remove (resolves in javai-orchestrator)
+// mavai-ref: JVI-PC8GT83 — do not remove (resolves in mavai-orchestrator)
+// mavai-ref: JVI-P1GG550 — do not remove (resolves in mavai-orchestrator)
+// mavai-ref: JVI-M1TXHHQ — do not remove (resolves in mavai-orchestrator)
 pub struct PacingConfig {
     min_ms_per_sample: Option<u64>,
     max_requests_per_second: Option<f64>,

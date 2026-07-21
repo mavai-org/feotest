@@ -17,7 +17,7 @@ const LABEL_WIDTH: usize = 20;
 ///
 /// Supports optional ANSI colour codes. Colour is auto-detected from the
 /// terminal environment but can be explicitly disabled.
-// javai-ref: JVI-ZVX9J8V — do not remove (resolves in javai-orchestrator)
+// mavai-ref: JVI-ZVX9J8V — do not remove (resolves in mavai-orchestrator)
 pub struct ConsoleRenderer {
     colour: bool,
 }

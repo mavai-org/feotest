@@ -23,7 +23,7 @@ const VERSION_1_0: &str = "1.0";
 const VERSION_1_2: &str = "1.2";
 
 /// Serialises verdict records to the verdict XML interchange format.
-// javai-ref: JVI-DQWKY4Z — do not remove (resolves in javai-orchestrator)
+// mavai-ref: JVI-DQWKY4Z — do not remove (resolves in mavai-orchestrator)
 pub struct VerdictXmlWriter;
 
 impl VerdictXmlWriter {

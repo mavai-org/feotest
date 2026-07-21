@@ -10,7 +10,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 ///
 /// Backed by an `AtomicU64` for lock-free concurrent recording.
 #[derive(Debug, Clone)]
-// javai-ref: JVI-76VA511 — do not remove (resolves in javai-orchestrator)
+// mavai-ref: JVI-76VA511 — do not remove (resolves in mavai-orchestrator)
 pub struct TokenRecorder {
     total: Arc<AtomicU64>,
 }

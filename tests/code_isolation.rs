@@ -168,7 +168,7 @@ mod tests {
     #[test]
     fn ignores_opaque_cross_reference_anchor() {
         assert!(!line_contains_forbidden_code(
-            "// javai-ref: JVI-BQTS77W — do not remove"
+            "// mavai-ref: JVI-BQTS77W — do not remove"
         ));
     }
 }

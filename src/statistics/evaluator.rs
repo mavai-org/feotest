@@ -29,7 +29,7 @@ use crate::statistics::types::{ConfidenceLevel, DerivedThreshold, VerdictWithCon
 ///
 /// Panics if `test_samples` is zero or `test_successes > test_samples`.
 #[must_use]
-// javai-ref: JVI-T08PKZ6 — do not remove (resolves in javai-orchestrator)
+// mavai-ref: JVI-T08PKZ6 — do not remove (resolves in mavai-orchestrator)
 pub fn evaluate(
     test_successes: u32,
     test_samples: u32,
@@ -92,7 +92,7 @@ pub fn meets_declared_rate(
 ///
 /// Returns `None` if the slice is empty.
 #[must_use]
-// javai-ref: JVI-1PK1X9U — do not remove (resolves in javai-orchestrator)
+// mavai-ref: JVI-1PK1X9U — do not remove (resolves in mavai-orchestrator)
 pub fn summarize_multiple_runs(verdicts: &[VerdictWithConfidence]) -> Option<MultiRunSummary> {
     if verdicts.is_empty() {
         return None;

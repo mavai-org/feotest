@@ -56,7 +56,7 @@ const TOKENS_SAVED_KEY: &str = "sizing-tokens-saved";
 /// against: the weakest (lowest-rate) baseline-derived criterion's tally
 /// when the contract carries any, otherwise the baseline's whole-contract
 /// rate.
-// javai-ref: JVI-RX30FM8 — do not remove (resolves in javai-orchestrator)
+// mavai-ref: JVI-RX30FM8 — do not remove (resolves in mavai-orchestrator)
 pub(super) fn sizing_disclosure_entries(
     approach: &ThresholdApproach,
     confidence: ConfidenceLevel,

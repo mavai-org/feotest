@@ -156,7 +156,7 @@ impl fmt::Display for NormativeJudgement {
 /// threshold, using the run's own per-criterion tallies. Criteria with
 /// empirical or zero-failures targets yield no judgement — by definition,
 /// their bar does not exist at experiment time.
-// javai-ref: JVI-305FCX1 — do not remove (resolves in javai-orchestrator)
+// mavai-ref: JVI-305FCX1 — do not remove (resolves in mavai-orchestrator)
 pub fn judge_normative_criteria(
     targets: &[(&str, &CriterionTarget)],
     counts: &CriteriaCounts,

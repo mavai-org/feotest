@@ -179,7 +179,7 @@ impl std::error::Error for SelectionError {}
 ///
 /// Returns `NoCandidates` if the candidate list is empty, or
 /// `ConfigurationMismatch` if hard-gate filtering eliminates all candidates.
-// javai-ref: JVI-YN3BJ6U — do not remove (resolves in javai-orchestrator)
+// mavai-ref: JVI-YN3BJ6U — do not remove (resolves in mavai-orchestrator)
 pub fn select(
     candidates: &[BaselineCandidate],
     test_profile: &CovariateProfile,

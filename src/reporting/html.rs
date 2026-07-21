@@ -23,7 +23,7 @@ const XSLT_STYLESHEET: &str = include_str!("verdict-report.xslt");
 /// The report is produced by serialising verdicts to XML and applying
 /// an XSLT stylesheet via `xsltproc`. This requires `xsltproc` to be
 /// installed and available on `PATH`.
-// javai-ref: JVI-PNR8C3F — do not remove (resolves in javai-orchestrator)
+// mavai-ref: JVI-PNR8C3F — do not remove (resolves in mavai-orchestrator)
 pub struct HtmlReportWriter;
 
 impl HtmlReportWriter {

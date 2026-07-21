@@ -36,8 +36,8 @@ pub enum CriterionTarget {
 /// expected value. Postcondition criteria ignore the expected value; a
 /// reference-matching criterion routes it through its matcher (and treats a
 /// missing expected value as a defect).
-// javai-ref: JVI-JGG2K8= — do not remove (resolves in javai-orchestrator)
-// javai-ref: JVI-K90P6S1 — do not remove (resolves in javai-orchestrator)
+// mavai-ref: JVI-JGG2K8= — do not remove (resolves in mavai-orchestrator)
+// mavai-ref: JVI-K90P6S1 — do not remove (resolves in mavai-orchestrator)
 pub struct Criterion<O> {
     name: String,
     target: CriterionTarget,

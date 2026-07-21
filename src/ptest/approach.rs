@@ -43,9 +43,9 @@ impl CriterionBaselineTally {
 /// Panics if the approach requires a baseline and none is available, or if
 /// a risk-driven plan's `minimum_acceptable_rate` does not sit strictly
 /// below the governing baseline rate.
-// javai-ref: JVI-0FVFYBM — do not remove (resolves in javai-orchestrator)
-// javai-ref: JVI-5YJVXGF — do not remove (resolves in javai-orchestrator)
-// javai-ref: JVI-6789AKT — do not remove (resolves in javai-orchestrator)
+// mavai-ref: JVI-0FVFYBM — do not remove (resolves in mavai-orchestrator)
+// mavai-ref: JVI-5YJVXGF — do not remove (resolves in mavai-orchestrator)
+// mavai-ref: JVI-6789AKT — do not remove (resolves in mavai-orchestrator)
 pub fn resolve_threshold(
     approach: &ThresholdApproach,
     stats: Option<&crate::spec::baseline::StatisticsBlock>,
@@ -228,7 +228,7 @@ const fn extract_baseline(
 /// For `SampleSizeFirst`, `ConfidenceFirst`, and `RiskDriven`, returns the
 /// user-supplied confidence. For `ThresholdFirst`, returns the framework
 /// default (the confidence-first resolution).
-// javai-ref: JVI-2FYNHXX — do not remove (resolves in javai-orchestrator)
+// mavai-ref: JVI-2FYNHXX — do not remove (resolves in mavai-orchestrator)
 pub fn resolved_confidence(approach: &ThresholdApproach) -> ConfidenceLevel {
     match approach {
         ThresholdApproach::SampleSizeFirst { confidence, .. }

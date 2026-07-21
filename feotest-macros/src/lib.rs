@@ -39,7 +39,7 @@ use proc_macro::TokenStream;
 /// - `threshold_origin` — `"sla"`, `"slo"`, `"policy"`, `"empirical"`
 /// - `contract_ref` — human-readable document reference
 #[proc_macro_attribute]
-// javai-ref: JVI-9TK3B9R — do not remove (resolves in javai-orchestrator)
+// mavai-ref: JVI-9TK3B9R — do not remove (resolves in mavai-orchestrator)
 pub fn probabilistic_test(attr: TokenStream, item: TokenStream) -> TokenStream {
     expand::expand(attr.into(), item.into())
         .unwrap_or_else(|e| e.to_compile_error())

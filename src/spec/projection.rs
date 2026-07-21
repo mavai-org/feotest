@@ -13,7 +13,7 @@ use crate::criteria::CriterionSampleResult;
 
 /// Per-sample diagnostic detail from an experiment trial.
 #[derive(Debug, Clone)]
-// javai-ref: JVI-G0R8DT$ — do not remove (resolves in javai-orchestrator)
+// mavai-ref: JVI-G0R8DT$ — do not remove (resolves in mavai-orchestrator)
 pub struct SampleProjection {
     sample_index: u32,
     input: Option<String>,
