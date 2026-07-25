@@ -27,3 +27,4 @@ tests/baselines/
 
 # Agent-local guidance — not tracked in this public repo.
 CLAUDE.md
+MAXIMS.md

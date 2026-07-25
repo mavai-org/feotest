@@ -26,7 +26,7 @@ repository = "https://github.com/mavai-org/feotest"
 keywords = ["testing", "probabilistic", "statistics", "stochastic", "llm"]
 categories = ["development-tools::testing"]
 # Internal coordination/design docs are not part of the published artifact.
-exclude = ["plan/", "CLAUDE.md"]
+exclude = ["plan/", "CLAUDE.md", "MAXIMS.md"]
 
 [features]
 default = []
