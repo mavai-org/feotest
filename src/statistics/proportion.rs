@@ -110,6 +110,27 @@ pub fn lower_bound_from_rate(p_hat: f64, trials: u32, confidence: ConfidenceLeve
     // residue into 1 — demanding one success of a test whose baseline can
     // demand nothing. Return the algebraic value rather than the computed
     // one.
+    //
+    // On the exact comparison, which is normally a smell: this is a test
+    // on an *input*, not on two computed quantities, and the input's
+    // domain is discrete. Baselines store (k, n) rather than a rate
+    // (companion §4.3), so `p_hat` arrives here as either k/n — exactly
+    // +0.0 when k = 0, IEEE 754 division of zero being exact — or as an
+    // effective baseline rate, which §4.3.2 bounds at n/(n + z^2), far
+    // from zero. Nothing lands between 0 and 1/n for the comparison to
+    // miss. Negative zero compares equal, and NaN is rejected above.
+    //
+    // The failure mode is benign in the same direction. A genuinely tiny
+    // non-zero rate is not a degenerate case wanting to be snapped; it
+    // falls through to the formula, which is well defined there. Widening
+    // this to an epsilon would do the reverse of what it appears to — it
+    // would round real small rates down to a threshold of zero, which is
+    // the error this guard prevents, arriving from the other side.
+    #[allow(
+        clippy::float_cmp,
+        reason = "an exact test on a discrete-domain input, not a comparison of computed \
+                  values; see the argument above"
+    )]
     if p_hat == 0.0 {
         return 0.0;
     }
