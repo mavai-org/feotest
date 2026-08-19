@@ -3,8 +3,9 @@
 **Source release:** `mavai-R` v0.10.13.
 **Triggered by:** `DIR-R-SIZING-boundary-cases` in the orchestrator. Additive release: nine new cases across three suites, one new binding expected field, no existing expected value changed.
 
-> **feotest was run against these fixtures before this document was written, and it is red.** Six deviating cases plus a coverage gap, listed under *feotest's measured status* below. This is the intended outcome of the loop, not a surprise to be triaged — the fixtures were published precisely because nothing held feotest's boundary behaviour in place. `risk_driven_sizing` is in feotest's declared `SCOPE.json`, so the new sizing fields are an obligation, not an optional extra.
-
+> **RESOLVED 2026-08-19.** feotest is green against v0.10.13 — 13 conformance tests, 773 tests overall, clippy and fmt clean. What follows is kept as the record of what was found and what was done, including two claims in the original that turned out to be wrong (marked inline). Fixtures are vendored at the released tag and match it byte for byte.
+>
+> **Original finding — feotest was run against these fixtures before this document was written, and it was red.**
 ## Background
 
 Companion §4.3.2 has prescribed the effective-baseline substitution since it was written, and §5.4.1 defines its baseline symbol as the *effective* rate with an explicit pointer to that guard. What was missing was evidence. No fixture in the family had ever put a **zero** baseline through a threshold, a verdict, or a sizing calculation — so the boundary was covered one layer below where it bites, in `wilson_lower`, and nowhere above it.
@@ -78,7 +79,7 @@ threshold_derivation/ssf_zero_baseline_n1000_test200_95pct/cutoff_integer  expec
 
 feotest reproduces the oracle's arithmetic faithfully — including the defect. `ssf_zero_baseline_n100_test85_99pct` passes, so this is site-specific in feotest exactly as it was in R: not a systematic difference in the construction, the same failure to cancel. Worth stating plainly, because it is the whole argument for this release: three independent implementations in three languages carried one fault, and no conformance run could see it, because the fixture that would have exposed it did not exist.
 
-**2 — The zero-baseline verdict is FAIL where the companion says PASS (2 deviations).**
+**2 — The zero-baseline verdict is FAIL where the companion says PASS (2 deviations).** *Resolved by the cutoff fix alone; it was never a separate defect.*
 
 ```text
 regression_decision/zero_baseline_pass_on_nothing_observed/verdict  expected "PASS", got "FAIL"
@@ -96,7 +97,7 @@ tolerance_at_baseline_refused           minimum_acceptable_rate (0.9) must sit b
 zero_baseline_power_at_refused          called `Option::unwrap()` on a `None` value
 ```
 
-Three of these are validation errors with good messages — the `tolerance_at_baseline_refused` text already tells the operator to re-measure the baseline rather than raise the tolerance, which is exactly what the new `refusal_category` encodes. The fourth is not a refusal at all: `power_at` **panics** on an unwrap. A zero baseline reaches a `None` that the code does not expect, which means that path has no refusal, only an absence that happens to be fatal. Fix that one first regardless of the fixture work.
+Three of these are validation errors with good messages — the `tolerance_at_baseline_refused` text already tells the operator to re-measure the baseline rather than raise the tolerance, which is exactly what the new `refusal_category` encodes. ~~The fourth is not a refusal at all: `power_at` **panics** on an unwrap.~~ **This was wrong.** The `Option::unwrap()` panic is in the *conformance harness*, at `case.expected.floor.unwrap()` — it reads an expectation that is null on a refusal case. Production `power_at` refuses correctly, through the same domain assert as the others. The harness was fixed; there was no production panic.
 
 **4 — Coverage gap: 38 binding assertions the manifest demands and feotest never makes.**
 
@@ -110,7 +111,7 @@ Every `risk_driven_sizing` case now carries `sizing_gate`, and feotest asserts n
 
 3. **Re-run the verdict cases before treating them as a second defect.** The FAIL verdicts are consistent with a correct rule applied to the wrong cutoff. If they go green with the cutoff fixed, there is nothing further to do; if they do not, §4.3.4 now states the answer — cutoff 0, `K >= 0` for every outcome, so PASS.
 
-4. **Fix the `power_at` panic, then move all four refusals onto `Result`.** An inadmissible sizing design is an expected outcome carried as data — idiomatic `Result<T, E>` in Rust, the analogue of the family's `Outcome` convention — not a panic and not a bare validation error the harness cannot distinguish from a crash. Keep the existing message text and carry the two causes separately so `ZERO_BASELINE` and `EMPTY_TOLERANCE_INTERVAL` stay distinguishable.
+4. **Make the refusal's cause data, and leave it a panic.** *Corrected from the original, which said to move all four onto `Result`.* An inadmissible sizing design is a **misconfiguration** discovered at pre-flight — the family convention puts misconfiguration on the exception/panic channel, and reserves `Result`/`Outcome` for the anticipated failure of a *sample*. Sizing runs before any sample is taken. What was actually wrong is that the refusal was distinguishable only by its prose. `SizingRefusal` now carries the cause, `check_sizing_domain` offers the same decision as a value for callers that want to ask rather than unwind, and the panicking asserts delegate to it so one place decides.
 
 5. **Assert `sizing_gate` and `refusal_category`** so the 38 outstanding binding assertions clear.
 
@@ -120,3 +121,18 @@ Every `risk_driven_sizing` case now carries `sizing_gate`, and feotest asserts n
 - A regression test pins `(n as f64 * wilson_lower_from_rate(0.0, n, c)).ceil() == 0.0` densely over `n` and at three confidence levels, and fails against the pre-fix body.
 - No panic on any sizing input; `power_at` at a zero baseline returns a refusal.
 - Inadmissible sizing designs return `Err`, with the two causes distinguishable.
+
+
+## Resolution — 2026-08-19
+
+Landed in `4f4a480`.
+
+| finding | outcome |
+|---|---|
+| cancellation residue (2 deviations) | Fixed in `lower_bound_from_rate`: exact zero at `p_hat == 0`. Regression tests sweep `n` in 1..=1000 at three confidences and assert exact equality. |
+| FAIL verdicts (2 deviations) | **Not a separate defect.** Both went green on the cutoff fix — the rule was correct, applied to a wrong cutoff. The document's instruction to re-run before treating it as a second defect was the right call. |
+| `power_at` "panic" | **Misdiagnosed in the original.** It was the harness unwrapping a null expectation, not production code. |
+| refusal channel | Cause carried as data via `SizingRefusal` + `check_sizing_domain`; stays a panic, per the misconfiguration reading of the family convention. |
+| 38 unmet binding assertions | Harness asserts `sizing_gate` on every case, `refusal_category` on refusals, and discharges the null numerics by asserting no value is published. |
+
+Fixtures vendored at `v0.10.13`, `VERSION` bumped, every suite byte-identical to the released tag. 773 tests, clippy `-D warnings` clean, `cargo fmt --check` clean.
