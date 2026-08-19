@@ -1,6 +1,6 @@
 {
   "suite": "risk_driven_sizing",
-  "description": "Self-consistent power for baseline-derived thresholds (companion S5.4.1). The acceptance floor p*(n) moves with the test's own sample size, so sizing is computed against the moving floor rather than a fixed threshold: POWER_AT cases give the floor and power at a candidate n; REQUIRED_N cases give the smallest n meeting a target power for a declared minimal acceptable rate; DETECTABLE_RATE cases invert to the largest tolerable rate detectable at a fixed n. Defined for minimum_acceptable_rate < baseline_rate only.",
+  "description": "Self-consistent power for baseline-derived thresholds (companion S5.4.1). The acceptance floor p*(n) moves with the test's own sample size, so sizing is computed against the moving floor rather than a fixed threshold: POWER_AT cases give the floor and power at a candidate n; REQUIRED_N cases give the smallest n meeting a target power for a declared minimal acceptable rate; DETECTABLE_RATE cases invert to the largest tolerable rate detectable at a fixed n. Defined for minimum_acceptable_rate < baseline_rate only; designs outside that domain are published as refusals rather than omitted -- sizing_gate is REFUSE, every numeric expectation is null, and refusal_category names the cause. A zero baseline (S4.3.4) reaches the refusal by way of an effective baseline rate of exactly 0, at which the domain is empty for every tolerance.",
   "method": "floor = WilsonLower(baseline_rate, n, confidence) (from-rate form, shared z); Power(n) = pnorm((floor - p_min) / sqrt(p_min (1 - p_min) / n)); required_n = min{ n : Power(n) >= target_power } by doubling + bisection; detectable_rate by bisection on p_min over (0, p0) to 1e-10.",
   "tolerance": 1e-06,
   "cases": [
@@ -14,6 +14,7 @@
         "target_power": 0.8
       },
       "expected": {
+        "sizing_gate": "ADMIT",
         "required_n": 891,
         "floor": 0.850342198223955,
         "achieved_power": 0.800127719084018
@@ -29,6 +30,7 @@
         "target_power": 0.8
       },
       "expected": {
+        "sizing_gate": "ADMIT",
         "required_n": 405,
         "floor": 0.940694999361299,
         "achieved_power": 0.800543316235589
@@ -44,6 +46,7 @@
         "target_power": 0.8
       },
       "expected": {
+        "sizing_gate": "ADMIT",
         "required_n": 667,
         "floor": 0.938331933755243,
         "achieved_power": 0.800489272488643
@@ -59,6 +62,7 @@
         "target_power": 0.9
       },
       "expected": {
+        "sizing_gate": "ADMIT",
         "required_n": 553,
         "floor": 0.943905003015732,
         "achieved_power": 0.900003663045442
@@ -74,6 +78,7 @@
         "target_power": 0.8
       },
       "expected": {
+        "sizing_gate": "ADMIT",
         "required_n": 90,
         "floor": 0.835763381885699,
         "achieved_power": 0.801837558016471
@@ -89,6 +94,7 @@
         "target_power": 0.8
       },
       "expected": {
+        "sizing_gate": "ADMIT",
         "required_n": 377,
         "floor": 0.977412893239254,
         "achieved_power": 0.800594429782472
@@ -104,6 +110,7 @@
         "test_samples": 50
       },
       "expected": {
+        "sizing_gate": "ADMIT",
         "floor": 0.88609975173007,
         "power": 0.111870931803045
       }
@@ -118,6 +125,7 @@
         "test_samples": 150
       },
       "expected": {
+        "sizing_gate": "ADMIT",
         "floor": 0.924522904770754,
         "power": 0.396310365719903
       }
@@ -132,6 +140,7 @@
         "test_samples": 826
       },
       "expected": {
+        "sizing_gate": "ADMIT",
         "floor": 0.849538300802139,
         "power": 0.77269710438157
       }
@@ -146,6 +155,7 @@
         "test_samples": 1200
       },
       "expected": {
+        "sizing_gate": "ADMIT",
         "floor": 0.853195296867579,
         "power": 0.893771613435378
       }
@@ -160,6 +170,7 @@
         "test_samples": 100
       },
       "expected": {
+        "sizing_gate": "ADMIT",
         "detectable_rate": 0.769353242502843
       }
     },
@@ -173,6 +184,7 @@
         "test_samples": 891
       },
       "expected": {
+        "sizing_gate": "ADMIT",
         "detectable_rate": 0.840005754492288
       }
     },
@@ -186,7 +198,73 @@
         "test_samples": 405
       },
       "expected": {
+        "sizing_gate": "ADMIT",
         "detectable_rate": 0.930026492134955
+      }
+    },
+    {
+      "name": "zero_baseline_required_n_refused",
+      "approach": "required_n",
+      "inputs": {
+        "baseline_rate": 0,
+        "minimum_acceptable_rate": 0.9,
+        "confidence": 0.95,
+        "target_power": 0.8
+      },
+      "expected": {
+        "sizing_gate": "REFUSE",
+        "refusal_category": "ZERO_BASELINE",
+        "required_n": null,
+        "floor": null,
+        "achieved_power": null
+      }
+    },
+    {
+      "name": "zero_baseline_power_at_refused",
+      "approach": "power_at",
+      "inputs": {
+        "baseline_rate": 0,
+        "minimum_acceptable_rate": 0.9,
+        "confidence": 0.95,
+        "test_samples": 100
+      },
+      "expected": {
+        "sizing_gate": "REFUSE",
+        "refusal_category": "ZERO_BASELINE",
+        "floor": null,
+        "power": null
+      }
+    },
+    {
+      "name": "zero_baseline_detectable_rate_refused",
+      "approach": "detectable_rate",
+      "inputs": {
+        "baseline_rate": 0,
+        "confidence": 0.95,
+        "target_power": 0.8,
+        "test_samples": 100
+      },
+      "expected": {
+        "sizing_gate": "REFUSE",
+        "refusal_category": "ZERO_BASELINE",
+        "detectable_rate": null
+      }
+    },
+    {
+      "name": "tolerance_at_baseline_refused",
+      "approach": "required_n",
+      "inputs": {
+        "baseline_rate": 0.9,
+        "minimum_acceptable_rate": 0.9,
+        "confidence": 0.95,
+        "target_power": 0.8
+      },
+      "expected": {
+        "sizing_gate": "REFUSE",
+        "refusal_category": "EMPTY_TOLERANCE_INTERVAL",
+        "required_n": null,
+        "floor": null,
+        "achieved_power": null
       }
     }
   ]

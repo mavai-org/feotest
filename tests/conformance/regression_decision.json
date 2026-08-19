@@ -1,7 +1,7 @@
 {
   "suite": "regression_decision",
   "description": "End-to-end scenario cases for the composed decision rules. REGRESSION cases derive the threshold from a baseline per the sample-size-first construction (companion S3.4) and decide PASS iff the raw observed success count K >= cutoff_integer -- the integer cutoff is the binding artefact; threshold_real, displayed_rate, and achieved_size are report obligations. COMPLIANCE cases take the threshold as given and decide via the test sample's own Wilson lower bound clearing it (S3.2/S3.6). The conflation_detector pair shares one observation across both procedures with opposite verdicts, so a framework that applies the compliance rule on the regression path fails the suite even though every component computation is arithmetically conformant. Frameworks MUST evaluate these cases through their production verdict path.",
-  "method": "REGRESSION: p* = sample-size-first Wilson lower bound (with the S4.3.2 perfect-baseline guard), c = ceiling(n_test * p*), PASS iff K >= c; achieved size = P_p0(K < c). COMPLIANCE: PASS iff WilsonLower(K, n_test, C) >= given threshold.",
+  "method": "REGRESSION: p* = sample-size-first Wilson lower bound (with the S4.3.2 perfect-baseline guard, and the S4.3.4 zero-baseline degeneration), c = ceiling(n_test * p*), PASS iff K >= c; achieved size = P_p0(K < c). COMPLIANCE: PASS iff WilsonLower(K, n_test, C) >= given threshold.",
   "tolerance": 1e-10,
   "cases": [
     {
@@ -146,6 +146,42 @@
         "displayed_rate": 0.88,
         "achieved_size": 0.0134726851349366,
         "verdict": "FAIL"
+      }
+    },
+    {
+      "name": "zero_baseline_pass_on_nothing_observed",
+      "procedure": "REGRESSION",
+      "inputs": {
+        "baseline_successes": 0,
+        "baseline_trials": 50,
+        "test_samples": 50,
+        "confidence": 0.95,
+        "observed_successes": 0
+      },
+      "expected": {
+        "threshold_real": 0,
+        "cutoff_integer": 0,
+        "displayed_rate": 0,
+        "achieved_size": 0,
+        "verdict": "PASS"
+      }
+    },
+    {
+      "name": "zero_baseline_pass_at_test_200",
+      "procedure": "REGRESSION",
+      "inputs": {
+        "baseline_successes": 0,
+        "baseline_trials": 1000,
+        "test_samples": 200,
+        "confidence": 0.95,
+        "observed_successes": 0
+      },
+      "expected": {
+        "threshold_real": 0,
+        "cutoff_integer": 0,
+        "displayed_rate": 0,
+        "achieved_size": 0,
+        "verdict": "PASS"
       }
     },
     {

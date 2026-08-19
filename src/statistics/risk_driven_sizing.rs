@@ -155,6 +155,11 @@ pub fn detectable_rate(
 ) -> f64 {
     assert!(sample_size > 0, "sample_size must be positive");
     assert!(
+        baseline_rate != 0.0,
+        "{}",
+        SizingRefusal::ZeroBaseline.message(baseline_rate, f64::NAN)
+    );
+    assert!(
         baseline_rate > 0.0 && baseline_rate < 1.0,
         "baseline_rate must be in (0, 1), got {baseline_rate}"
     );
@@ -182,9 +187,79 @@ pub fn detectable_rate(
     lower
 }
 
-/// Asserts the sizing domain: `baseline_rate` in (0, 1) and
-/// `minimum_acceptable_rate` strictly below it (and above 0).
-fn assert_sizing_domain(baseline_rate: f64, minimum_acceptable_rate: f64) {
+/// Why a sizing design cannot be priced.
+///
+/// The domain restriction of companion §5.4.1 is reached by two different
+/// routes, and they call for different corrective action. Carrying the
+/// cause as data rather than only as prose lets a caller — a diagnostic, a
+/// report, a conformance run — tell them apart without parsing a message.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SizingRefusal {
+    /// The baseline observed no successes, so its effective rate is exactly
+    /// 0 at every sample size (companion §4.3.4) and no declared tolerance
+    /// can sit below it. *Measure a baseline before sizing against it.*
+    ZeroBaseline,
+    /// The baseline is usable, but the declared tolerance does not sit
+    /// strictly below it, so there is no degradation to detect.
+    /// *Re-measure the baseline rather than raising the tolerance.*
+    EmptyToleranceInterval,
+}
+
+impl SizingRefusal {
+    /// The stable identifier the oracle's fixtures name this refusal by.
+    #[must_use]
+    pub const fn category(self) -> &'static str {
+        match self {
+            Self::ZeroBaseline => "ZERO_BASELINE",
+            Self::EmptyToleranceInterval => "EMPTY_TOLERANCE_INTERVAL",
+        }
+    }
+
+    /// The operator-facing explanation, naming the corrective action.
+    #[must_use]
+    pub fn message(self, baseline_rate: f64, minimum_acceptable_rate: f64) -> String {
+        match self {
+            Self::ZeroBaseline => "baseline_rate is exactly 0: the baseline observed no \
+                 successes, so its effective rate is 0 at every sample size and there is no \
+                 tolerated rate below it to detect. No sample size can price this design. \
+                 Measure a baseline with at least one success before sizing against it."
+                .to_owned(),
+            Self::EmptyToleranceInterval => format!(
+                "minimum_acceptable_rate ({minimum_acceptable_rate}) must sit below \
+                 baseline_rate ({baseline_rate}): the tolerance declares how far below the \
+                 measured baseline a true rate may drop; to demand more than the baseline \
+                 delivered, re-measure the baseline rather than raising the tolerance"
+            ),
+        }
+    }
+}
+
+/// Checks the sizing domain without panicking, naming the cause when it does
+/// not hold.
+///
+/// The sizing entry points panic on an inadmissible design, which is the
+/// right response to a misconfiguration discovered at pre-flight. This is
+/// the same decision made available as a value, so a caller that wants to
+/// ask before it commits — or to report the refusal rather than unwind —
+/// can.
+///
+/// # Errors
+///
+/// Returns the [`SizingRefusal`] naming why the design cannot be priced.
+///
+/// # Panics
+///
+/// Panics if `baseline_rate` is outside `[0, 1)` or `minimum_acceptable_rate`
+/// is not positive. Those are malformed inputs rather than inadmissible
+/// designs: a refusal says a well-formed design cannot be priced, which is a
+/// different statement from a rate that is not a rate.
+pub fn check_sizing_domain(
+    baseline_rate: f64,
+    minimum_acceptable_rate: f64,
+) -> Result<(), SizingRefusal> {
+    if baseline_rate == 0.0 {
+        return Err(SizingRefusal::ZeroBaseline);
+    }
     assert!(
         baseline_rate > 0.0 && baseline_rate < 1.0,
         "baseline_rate must be in (0, 1), got {baseline_rate}"
@@ -193,13 +268,21 @@ fn assert_sizing_domain(baseline_rate: f64, minimum_acceptable_rate: f64) {
         minimum_acceptable_rate > 0.0,
         "minimum_acceptable_rate must be positive, got {minimum_acceptable_rate}"
     );
-    assert!(
-        minimum_acceptable_rate < baseline_rate,
-        "minimum_acceptable_rate ({minimum_acceptable_rate}) must sit below \
-         baseline_rate ({baseline_rate}): the tolerance declares how far below the \
-         measured baseline a true rate may drop; to demand more than the baseline \
-         delivered, re-measure the baseline rather than raising the tolerance"
-    );
+    if minimum_acceptable_rate >= baseline_rate {
+        return Err(SizingRefusal::EmptyToleranceInterval);
+    }
+    Ok(())
+}
+
+/// Asserts the sizing domain: `baseline_rate` in (0, 1) and
+/// `minimum_acceptable_rate` strictly below it (and above 0).
+fn assert_sizing_domain(baseline_rate: f64, minimum_acceptable_rate: f64) {
+    if let Err(refusal) = check_sizing_domain(baseline_rate, minimum_acceptable_rate) {
+        panic!(
+            "{}",
+            refusal.message(baseline_rate, minimum_acceptable_rate)
+        );
+    }
 }
 
 #[cfg(test)]

@@ -1,7 +1,7 @@
 {
   "suite": "threshold_derivation",
-  "description": "Threshold derivation per the statistical companion: §3.4 for the general case, §4.3.2 for the perfect-baseline two-step, §6.3 for threshold-first inversion. The threshold is the one-sided Wilson lower bound at the *test* sample size; smaller test samples lower the threshold (§3.5).",
-  "method": "Wilson lower bound at test sample size (§3.4 / §4.3.2); binary search for implied confidence (§6.3)",
+  "description": "Threshold derivation per the statistical companion: §3.4 for the general case, §4.3.2 for the perfect-baseline two-step, §4.3.4 for the zero-baseline degeneration, §6.3 for threshold-first inversion. The threshold is the one-sided Wilson lower bound at the *test* sample size; smaller test samples lower the threshold (§3.5).",
+  "method": "Wilson lower bound at test sample size (§3.4 / §4.3.2 / §4.3.4); binary search for implied confidence (§6.3)",
   "tolerance": 1e-06,
   "cases": [
     {
@@ -66,6 +66,54 @@
         "wilson_lower_real": 0.968628914619744,
         "cutoff_integer": 97,
         "achieved_size": 0.000169061205239264
+      }
+    },
+    {
+      "name": "ssf_zero_baseline_n10_test50_95pct",
+      "approach": "sample_size_first",
+      "inputs": {
+        "baseline_successes": 0,
+        "baseline_trials": 10,
+        "test_samples": 50,
+        "confidence": 0.95
+      },
+      "expected": {
+        "threshold": 0,
+        "wilson_lower_real": 0,
+        "cutoff_integer": 0,
+        "achieved_size": 0
+      }
+    },
+    {
+      "name": "ssf_zero_baseline_n1000_test200_95pct",
+      "approach": "sample_size_first",
+      "inputs": {
+        "baseline_successes": 0,
+        "baseline_trials": 1000,
+        "test_samples": 200,
+        "confidence": 0.95
+      },
+      "expected": {
+        "threshold": 0,
+        "wilson_lower_real": 0,
+        "cutoff_integer": 0,
+        "achieved_size": 0
+      }
+    },
+    {
+      "name": "ssf_zero_baseline_n100_test85_99pct",
+      "approach": "sample_size_first",
+      "inputs": {
+        "baseline_successes": 0,
+        "baseline_trials": 100,
+        "test_samples": 85,
+        "confidence": 0.99
+      },
+      "expected": {
+        "threshold": 0,
+        "wilson_lower_real": 0,
+        "cutoff_integer": 0,
+        "achieved_size": 0
       }
     },
     {

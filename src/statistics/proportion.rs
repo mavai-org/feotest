@@ -98,6 +98,22 @@ pub fn lower_bound_from_rate(p_hat: f64, trials: u32, confidence: ConfidenceLeve
         "p_hat must be in [0, 1], got {p_hat}"
     );
 
+    // At `p_hat == 0` the centre and the margin are the same quantity,
+    // z^2 / (2n), so they cancel and the bound is exactly zero at every
+    // `trials` and every confidence (companion §4.3.4). That is an
+    // algebraic identity, not a small number, and floating point does not
+    // reliably deliver it: over n in 1..=1000 a residue near 1e-18
+    // survives at 265 sizes at one-sided 90%, 201 at 95% and 121 at 99%.
+    // The residue is invisible against any tolerance a caller would set
+    // and decisive on the artefact that binds, because the decision is
+    // made on `ceil(n_test * threshold)` and `ceil` turns any positive
+    // residue into 1 — demanding one success of a test whose baseline can
+    // demand nothing. Return the algebraic value rather than the computed
+    // one.
+    if p_hat == 0.0 {
+        return 0.0;
+    }
+
     let n = f64::from(trials);
     let z = z_score_one_sided(confidence);
     let z2 = z * z;
@@ -182,6 +198,55 @@ fn assert_valid_successes_trials(successes: u32, trials: u32) {
 #[cfg(test)]
 #[allow(unused_must_use, reason = "test boilerplate may drop must_use values")]
 mod tests {
+    /// At `p_hat == 0` the centre and the margin are the same quantity, so
+    /// the bound is exactly zero — an algebraic identity at every `n` and
+    /// every confidence, asserted by exact equality because a tolerance
+    /// comparison is precisely what cannot see it failing. The sweep is
+    /// dense: the round numbers one samples by hand mostly cancel cleanly
+    /// on their own, which is how this went unnoticed in three languages.
+    #[test]
+    #[allow(
+        clippy::float_cmp,
+        reason = "exactness is the assertion: the bound at a zero rate is 0 by algebraic \
+                  identity, and a tolerance comparison is what fails to see it break"
+    )]
+    fn zero_rate_gives_exactly_zero() {
+        for trials in 1..=1000_u32 {
+            for confidence in [0.90, 0.95, 0.99] {
+                let bound = lower_bound_from_rate(0.0, trials, ConfidenceLevel::new(confidence));
+                assert_eq!(
+                    bound, 0.0,
+                    "trials = {trials}, confidence = {confidence}: expected exactly 0"
+                );
+            }
+        }
+    }
+
+    /// Why the identity earns a test of its own: the binding decision
+    /// artefact is `ceil(n_test * threshold)`, and `ceil` turns any positive
+    /// residue into 1 — demanding one success of a test whose baseline can
+    /// demand nothing. Against the previous body this failed at 265 sizes at
+    /// 90%, 201 at 95% and 121 at 99%.
+    #[test]
+    #[allow(
+        clippy::float_cmp,
+        reason = "the cutoff is an integer-valued quantity carried as f64; comparing it \
+                  loosely would defeat the point, since the defect is a cutoff of 1"
+    )]
+    fn zero_rate_leaves_the_integer_cutoff_at_zero() {
+        for trials in 1..=1000_u32 {
+            for confidence in [0.90, 0.95, 0.99] {
+                let threshold =
+                    lower_bound_from_rate(0.0, trials, ConfidenceLevel::new(confidence));
+                let cutoff = (f64::from(trials) * threshold).ceil();
+                assert_eq!(
+                    cutoff, 0.0,
+                    "trials = {trials}, confidence = {confidence}: cutoff must stay at 0"
+                );
+            }
+        }
+    }
+
     use super::*;
     use approx::assert_relative_eq;
 
