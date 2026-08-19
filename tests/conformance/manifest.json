@@ -1,7 +1,8 @@
 {
   "manifestVersion": 1,
-  "fixtureVersion": "0.8.5",
+  "fixtureVersion": "0.10.13",
   "familyMandatory": ["wilson_ci", "wilson_lower", "threshold_derivation", "verdict", "latency_percentile", "latency_threshold", "regression_decision"],
+  "familyMandatoryRationale": "The effective-baseline substitution of companion S4.3.2 and its zero-baseline mirror S4.3.4 are obligations of the existing mandatory tier; the roster is unchanged. threshold_derivation carries the perfect baseline at two baseline sizes and the zero baseline at three test sizes, and regression_decision carries both boundaries composed into a verdict. Each of those cases binds: an implementation using the raw point estimate at k = n differs from the published threshold by 5e-3 to 8e-2, far above the 1e-6 tolerance, and one carrying a cancellation residue at k = 0 returns cutoff_integer 1 where the fixtures say 0. Promoting baseline_object or criterion_verdict_inferential was therefore not needed to make the substitution binding. One obligation is deliberately NOT in the mandatory tier: the sizing refusal at an empty domain (S5.4.1), published in risk_driven_sizing, which is optional. A framework that implements no risk-driven sizing has nothing to refuse; one that does must consume the suite to be conformant with the feature it claims. Whether risk_driven_sizing should join the roster is a question about the roster, not about this boundary, and is left to the owner.",
   "suites": {
     "baseline_object": {
       "file": "baseline_object.json",
@@ -105,29 +106,29 @@
     "regression_decision": {
       "file": "regression_decision.json",
       "tolerance": 1e-10,
-      "caseCount": 13,
-      "cases": ["worked_example_pass_at_cutoff", "worked_example_fail_below_cutoff", "worked_example_pass_above_cutoff", "worked_example_fail_deep_degradation", "small_test_pass_at_cutoff", "small_test_fail_below_cutoff", "perfect_baseline_pass_at_cutoff", "perfect_baseline_fail_below_cutoff", "worked_example_high_confidence_at_95_of_100", "compliance_pass_clear_margin", "compliance_fail_bound_below_threshold", "conflation_detector_regression_pass", "conflation_detector_compliance_fail"],
+      "caseCount": 15,
+      "cases": ["worked_example_pass_at_cutoff", "worked_example_fail_below_cutoff", "worked_example_pass_above_cutoff", "worked_example_fail_deep_degradation", "small_test_pass_at_cutoff", "small_test_fail_below_cutoff", "perfect_baseline_pass_at_cutoff", "perfect_baseline_fail_below_cutoff", "zero_baseline_pass_on_nothing_observed", "zero_baseline_pass_at_test_200", "worked_example_high_confidence_at_95_of_100", "compliance_pass_clear_margin", "compliance_fail_bound_below_threshold", "conflation_detector_regression_pass", "conflation_detector_compliance_fail"],
       "bindingFields": ["achieved_size", "cutoff_integer", "displayed_rate", "threshold_real", "verdict", "wilson_lower"],
       "informationalFields": {},
-      "md5": "88ae7828c641d2719196b58b912937ba"
+      "md5": "830e6059f421d5a74667174312438250"
     },
     "risk_driven_sizing": {
       "file": "risk_driven_sizing.json",
       "tolerance": 1e-06,
-      "caseCount": 13,
-      "cases": ["companion_worked_example", "companion_scenario_walkthrough", "higher_confidence_costs_samples", "higher_power_costs_samples", "wide_tolerance_is_cheap", "high_baseline_tight_tolerance", "walkthrough_candidate_50", "walkthrough_candidate_150", "closed_form_seed_underpowers", "beyond_required_n", "companion_inversion_at_100", "roundtrip_worked_example", "roundtrip_walkthrough"],
-      "bindingFields": ["achieved_power", "detectable_rate", "floor", "power", "required_n"],
+      "caseCount": 17,
+      "cases": ["companion_worked_example", "companion_scenario_walkthrough", "higher_confidence_costs_samples", "higher_power_costs_samples", "wide_tolerance_is_cheap", "high_baseline_tight_tolerance", "walkthrough_candidate_50", "walkthrough_candidate_150", "closed_form_seed_underpowers", "beyond_required_n", "companion_inversion_at_100", "roundtrip_worked_example", "roundtrip_walkthrough", "zero_baseline_required_n_refused", "zero_baseline_power_at_refused", "zero_baseline_detectable_rate_refused", "tolerance_at_baseline_refused"],
+      "bindingFields": ["achieved_power", "detectable_rate", "floor", "power", "refusal_category", "required_n", "sizing_gate"],
       "informationalFields": {},
-      "md5": "fb9b9eb78c504fd44913d86558d8ae6d"
+      "md5": "3bc66208a346a34686fd11a830b1b3a5"
     },
     "threshold_derivation": {
       "file": "threshold_derivation.json",
       "tolerance": 1e-06,
-      "caseCount": 11,
-      "cases": ["ssf_95_of_100_test50_95pct", "ssf_950_of_1000_test100_95pct", "ssf_perfect_baseline_test50_95pct", "ssf_perfect_baseline_n1000_test100_95pct", "ssf_950_of_1000_test50_95pct", "ssf_950_of_1000_test200_95pct", "ssf_95_of_100_test50_99pct", "ssf_sc_ru_02_worked_example", "tf_baseline_95pct_test100_threshold_90", "tf_baseline_95pct_test100_threshold_85", "tf_baseline_95pct_test100_threshold_94"],
+      "caseCount": 14,
+      "cases": ["ssf_95_of_100_test50_95pct", "ssf_950_of_1000_test100_95pct", "ssf_perfect_baseline_test50_95pct", "ssf_perfect_baseline_n1000_test100_95pct", "ssf_zero_baseline_n10_test50_95pct", "ssf_zero_baseline_n1000_test200_95pct", "ssf_zero_baseline_n100_test85_99pct", "ssf_950_of_1000_test50_95pct", "ssf_950_of_1000_test200_95pct", "ssf_95_of_100_test50_99pct", "ssf_sc_ru_02_worked_example", "tf_baseline_95pct_test100_threshold_90", "tf_baseline_95pct_test100_threshold_85", "tf_baseline_95pct_test100_threshold_94"],
       "bindingFields": ["achieved_size", "cutoff_integer", "implied_confidence", "is_sound", "threshold", "wilson_lower_real"],
       "informationalFields": {},
-      "md5": "91d47ecc7bf8580748848ce68f82d1cb"
+      "md5": "e5260e78a20fe9d297786cc7a3eee5d9"
     },
     "verdict": {
       "file": "verdict.json",

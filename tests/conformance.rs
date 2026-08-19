@@ -756,6 +756,9 @@ struct RiskDrivenSizingInputs {
 
 #[derive(Deserialize)]
 struct RiskDrivenSizingExpected {
+    sizing_gate: String,
+    #[serde(default)]
+    refusal_category: Option<String>,
     #[serde(default)]
     required_n: Option<u32>,
     #[serde(default)]
@@ -768,6 +771,164 @@ struct RiskDrivenSizingExpected {
     detectable_rate: Option<f64>,
 }
 
+/// An inadmissible sizing design: the refusal is the expected outcome, so the
+/// assertion is that the domain check declines and names the cause.
+///
+/// The sizing entry points panic here — the right response to a
+/// misconfiguration found at pre-flight — so the decision is asked for as a
+/// value rather than unwound.
+fn check_sizing_refusal(ledger: &mut Ledger, case: &RiskDrivenSizingCase) {
+    let refusal = risk_driven_sizing::check_sizing_domain(
+        case.inputs.baseline_rate,
+        case.inputs.minimum_acceptable_rate.unwrap_or(f64::NAN),
+    )
+    .expect_err("the oracle expects this design to be refused");
+
+    assert_oracle_eq(
+        ledger,
+        "risk_driven_sizing",
+        &case.name,
+        "sizing_gate",
+        "REFUSE",
+        case.expected.sizing_gate.as_str(),
+    );
+    assert_oracle_eq(
+        ledger,
+        "risk_driven_sizing",
+        &case.name,
+        "refusal_category",
+        refusal.category(),
+        case.expected
+            .refusal_category
+            .as_deref()
+            .expect("a refusal case must name its category"),
+    );
+
+    // The numerics the manifest still binds on this case. The refusal means
+    // no value exists for any of them, and saying so is the assertion: a
+    // framework that clamped the baseline and returned a number fails here,
+    // and clamping is the repair companion §4.3.4 forbids.
+    for (field, published) in [
+        ("required_n", case.expected.required_n.is_some()),
+        ("floor", case.expected.floor.is_some()),
+        ("achieved_power", case.expected.achieved_power.is_some()),
+        ("power", case.expected.power.is_some()),
+        ("detectable_rate", case.expected.detectable_rate.is_some()),
+    ] {
+        assert!(
+            !published,
+            "risk_driven_sizing/{}/{field}: a refused design must publish no value",
+            case.name
+        );
+        ledger.record("risk_driven_sizing", &case.name, field);
+    }
+}
+
+/// One admissible or refused sizing case, dispatched by its gate and approach.
+fn check_one_sizing_case(ledger: &mut Ledger, case: &RiskDrivenSizingCase, tolerance: f64) {
+    let cl = ConfidenceLevel::new(case.inputs.confidence);
+
+    if case.expected.sizing_gate == "REFUSE" {
+        check_sizing_refusal(ledger, case);
+        return;
+    }
+
+    assert_oracle_eq(
+        ledger,
+        "risk_driven_sizing",
+        &case.name,
+        "sizing_gate",
+        "ADMIT",
+        case.expected.sizing_gate.as_str(),
+    );
+
+    match case.approach.as_str() {
+        "required_n" => {
+            let minimum_acceptable_rate = case.inputs.minimum_acceptable_rate.unwrap();
+            let n = risk_driven_sizing::required_sample_size(
+                case.inputs.baseline_rate,
+                minimum_acceptable_rate,
+                cl,
+                case.inputs.target_power.unwrap(),
+            );
+            assert_oracle_eq(
+                ledger,
+                "risk_driven_sizing",
+                &case.name,
+                "required_n",
+                n,
+                case.expected.required_n.unwrap(),
+            );
+            assert_oracle_close(
+                ledger,
+                "risk_driven_sizing",
+                &case.name,
+                "floor",
+                proportion::lower_bound_from_rate(case.inputs.baseline_rate, n, cl),
+                case.expected.floor.unwrap(),
+                tolerance,
+            );
+            assert_oracle_close(
+                ledger,
+                "risk_driven_sizing",
+                &case.name,
+                "achieved_power",
+                risk_driven_sizing::self_consistent_power(
+                    n,
+                    case.inputs.baseline_rate,
+                    minimum_acceptable_rate,
+                    cl,
+                ),
+                case.expected.achieved_power.unwrap(),
+                tolerance,
+            );
+        }
+        "power_at" => {
+            let test_samples = case.inputs.test_samples.unwrap();
+            assert_oracle_close(
+                ledger,
+                "risk_driven_sizing",
+                &case.name,
+                "floor",
+                proportion::lower_bound_from_rate(case.inputs.baseline_rate, test_samples, cl),
+                case.expected.floor.unwrap(),
+                tolerance,
+            );
+            assert_oracle_close(
+                ledger,
+                "risk_driven_sizing",
+                &case.name,
+                "power",
+                risk_driven_sizing::self_consistent_power(
+                    test_samples,
+                    case.inputs.baseline_rate,
+                    case.inputs.minimum_acceptable_rate.unwrap(),
+                    cl,
+                ),
+                case.expected.power.unwrap(),
+                tolerance,
+            );
+        }
+        "detectable_rate" => {
+            assert_oracle_close(
+                ledger,
+                "risk_driven_sizing",
+                &case.name,
+                "detectable_rate",
+                risk_driven_sizing::detectable_rate(
+                    case.inputs.test_samples.unwrap(),
+                    case.inputs.baseline_rate,
+                    cl,
+                    case.inputs.target_power.unwrap(),
+                ),
+                case.expected.detectable_rate.unwrap(),
+                tolerance,
+            );
+        }
+        other => panic!("Unknown approach '{other}' in case '{}'", case.name),
+    }
+}
+
 fn check_risk_driven_sizing(ledger: &mut Ledger) {
     let suite: Suite<RiskDrivenSizingCase> =
         serde_json::from_str(include_str!("conformance/risk_driven_sizing.json")).unwrap();
@@ -776,96 +937,7 @@ fn check_risk_driven_sizing(ledger: &mut Ledger) {
         &suite.cases,
         |case| case.name.as_str(),
         |case| {
-            let cl = ConfidenceLevel::new(case.inputs.confidence);
-            match case.approach.as_str() {
-                "required_n" => {
-                    let minimum_acceptable_rate = case.inputs.minimum_acceptable_rate.unwrap();
-                    let n = risk_driven_sizing::required_sample_size(
-                        case.inputs.baseline_rate,
-                        minimum_acceptable_rate,
-                        cl,
-                        case.inputs.target_power.unwrap(),
-                    );
-                    assert_oracle_eq(
-                        ledger,
-                        "risk_driven_sizing",
-                        &case.name,
-                        "required_n",
-                        n,
-                        case.expected.required_n.unwrap(),
-                    );
-                    assert_oracle_close(
-                        ledger,
-                        "risk_driven_sizing",
-                        &case.name,
-                        "floor",
-                        proportion::lower_bound_from_rate(case.inputs.baseline_rate, n, cl),
-                        case.expected.floor.unwrap(),
-                        suite.tolerance,
-                    );
-                    assert_oracle_close(
-                        ledger,
-                        "risk_driven_sizing",
-                        &case.name,
-                        "achieved_power",
-                        risk_driven_sizing::self_consistent_power(
-                            n,
-                            case.inputs.baseline_rate,
-                            minimum_acceptable_rate,
-                            cl,
-                        ),
-                        case.expected.achieved_power.unwrap(),
-                        suite.tolerance,
-                    );
-                }
-                "power_at" => {
-                    let test_samples = case.inputs.test_samples.unwrap();
-                    assert_oracle_close(
-                        ledger,
-                        "risk_driven_sizing",
-                        &case.name,
-                        "floor",
-                        proportion::lower_bound_from_rate(
-                            case.inputs.baseline_rate,
-                            test_samples,
-                            cl,
-                        ),
-                        case.expected.floor.unwrap(),
-                        suite.tolerance,
-                    );
-                    assert_oracle_close(
-                        ledger,
-                        "risk_driven_sizing",
-                        &case.name,
-                        "power",
-                        risk_driven_sizing::self_consistent_power(
-                            test_samples,
-                            case.inputs.baseline_rate,
-                            case.inputs.minimum_acceptable_rate.unwrap(),
-                            cl,
-                        ),
-                        case.expected.power.unwrap(),
-                        suite.tolerance,
-                    );
-                }
-                "detectable_rate" => {
-                    assert_oracle_close(
-                        ledger,
-                        "risk_driven_sizing",
-                        &case.name,
-                        "detectable_rate",
-                        risk_driven_sizing::detectable_rate(
-                            case.inputs.test_samples.unwrap(),
-                            case.inputs.baseline_rate,
-                            cl,
-                            case.inputs.target_power.unwrap(),
-                        ),
-                        case.expected.detectable_rate.unwrap(),
-                        suite.tolerance,
-                    );
-                }
-                other => panic!("Unknown approach '{other}' in case '{}'", case.name),
-            }
+            check_one_sizing_case(ledger, case, suite.tolerance);
         },
     );
 }
