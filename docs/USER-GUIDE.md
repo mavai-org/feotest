@@ -117,31 +117,45 @@ A **verdict** is the outcome of a probabilistic test:
 
 | Verdict | Meaning |
 |---|---|
-| **Pass** | Insufficient evidence to reject H0. No statistically significant degradation detected. |
-| **Fail** | H0 rejected. Sufficient statistical evidence of degradation. This is the call to action. |
-| **Inconclusive** | Statistical analysis cannot be relied upon (e.g., covariate misalignment). |
+| **Pass** | Against a baseline: no statistically significant degradation. Against a requirement: the evidence demonstrates it. |
+| **Fail** | Against a baseline: evidence of degradation — the call to action. Against a requirement: compliance was not demonstrated. |
+| **Inconclusive** | The data cannot decide (covariate misalignment, too few successful latencies, no latency threshold at this size). |
 
-A verdict is not based on whether individual trials succeeded or failed. It is
-based on whether the **aggregate pass rate** meets the **threshold** at the
-configured **confidence level**. A test can have failing trials and still produce
-a Pass verdict — because the failure rate is within the expected range.
+A verdict is not based on whether individual trials succeeded or failed. Each
+criterion is decided by a versioned **decision rule** of the Statistical
+Companion (methodology 1.5.0), at its **confidence level**; the test's verdict
+composes the criteria with any enforced latency constraints by one structural
+rule — PASS if every one passes, FAIL if any fails, INCONCLUSIVE otherwise —
+and names what decided a FAIL or an INCONCLUSIVE. A test can have failing
+trials and still produce a Pass verdict — because the failure rate is within
+the expected range.
+
+A configuration that cannot support its claim is **refused** before any sample
+runs (see [Part 4](#part-4-test-intent)). A refused test has no verdict: its
+record carries the configuration errors instead, and the test fails.
 
 ### Thresholds
 
 Every probabilistic test requires a threshold: the minimum pass rate the service
 must achieve. Thresholds can come from two sources:
 
-- **Empirical** — derived from a measurement experiment. The threshold is the
-  Wilson score lower bound of the observed pass rate: "the lowest plausible
-  success rate given the data." This is the measure-then-test workflow.
+- **Empirical** — derived from a measurement experiment
+  (`Criterion::empirical().pass_rate()`). The test is decided by
+  `regression/fisher`: the one-sided Fisher exact test of the test's successes
+  against the baseline's, expressed as an integer **cutoff** derived from the
+  baseline's counts at the test's own size. The test passes when at least that
+  many samples succeed. This is the measure-then-test workflow.
 
-- **Normative** — specified by an SLA, SLO, or policy. The threshold is a
-  contractual requirement: "the service must succeed at least 99% of the time."
-  No baseline measurement is needed.
+- **Normative** — specified by an SLA, SLO, or policy
+  (`Criterion::meeting().pass_rate(0.99)`). The rate is a requirement, decided
+  by `compliance/exact-binomial`: the test passes when at least the smallest
+  count the exact one-sided binomial test accepts succeeds — when the evidence
+  demonstrates the requirement. No baseline measurement is needed.
 
-The framework tracks the **origin** of each threshold (`Sla`, `Slo`, `Policy`,
-`Empirical`, `Unspecified`) and uses it to calibrate feasibility enforcement and
-verdict interpretation.
+The framework records the **origin** of each threshold (`Sla`, `Slo`, `Policy`,
+`Empirical`, `Unspecified`) with the criterion it belongs to. The Wilson score
+interval is still reported beside each verdict, as descriptive context; no rule
+decides with it.
 
 ---
 
@@ -231,11 +245,11 @@ The API mirrors `ExploreExperiment` and `OptimizeExperiment`: `.service_contract
 is `tests/baselines`. For more control (e.g., a pre-configured
 `SpecResolver`), use `.spec_resolver(resolver)` instead.
 
-The measure experiment runs a large number of samples (1000+ recommended),
-computes the Wilson score confidence interval, and writes a **baseline spec** to
-a YAML file. The derived threshold (`min_pass_rate`) is the lower bound of the
-95% confidence interval — the most conservative estimate of the true pass rate
-given the observed data.
+The measure experiment runs a large number of samples (1000+ recommended) and
+writes a **baseline spec** to a YAML file: the counts per criterion, the
+successful latencies, and a descriptive Wilson interval. A test derives its own
+cutoff from the baseline's counts at the test's own size, so the baseline must
+be at least as large as any test that consumes it — measure generously.
 
 ### Step 3: Test
 
@@ -260,17 +274,23 @@ let result = ProbabilisticTest::for_contract(MyService)
 assert!(result.passed());
 ```
 
-The test loads the baseline spec, derives the threshold, runs the configured
-number of samples, and evaluates the result using one-sided hypothesis testing.
+The test loads the baseline spec, derives each baseline-derived criterion's
+`regression/fisher` cutoff at the test's size, runs the configured number of
+samples, and decides each criterion by its rule.
+
+The contract is invoked on the inputs you pass to `.inputs(...)`, cycled in
+list order, one input per sample. **Do not sort your inputs** by difficulty or
+by any other characteristic: inputs are cycled in list order, so a run that
+covers only part of a sorted list measures a different mix from its baseline.
 
 ---
 
-## Part 3: The three operational approaches
+## Part 3: The operational approaches
 
 ### Threshold-first
 
-"I know the pass rate must be at least X. Run N samples and tell me if it
-passes."
+"The pass rate must be at least X. Run N samples and tell me whether the
+evidence demonstrates it."
 
 ```rust
 .approach(ThresholdApproach::ThresholdFirst {
@@ -279,14 +299,17 @@ passes."
 })
 ```
 
-Use this when the threshold comes from an SLA, SLO, or policy document. The
-framework evaluates whether the observed rate meets the threshold and computes
-the implied confidence level. No baseline spec is needed.
+Use this when the threshold comes from an SLA, SLO, or policy document, declared
+on the criterion (`Criterion::meeting().pass_rate(0.95)`); each criterion is
+decided by its own rule, and `min_pass_rate` is the run's early-termination
+floor. Against a baseline, the report also discloses the **implied alpha** of
+the cutoff `⌈min_pass_rate · samples⌉` under `regression/fisher` — the level at
+which that cutoff is the rule's own — flagged unsound above 0.20.
 
 ### Sample-size-first
 
-"I have budget for N samples. Derive the best threshold the baseline supports
-at confidence C."
+"I have budget for N samples. Tell me whether the service has degraded from its
+baseline at confidence C."
 
 ```rust
 .approach(ThresholdApproach::SampleSizeFirst {
@@ -297,28 +320,40 @@ at confidence C."
 ```
 
 Use this for the empirical measure-then-test workflow. The framework loads the
-baseline spec, computes the Wilson lower bound at the given confidence, and uses
-that as the threshold. This is the most common approach for LLM-backed services
-where no SLA exists.
+baseline spec and derives each criterion's Fisher cutoff at the test's size and
+the given confidence. The report states what the design can detect: the size at
+the assumed common rate, and the minimum detectable degradation (the drop the
+design catches with 80% power). This is the most common approach for
+LLM-backed services where no SLA exists.
 
-### Confidence-first
+### Confidence-first and risk-driven
 
-"I need to detect a 5% degradation with 95% confidence and 80% power. Tell me
-how many samples I need."
+"I need to catch a drop to a given rate with 80% power. Tell me how many
+samples I need."
 
 ```rust
-.approach(ThresholdApproach::ConfidenceFirst {
+.approach(ThresholdApproach::RiskDriven {
+    design_alternative_rate: 0.93,
     confidence: 0.95,
-    min_detectable_effect: 0.05,
-    power: 0.80,
+    target_power: 0.80,
 })
 .spec_resolver(resolver)  // baseline spec required
 ```
 
-Use this when detection sensitivity is the primary concern. The framework
-computes the required sample size using power analysis and then runs that many
-samples. This approach can be expensive — use it when you need to guarantee a
-specific detection capability.
+The **design alternative rate** is the true rate at which the test must reach
+its target power — a design input, not a tolerance: the test still flags any
+degradation from the baseline it can see. The framework sizes the test by
+**resolved sizing** against the observed baseline: the smallest sample count
+from which the power stays at or above the target for every larger test up to
+the baseline's size (power is a sawtooth in the sample count, so the first size
+that reaches it is not enough). With several baseline-derived criteria, each is
+sized against its own baseline and the largest requirement governs.
+`ConfidenceFirst { confidence, min_detectable_effect, power }` is the same
+sizing with the design alternative rate stated as a drop below each baseline.
+
+A baseline too small for the design is refused (`BASELINE_TOO_SMALL`), as is a
+design alternative rate at or above the baseline rate — to demand more than the
+baseline delivered, re-measure it.
 
 ---
 
@@ -326,16 +361,26 @@ specific detection capability.
 
 Every probabilistic test declares an **intent**:
 
-- **Verification** (default) — an evidential claim. The framework enforces
-  statistical feasibility before execution: if the sample size cannot support
-  verification at 95% confidence for a normative threshold, the test produces a
-  warning. A Pass verdict under Verification intent is a genuine statistical
-  claim.
+- **Verification** (default) — an evidential claim. A requirement (a declared
+  pass rate, or an explicit latency ceiling) that no outcome of the planned
+  size could demonstrate is refused before any sample runs
+  (`COMPLIANCE_INFEASIBLE`) — a 0.95 requirement needs at least 59 samples at
+  95% confidence. A Pass verdict under Verification intent is a genuine
+  statistical claim.
 
-- **Smoke** — a lightweight early-warning check. The framework accepts
-  undersized configurations and labels the verdict as non-evidential. Smoke
-  tests are intended for frequent monitoring — "is the service obviously
-  broken?" — rather than rigorous verification.
+- **Smoke** — a lightweight early-warning check. Undersized requirements run —
+  such a test cannot pass, and says so — and the verdict is labelled
+  non-evidential. Smoke tests are intended for frequent monitoring — "is the
+  service obviously broken?" — rather than rigorous verification.
+
+Whatever the intent, a test planned larger than the baseline it consumes is
+refused (`TEST_LARGER_THAN_BASELINE`): a baseline must be at least as large as
+any test that consumes it. A test against a requirement alone has no upper size
+limit. When any part of a configuration is invalid, the whole configuration is
+refused — a run never proceeds half-valid — and every applicable error is
+reported together, in a fixed order, so every part can be corrected at once.
+The refused test still produces a verdict record: the configuration errors, no
+verdict, and the termination reason `CONFIGURATION_REFUSED`.
 
 ```rust
 ProbabilisticTest::for_contract(MyService)
@@ -370,8 +415,10 @@ Contract violations are the raw material of probabilistic testing. Defects are n
 
 A contract's `criteria` method returns a `Criteria<Output>` — one or more named `Criterion` values, each judged independently on every sample. A criterion starts from its **target**:
 
-- **`Criterion::meeting().pass_rate(rate)`** — a normative target: the criterion must pass at least this often. Use this when the rate comes from an SLA, SLO, or policy.
-- **`Criterion::empirical().pass_rate()`** — an empirical target: the criterion's required rate is derived from the measured baseline for *that criterion*. Use this in the measure-then-test workflow.
+- **`Criterion::meeting().pass_rate(rate)`** — a normative target: a requirement the evidence must demonstrate (`compliance/exact-binomial`). Use this when the rate comes from an SLA, SLO, or policy.
+- **`Criterion::empirical().pass_rate()`** — an empirical target: the criterion is judged against the measured baseline for *that criterion* (`regression/fisher`). Use this in the measure-then-test workflow.
+
+A criterion is decided at the test's confidence unless it declares its own with `.confidence(level)`. A service judged against both a requirement and its baseline carries two criteria over the same postconditions — one `meeting()`, one `empirical()` — each decided by its own rule, at its own level, with its own verdict.
 
 Postconditions are then attached with `.satisfies(description, closure)`, where the closure inspects the response and returns `Ok(())` or `Err(ContractViolation)`. A `.transforming(f)` step parses or converts the response mid-chain, so a malformed response becomes a counted failure with a precise reason rather than an abort. Every criterion takes a `.name(...)` before `.build()`; the name keys per-criterion statistics in baselines and reports.
 
@@ -396,6 +443,30 @@ fn latency(&self) -> Option<LatencyCriterion> {
 
 `None` — the default — means the contract makes no latency assertion.
 
+Latency is measured on the samples that passed every functional criterion, and
+decided after the run on the latencies the run actually produced:
+
+- An **explicit ceiling** is a requirement, enforced strictly and decided by
+  `latency/compliance-exact-binomial`: the count of successful latencies at or
+  below the ceiling must demonstrate, at the criterion's confidence (0.95
+  unless `.confidence(level)` says otherwise), that at least the percentile's
+  share meets it. A p95 ceiling needs at least 59 successful latencies before
+  any count can; fewer planned samples are refused under verification, and a
+  run that delivers fewer is INCONCLUSIVE.
+- A percentile the contract does not bound gets a **baseline-derived**
+  threshold when the baseline recorded latencies, decided by
+  `latency/precedence`: the baseline latency at the smallest rank an
+  undegraded service would exceed with probability at most alpha, for the
+  test's own count. When no rank achieves that — a small baseline against a
+  high percentile — the constraint is **saturated**: it has no threshold and is
+  INCONCLUSIVE. Baseline-derived thresholds are advisory by default (a raw
+  percentile comparison, labelled so, that never enters the verdict);
+  `.enforce_baseline_latency(true)` enforces them.
+
+Before the run, an enforced constraint expected to be saturated or degenerate
+at the planned size earns a warning with a planning figure — the baseline or
+the sample count that would support it — never a verdict.
+
 ---
 
 ## Part 6: Experiments
@@ -410,7 +481,7 @@ See [Part 2](#step-2-measure) for a full example.
 
 #### Normative judgement at experiment time
 
-When the measured contract declares normative criteria (`Criterion::meeting().pass_rate(..)`), the measure experiment judges each one against its stipulated threshold using the run's own samples: the criterion is **met** when the one-sided Wilson lower bound of its observed rate — at the run's sample count, at 95% confidence — clears the stipulation, **failed** when it does not, and **unsupportable** when the run's sample count cannot support the stipulated threshold at that confidence even with a perfect observation (the output states the feasible minimum sample count). Empirical criteria are never judged at experiment time — their bar does not exist until a baseline supplies it.
+When the measured contract declares normative criteria (`Criterion::meeting().pass_rate(..)`), the measure experiment judges each one against its stipulated threshold using the run's own samples: the criterion is **met** when its success count demonstrates the stipulation by `compliance/exact-binomial` at 95% confidence (equivalently, when the one-sided Clopper–Pearson lower bound of its observed rate clears it), **failed** when it does not, and **unsupportable** when the run's sample count cannot demonstrate the stipulated threshold at that confidence even with a perfect observation (the output states the feasible minimum sample count). Empirical criteria are never judged at experiment time — their bar does not exist until a baseline supplies it.
 
 The judgement is rendered in the experiment's console output alongside the measured characterisation, and recorded per criterion in the baseline spec's `normativeJudgement` block (state, stipulated threshold, confidence). It states a relation to the stipulation, nothing more: a failed judgement at measure time can be entirely expected — an aspirational bar measured mid-development, a fresh configuration characterised before tuning.
 
@@ -591,13 +662,20 @@ A verdict record contains:
 | Field | Content |
 |---|---|
 | `identity` | Service contract ID and test name |
-| `verdict` | Pass, Fail, or Inconclusive |
+| `methodology_version` | The Statistical Companion methodology whose rules decided it (1.5.0) |
+| `verdict` | Pass, Fail, or Inconclusive — the test verdict over the criteria and the enforced latency constraints; absent when the configuration was refused |
+| `configuration_errors` | For a refused configuration: every applicable error, in order |
+| `triggering` | The criteria and latency constraints that decided a Fail or an Inconclusive |
 | `intent` | Verification or Smoke |
 | `execution` | Samples planned/executed, successes, failures, cost |
-| `functional` | Pass rate, failure distribution |
-| `statistical_analysis` | Confidence level, CI, threshold, z-test, p-value |
+| `functional_assessment` | One row per criterion — pass rate, failure distribution, the rule that decided it — and their composite |
+| `statistical_analysis` | The rule, its evidence (cutoff or smallest passing count), threshold, confidence; the Wilson bound as descriptive context |
+| `latency` | Each latency evaluation with its rule, and the latency verdict |
 | `spec_provenance` | Baseline filename, threshold origin, contract reference |
-| `warnings` | Undersized samples, smoke caveats, etc. |
+| `warnings` | Undersized smoke runs, latency planning warnings, etc. |
+
+Records are written as verdict XML **1.7**, the family's interchange schema for
+methodology 1.5.0.
 
 ### JUnit XML output
 
@@ -837,7 +915,7 @@ The macro expands to a `#[test]` function that lowers the body into a single-cri
 
 ## Part 11: Transparent statistics
 
-After every probabilistic test, a one-line verdict summary is printed to stderr. Enabling **transparent statistics** adds a detailed box-format report showing the full statistical reasoning behind the verdict — the hypotheses, any feasibility warning, the observed data and inference (confidence interval, z-statistic, p-value), early-termination reasoning where it applied, and the verdict itself:
+After every probabilistic test, a one-line verdict summary is printed to stderr. Enabling **transparent statistics** adds a detailed box-format report showing the full statistical reasoning behind the verdict — the hypotheses, any feasibility warning, the observed data and the decision rule's evidence (the cutoff and what the design can detect, or the smallest passing count), early-termination reasoning where it applied, and the verdict itself — or, for a refused configuration, its configuration errors:
 
 ```rust
 ProbabilisticTest::for_contract(MyService)
