@@ -434,6 +434,7 @@ dependencies = [
  "inventory",
  "jsonschema",
  "md-5",
+ "num-bigint",
  "serde",
  "serde_json",
  "serde_yaml",
