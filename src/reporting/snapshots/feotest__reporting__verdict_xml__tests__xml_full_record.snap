@@ -3,7 +3,7 @@ source: src/reporting/verdict_xml.rs
 expression: xml
 ---
 <?xml version="1.0" encoding="UTF-8"?>
-<verdict-record xmlns="http://mavai.org/verdict/1.0" version="1.7" methodology-version="1.5.0" timestamp="2026-04-19T10:00:00Z" correlation-id="suite-run-42" generator="feotest/0.2.0">
+<verdict-record xmlns="http://mavai.org/verdict/1.0" version="1.7" methodology-version="1.5.0" timestamp="2026-04-19T10:00:00Z" correlation-id="suite-run-42" generator="feotest/0.3.0">
   <identity use-case-id="full-service" test-name="test_everything"/>
   <execution planned-samples="1000" samples-executed="1000" successes="933" failures="67" elapsed-ms="500" intent="VERIFICATION" confidence="0.95"/>
   <functional successes="933" failures="67" pass-rate="0.9330">

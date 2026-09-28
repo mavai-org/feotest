@@ -3,7 +3,7 @@ source: src/reporting/verdict_xml.rs
 expression: xml
 ---
 <?xml version="1.0" encoding="UTF-8"?>
-<verdict-record xmlns="http://mavai.org/verdict/1.0" version="1.7" methodology-version="1.5.0" timestamp="2026-04-01T12:00:00Z" generator="feotest/0.2.0">
+<verdict-record xmlns="http://mavai.org/verdict/1.0" version="1.7" methodology-version="1.5.0" timestamp="2026-04-01T12:00:00Z" generator="feotest/0.3.0">
   <identity use-case-id="warned-service"/>
   <execution planned-samples="10" samples-executed="10" successes="10" failures="0" elapsed-ms="500" intent="SMOKE" confidence="0.95"/>
   <functional successes="10" failures="0" pass-rate="1.0000"/>

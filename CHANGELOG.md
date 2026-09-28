@@ -5,6 +5,167 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.3.0] - 2026-09-28
+
+Every verdict is now decided by the decision rules of Statistical Companion
+1.5.0 (methodology 1.5.0), conformance-tested against the mavai-R v0.11.1
+fixtures: 445 of 445 family-mandatory binding assertions and 359 of 359 in
+this crate's scope. Cutoffs, sample sizes and verdicts change: a test that
+passed under 0.2 may fail, pass at a different size, come back INCONCLUSIVE,
+or be refused before it runs. There is no compatibility switch; re-run your
+tests. Historical verdicts are reproducible from the 0.2.0 release.
+
+### Changed (breaking)
+
+- **A baseline-derived criterion is decided by `regression/fisher`.** The
+  one-sided Fisher exact test of the test's successes against the
+  baseline's, as an integer cutoff derived from the baseline's counts at the
+  test's own size, replaces the Wilson-bound cutoff (whose false-alarm rate
+  was not controlled when the baseline was itself a sample) and its
+  perfect-baseline special case. The record states what the design can
+  detect: the size at the assumed common rate, the minimum detectable
+  degradation (the inversion of the design power at 80%), and — for a sized
+  run — the design power and the resolved power at the design alternative
+  rate, named apart.
+
+- **A declared requirement is decided by `compliance/exact-binomial`.** A
+  `Criterion::meeting().pass_rate(p)` criterion passes when at least the
+  smallest count the exact one-sided binomial test accepts succeeds, where it
+  used to pass when the run's Wilson lower bound cleared `p`. The feasibility
+  minimum becomes `⌈ln alpha / ln p⌉` (a 0.95 requirement needs 59 samples at
+  95% confidence); `feasibility_check(samples, target, alpha)` reports it
+  under the criterion `exact_binomial_pass_possible`. Experiment-time
+  normative judgement uses the same rule.
+
+- **An invalid configuration is refused whole, before any sample runs.** A
+  test planned larger than a baseline it consumes (`TEST_LARGER_THAN_BASELINE`,
+  judged for every baseline-derived criterion and enforced baseline-derived
+  latency constraint, whatever the intent), and — under verification — a
+  requirement or explicit latency ceiling no outcome of the planned size can
+  demonstrate (`COMPLIANCE_INFEASIBLE`), refuse the whole configuration, with
+  every applicable error reported in that fixed order. A refused test still
+  returns a `VerdictRecord`: the configuration errors, no verdict, no sample
+  executed, and the termination reason `CONFIGURATION_REFUSED`. This replaces
+  the panic on an infeasible verification run. A requirement alone has no
+  upper test size; a smoke run of an undersized requirement runs and cannot
+  pass.
+
+- **The record's verdict is the test verdict `V_test`.** The functional
+  criteria compose by one structural rule — PASS if all pass, FAIL if any
+  fails, INCONCLUSIVE otherwise (a FAIL now dominates an INCONCLUSIVE) — and
+  the same rule composes them with the enforced latency constraints; advisory
+  latency never enters it. `VerdictRecord::verdict()` returns
+  `Option<Verdict>` (`None` for a refusal) and the record gains
+  `methodology_version()`, `configuration_errors()`, `triggering()` (what
+  decided a FAIL or an INCONCLUSIVE), `envelopes()` (the Type-I envelopes by
+  direction), `single_decision_rule()` and `confidence_level()`.
+  `FunctionalAssessment::new` takes only the rows and derives the composite.
+
+- **Latency is decided after the run, by the rule for its threshold source.**
+  An explicit ceiling is a requirement decided by
+  `latency/compliance-exact-binomial` — the count of successful latencies at
+  or below it — at the latency criterion's confidence
+  (`LatencyCriterion::confidence`, default 0.95). A baseline-derived threshold
+  is decided by `latency/precedence`: the baseline latency at the smallest
+  rank an undegraded service would exceed with probability at most alpha, for
+  the test's own count of successful latencies; when no rank achieves that,
+  the evaluation is `SATURATED`, has no threshold, and is INCONCLUSIVE. It
+  replaces the order-statistic confidence bound derived before the run. The
+  pre-run existence and non-degeneracy checks of enforced constraints are now
+  warnings with a planning figure (`LATENCY_SATURATION_EXPECTED`,
+  `LATENCY_DEGENERATE_EXPECTED`), never refusals. Evaluations carry their
+  rule, their confidence and the within-threshold counts; the dimension
+  carries `V_latency`. The latency population is unchanged: the samples that
+  passed every functional criterion.
+
+- **Risk-driven sizing is resolved sizing against the observed baseline.**
+  `ThresholdApproach::RiskDriven { minimum_acceptable_rate, .. }` becomes
+  `RiskDriven { design_alternative_rate, .. }`: the true rate at which the
+  test is to reach its target power, not a tolerance — the test still flags
+  any degradation it can see. The run size is the smallest from which the
+  resolved power stays at the target for every larger test up to the
+  baseline's size; a baseline too small for that is refused
+  (`BASELINE_TOO_SMALL`). `ConfidenceFirst` is the same sizing with the
+  design alternative rate stated as `baseline rate − min_detectable_effect`,
+  replacing the fixed-threshold closed form. `ThresholdFirst` against a
+  baseline discloses the implied alpha of its declared cutoff (§6.3) instead
+  of an implied confidence. The disclosure key `sizing-tolerated-rate`
+  becomes `sizing-design-alternative-rate`, and the detectable rate is the
+  resolved one.
+
+- **Verdict XML moves to schema 1.7.** Every record states
+  `methodology-version`; criterion rows, strict latency evaluations and — when
+  one rule decided the whole test — the `<verdict>` name their versioned
+  decision rule; a refused record carries `configuration-error` and no
+  `value`; a saturated latency evaluation carries status `SATURATED` and no
+  `threshold-ms` or `baseline-rank`; `<statistics>` gains the regression
+  disclosures and loses the z-test statistic and p-value. The JSON wire shape
+  of `VerdictRecord` changes accordingly (`statisticalAnalysis` carries the
+  rule and its evidence). The HTML report shows the rules and refusals.
+
+- **The statistics API is replaced, not extended.** Withdrawn:
+  `statistics::threshold` (`derive_sample_size_first`,
+  `derive_threshold_first`), `statistics::sample_size`,
+  `statistics::evaluator`, `latency::derive_latency_threshold`,
+  `risk_driven_sizing::{self_consistent_power, required_sample_size,
+  detectable_rate}`, and the types `DerivedThreshold`, `DerivationContext`,
+  `DecisionCutoff`, `OperationalApproach`, `SampleSizeRequirement`,
+  `VerdictWithConfidence` and `ResolvedLatencyThreshold`;
+  `StatisticalAnalysis::new` takes the rule's evidence and `with_test_results`
+  is gone. `TestIntent` and `Verdict` now live in the statistics core
+  (`statistics::rules`, `statistics::decision`) and are re-exported from
+  `model` and `verdict` as before. `ConfidenceLevel::alpha` returns the level
+  as the decimal it was written as (`0.95` gives exactly `0.05`).
+
+### Added
+
+- **The four decision rules and their exact computations**:
+  `statistics::regression` (the Fisher cutoff, its size, design and resolved
+  power, minimum detectable degradation, resolved detectable rate, implied
+  alpha), `statistics::compliance` (the smallest passing count, the
+  feasibility minimum, the Clopper–Pearson lower bound, compliance sizing with
+  a declared, margin or midway design alternative), `statistics::latency`
+  (the precedence rank and threshold, the latency compliance decision, the
+  pre-run planning and post-run non-degeneracy gates), `statistics::decision`
+  (one criterion under its rule, the structural composite, the Type-I
+  envelopes, the test verdict) and `statistics::rules` (the rule identifiers,
+  the methodology version, the configuration errors).
+- **The exact-boundary convention** (`statistics::exact`, Companion §10.6): a
+  probability within a relative guard band of 1e-9 of alpha is recomputed in
+  exact rational arithmetic from the declared inputs, and the inclusive rule
+  is applied to the exact value. Adds the `num-bigint` dependency.
+- **Per-criterion confidence**: `.confidence(level)` on a criterion builder
+  decides that criterion at its own level — as when a requirement and a
+  baseline over the same postconditions are judged at different levels, as
+  two criteria each with its own rule and verdict.
+- **Design and resolved sizing** of the regression rule
+  (`risk_driven_sizing::{design_required_samples, design_power_at,
+  design_detectable_rate, resolved_sizing, resolved_cutoffs,
+  check_sizing_domain}`) with the refusal categories `ZERO_BASELINE`,
+  `ALTERNATIVE_NOT_BELOW_BASELINE`, `TEST_LARGER_THAN_BASELINE` and
+  `BASELINE_TOO_SMALL`.
+- **User guide**: advice not to sort input samples by difficulty or any other
+  characteristic — inputs are cycled in list order, so a run that covers only
+  part of a sorted list measures a different mix from its baseline — and the
+  approaches, intent, refusals and latency rules as they now stand.
+
+### Conformance
+
+- The vendored fixtures in `tests/conformance/` are re-pinned at mavai-R
+  **v0.11.1** (fixture schema 2, methodology 1.5.0), byte-identical to the
+  `cases-v0.11.1.zip` release asset; the manifest's methodology version and
+  decision rules are checked against what this crate implements rather than
+  stated. The scope adds `threshold_derivation`, `latency_percentile`,
+  `latency_percentile_minimums` and `latency_compliance_decision`
+  (`feasibility` and `power_analysis` are now family-mandatory);
+  `latency_threshold_bootstrap` is withdrawn with the 1.4.1 rules. The
+  pass-rate decision suites run through the production verdict path,
+  refusals included. The vendored interchange schemas are re-pinned at the
+  `interchange-v0.11.1.zip` asset: `verdict-1.7.xsd` replaces
+  `verdict-1.2.xsd`, and the emitted records — decided, two-criteria,
+  saturated and refused — validate against it. Report snapshots take their
+  numbers from named oracle fixture cases.
+
 ## [0.2.0] - 2026-07-17
 
 ### Changed
