@@ -294,10 +294,13 @@ mod tests {
 
     #[test]
     fn alpha_is_the_declared_decimal_complement() {
-        assert!((alpha_from_confidence(0.95) - 0.05).abs() == 0.0);
-        assert!((alpha_from_confidence(0.99) - 0.01).abs() == 0.0);
-        assert!((alpha_from_confidence(0.999) - 0.001).abs() == 0.0);
-        assert!((alpha_from_confidence(0.996_875) - 0.003_125).abs() == 0.0);
+        assert_eq!(alpha_from_confidence(0.95).to_bits(), 0.05_f64.to_bits());
+        assert_eq!(alpha_from_confidence(0.99).to_bits(), 0.01_f64.to_bits());
+        assert_eq!(alpha_from_confidence(0.999).to_bits(), 0.001_f64.to_bits());
+        assert_eq!(
+            alpha_from_confidence(0.996_875).to_bits(),
+            0.003_125_f64.to_bits()
+        );
     }
 
     #[test]
