@@ -251,6 +251,7 @@ impl RegressionDecision {
 /// Panics if `successes` exceeds `trials`, or on the inputs
 /// [`fisher_cutoff`](crate::statistics::regression::fisher_cutoff) rejects.
 #[must_use]
+// mavai-ref: JVI-T08PKZ6 — do not remove (resolves in mavai-orchestrator)
 pub fn evaluate_regression(
     successes: u32,
     trials: u32,
@@ -298,6 +299,7 @@ impl Envelopes {
 
 /// Sums each direction's alphas over the `(rule, alpha)` decisions made.
 #[must_use]
+// mavai-ref: JVI-1PK1X9U — do not remove (resolves in mavai-orchestrator)
 pub fn type_one_envelopes(decisions: impl IntoIterator<Item = (DecisionRule, f64)>) -> Envelopes {
     let mut envelopes = Envelopes {
         false_compliance: None,

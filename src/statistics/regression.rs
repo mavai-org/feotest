@@ -390,6 +390,7 @@ pub fn size_at_assumed_common_rate(
 /// Panics if a size is zero, a rate is outside `[0, 1]`, or `alpha` is not
 /// in `(0, 1)`.
 #[must_use]
+// mavai-ref: JVI-EGMJ0MU — do not remove (resolves in mavai-orchestrator)
 pub fn design_power(
     baseline_trials: u32,
     test_samples: u32,
