@@ -87,6 +87,9 @@ fn composite_decomposes_per_criterion_with_independent_rates() {
     let result = ProbabilisticTest::for_contract(contract)
         .inputs(&inputs)
         .samples(20)
+        // Twenty samples cannot demonstrate a requirement of 0.80; smoke
+        // intent runs the undersized design (a verification run is refused).
+        .smoke()
         .run();
 
     let record = result.verdict_record();
@@ -123,6 +126,7 @@ fn malformed_response_is_a_counted_failure_not_a_defect() {
     let result = ProbabilisticTest::for_contract(contract)
         .inputs(&inputs)
         .samples(10)
+        .smoke()
         .run();
 
     let rows = result.verdict_record().functional_assessment().criteria();
@@ -132,7 +136,7 @@ fn malformed_response_is_a_counted_failure_not_a_defect() {
     assert_eq!(parses.fail(), 10);
     assert_eq!(parses.total(), 10);
     // It certainly does not pass; the parse failures are attributed by reason.
-    assert_ne!(result.verdict_record().verdict(), Verdict::Pass);
+    assert_ne!(result.verdict_record().verdict(), Some(Verdict::Pass));
     assert_eq!(parses.failure_distribution(), [("parse".to_string(), 10)]);
 }
 
@@ -146,12 +150,14 @@ fn latency_is_reported_as_its_own_dimension() {
 
     let result = ProbabilisticTest::for_contract(contract)
         .inputs(&inputs)
-        .samples(30)
+        // The explicit p95 ceiling is a requirement: at least 59 successful
+        // latencies are needed before any count can demonstrate it.
+        .samples(60)
         .run();
 
     let record = result.verdict_record();
     // Functional criteria all pass; the latency commitment surfaces separately.
-    assert_eq!(record.verdict(), Verdict::Pass);
+    assert_eq!(record.verdict(), Some(Verdict::Pass));
     let latency = record.latency().expect("latency dimension present");
     assert!(latency.passed());
     assert!(record.passed());
@@ -188,5 +194,6 @@ fn a_panicking_invocation_aborts_the_run() {
     let _ = ProbabilisticTest::for_contract(Panicker)
         .inputs(&inputs)
         .samples(5)
+        .smoke()
         .run();
 }

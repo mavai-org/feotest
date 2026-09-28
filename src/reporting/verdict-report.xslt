@@ -149,7 +149,12 @@
       </xsl:choose>
     </xsl:variable>
 
-    <xsl:variable name="verdict-value" select="v:verdict/@value"/>
+    <xsl:variable name="verdict-value">
+      <xsl:choose>
+        <xsl:when test="v:verdict/@configuration-error">REFUSED</xsl:when>
+        <xsl:otherwise><xsl:value-of select="v:verdict/@value"/></xsl:otherwise>
+      </xsl:choose>
+    </xsl:variable>
     <xsl:variable name="verdict-class">
       <xsl:choose>
         <xsl:when test="$verdict-value='PASS'">verdict-pass</xsl:when>
@@ -238,9 +243,19 @@
   <xsl:template name="verdict-detail">
     <pre class="level2">
       <xsl:text>Verdict: </xsl:text>
-      <xsl:value-of select="v:verdict/@value"/>
+      <xsl:choose>
+        <xsl:when test="v:verdict/@configuration-error">
+          <xsl:text>REFUSED (</xsl:text>
+          <xsl:value-of select="v:verdict/@configuration-error"/>
+          <xsl:text>)</xsl:text>
+        </xsl:when>
+        <xsl:otherwise><xsl:value-of select="v:verdict/@value"/></xsl:otherwise>
+      </xsl:choose>
       <xsl:text> &#x2014; </xsl:text>
       <xsl:value-of select="v:verdict/@reason"/>
+      <xsl:text>&#10;</xsl:text>
+      <xsl:text>Methodology: </xsl:text>
+      <xsl:value-of select="@methodology-version"/>
       <xsl:text>&#10;</xsl:text>
       <xsl:text>Intent:  </xsl:text>
       <xsl:value-of select="v:execution/@intent"/>
@@ -271,8 +286,17 @@
             <xsl:otherwise>&#x2014;</xsl:otherwise>
           </xsl:choose>
           <xsl:text> / </xsl:text>
-          <xsl:value-of select="@threshold-ms"/><xsl:text>ms</xsl:text>
-          <xsl:text> [</xsl:text><xsl:value-of select="@status"/><xsl:text>]</xsl:text>
+          <xsl:choose>
+            <xsl:when test="@threshold-ms">
+              <xsl:value-of select="@threshold-ms"/><xsl:text>ms</xsl:text>
+            </xsl:when>
+            <xsl:otherwise>no threshold</xsl:otherwise>
+          </xsl:choose>
+          <xsl:text> [</xsl:text><xsl:value-of select="@status"/>
+          <xsl:if test="@decision-rule">
+            <xsl:text>; </xsl:text><xsl:value-of select="@decision-rule"/>
+          </xsl:if>
+          <xsl:text>]</xsl:text>
           <xsl:text>&#10;</xsl:text>
         </xsl:for-each>
       </xsl:if>
@@ -297,7 +321,7 @@
             <xsl:value-of select="$approach"/>
             <xsl:choose>
               <xsl:when test="$approach='confidence-first (risk-driven)'">
-                <xsl:text> &#x2014; the run size was computed from the declared tolerance and confidence, priced against the acceptance bar this very size derives</xsl:text>
+                <xsl:text> &#x2014; the run size was computed by resolved sizing against the observed baseline: the smallest size from which the test reaches and holds its target power at the declared design alternative rate</xsl:text>
               </xsl:when>
               <xsl:when test="$approach='confidence-first'">
                 <xsl:text> &#x2014; the run size was computed from the declared confidence, detectable effect, and power</xsl:text>
@@ -315,9 +339,13 @@
               <dt>Declared samples</dt>
               <dd><xsl:value-of select="v:environment/v:entry[@key='sizing-declared-samples']/@value"/></dd>
             </xsl:if>
-            <xsl:if test="v:environment/v:entry[@key='sizing-tolerated-rate']">
-              <dt>Tolerated rate</dt>
-              <dd><xsl:value-of select="format-number(v:environment/v:entry[@key='sizing-tolerated-rate']/@value, '0%')"/></dd>
+            <xsl:if test="v:environment/v:entry[@key='sizing-design-alternative-rate']">
+              <dt>Design alternative rate</dt>
+              <dd><xsl:value-of select="format-number(v:environment/v:entry[@key='sizing-design-alternative-rate']/@value, '0.0%')"/></dd>
+            </xsl:if>
+            <xsl:if test="v:environment/v:entry[@key='sizing-implied-alpha']">
+              <dt>Implied alpha</dt>
+              <dd><xsl:value-of select="format-number(v:environment/v:entry[@key='sizing-implied-alpha']/@value, '0.0000')"/></dd>
             </xsl:if>
             <xsl:if test="v:environment/v:entry[@key='sizing-declared-min-pass-rate']">
               <dt>Minimum pass rate</dt>
@@ -453,7 +481,7 @@
         <pre class="level3">
           <xsl:text>Confidence level: </xsl:text>
           <xsl:value-of select="v:statistics/@confidence-level"/>
-          <xsl:text>&#10;Wilson lower: </xsl:text>
+          <xsl:text>&#10;Wilson lower (descriptive): </xsl:text>
           <xsl:value-of select="v:statistics/@wilson-lower"/>
           <xsl:text>&#10;</xsl:text>
           <xsl:text>Standard error: </xsl:text>
@@ -463,13 +491,25 @@
           <xsl:text> (</xsl:text>
           <xsl:value-of select="v:statistics/@threshold-origin"/>
           <xsl:text>)</xsl:text>
-          <xsl:if test="v:statistics/@test-statistic">
-            <xsl:text>&#10;z-statistic: </xsl:text>
-            <xsl:value-of select="v:statistics/@test-statistic"/>
+          <xsl:for-each select="v:per-criterion/v:criterion[@decision-rule]">
+            <xsl:text>&#10;Rule (</xsl:text>
+            <xsl:value-of select="@id"/>
+            <xsl:text>): </xsl:text>
+            <xsl:value-of select="@decision-rule"/>
+            <xsl:text> v</xsl:text>
+            <xsl:value-of select="@decision-rule-version"/>
+          </xsl:for-each>
+          <xsl:if test="v:statistics/@size-at-assumed-common-rate">
+            <xsl:text>&#10;Size at assumed common rate: </xsl:text>
+            <xsl:value-of select="v:statistics/@size-at-assumed-common-rate"/>
           </xsl:if>
-          <xsl:if test="v:statistics/@p-value">
-            <xsl:text>&#10;p-value: </xsl:text>
-            <xsl:value-of select="v:statistics/@p-value"/>
+          <xsl:if test="v:statistics/@design-alternative-rate">
+            <xsl:text>&#10;Design alternative rate: </xsl:text>
+            <xsl:value-of select="v:statistics/@design-alternative-rate"/>
+            <xsl:text>&#10;Design power: </xsl:text>
+            <xsl:value-of select="v:statistics/@design-power"/>
+            <xsl:text>&#10;Resolved test power: </xsl:text>
+            <xsl:value-of select="v:statistics/@resolved-test-power"/>
           </xsl:if>
           <xsl:if test="v:provenance">
             <xsl:text>&#10;</xsl:text>

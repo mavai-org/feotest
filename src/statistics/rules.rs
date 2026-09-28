@@ -169,6 +169,35 @@ pub const fn check_test_size(
     }
 }
 
+/// Whether a test's statistical adequacy is enforced or advisory (§5.7).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+// mavai-ref: JVI-Q3H5YYY — do not remove (resolves in mavai-orchestrator)
+// mavai-ref: JVI-WKHRGXJ — do not remove (resolves in mavai-orchestrator)
+pub enum TestIntent {
+    /// An evidential claim. A configuration that cannot support one is
+    /// refused before any sample runs.
+    Verification,
+
+    /// A lightweight early-warning check. Undersized configurations run,
+    /// and their verdicts are labelled as not evidential.
+    Smoke,
+}
+
+impl fmt::Display for TestIntent {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Verification => write!(f, "VERIFICATION"),
+            Self::Smoke => write!(f, "SMOKE"),
+        }
+    }
+}
+
+impl Serialize for TestIntent {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(&self.to_string())
+    }
+}
+
 /// The one-sided level `1 − confidence`, as the decimal it is written as.
 ///
 /// `1 − 0.95` in binary floating point is `0.050000000000000044`; the level
@@ -269,5 +298,11 @@ mod tests {
         assert!((alpha_from_confidence(0.99) - 0.01).abs() == 0.0);
         assert!((alpha_from_confidence(0.999) - 0.001).abs() == 0.0);
         assert!((alpha_from_confidence(0.996_875) - 0.003_125).abs() == 0.0);
+    }
+
+    #[test]
+    fn intent_displays_its_wire_form() {
+        assert_eq!(TestIntent::Verification.to_string(), "VERIFICATION");
+        assert_eq!(TestIntent::Smoke.to_string(), "SMOKE");
     }
 }

@@ -1,26 +1,29 @@
 //! Verdict XML serialisation (the verdict XML interchange format).
 //!
 //! Serialises a [`VerdictRecord`] to XML conforming to the
-//! `http://mavai.org/verdict/1.0` schema. The output is a standalone
-//! `<verdict-record>` document suitable for file-per-test persistence
-//! and XSLT transformation to HTML.
+//! `http://mavai.org/verdict/1.0` schema, version 1.7 (Statistical Companion
+//! 1.5.0): the record states the methodology version whose decision rules
+//! produced it, each decision names its versioned rule, the record's verdict
+//! is the overall test verdict, and a configuration refused before any
+//! sample ran carries its configuration errors in place of a verdict. The
+//! output is a standalone `<verdict-record>` document suitable for
+//! file-per-test persistence and XSLT transformation to HTML.
 
 use std::fmt::Write;
 use std::io;
 use std::path::Path;
 
-use crate::latency::dimension::EvaluationStatus;
+use crate::latency::dimension::LatencyEvaluation;
 use crate::latency::resolver::ThresholdProvenance;
-use crate::verdict::{Verdict, VerdictRecord};
+use crate::statistics::defaults::DEFAULT_CONFIDENCE;
+use crate::statistics::rules::DecisionRule;
+use crate::verdict::{RuleEvidence, StatisticalAnalysis, Verdict, VerdictRecord};
 
 /// The XML namespace for the verdict interchange format.
 const NAMESPACE: &str = "http://mavai.org/verdict/1.0";
 
-/// Schema version emitted when the per-criterion bundle is absent.
-const VERSION_1_0: &str = "1.0";
-
-/// Schema version emitted when the per-criterion bundle is populated.
-const VERSION_1_2: &str = "1.2";
+/// The schema version this emitter writes.
+const SCHEMA_VERSION: &str = "1.7";
 
 /// Serialises verdict records to the verdict XML interchange format.
 // mavai-ref: JVI-DQWKY4Z — do not remove (resolves in mavai-orchestrator)
@@ -36,18 +39,15 @@ impl VerdictXmlWriter {
     pub fn write_record(record: &VerdictRecord, timestamp: Option<&str>) -> String {
         let mut xml = String::with_capacity(4096);
 
-        // The per-criterion bundle lifts the record to schema 1.2; a record
-        // with no criteria (none evaluated) stays at 1.0 so a consumer
-        // inspecting the attribute knows which shape to expect.
-        let version = if record.functional_assessment().criteria().is_empty() {
-            VERSION_1_0
-        } else {
-            VERSION_1_2
-        };
-
         writeln!(xml, "<?xml version=\"1.0\" encoding=\"UTF-8\"?>").unwrap();
         write!(xml, "<verdict-record xmlns=\"{NAMESPACE}\"").unwrap();
-        write!(xml, " version=\"{version}\"").unwrap();
+        write!(xml, " version=\"{SCHEMA_VERSION}\"").unwrap();
+        write!(
+            xml,
+            " methodology-version=\"{}\"",
+            record.methodology_version()
+        )
+        .unwrap();
         if let Some(ts) = timestamp {
             write!(xml, " timestamp=\"{}\"", escape_attr(ts)).unwrap();
         }
@@ -157,14 +157,25 @@ fn write_execution(w: &mut String, record: &VerdictRecord) {
     )
     .unwrap();
     write!(w, " intent=\"{}\"", record.intent()).unwrap();
-    if let Some(stats) = record.statistical_analysis() {
-        write!(w, " confidence=\"{}\"", stats.confidence_level()).unwrap();
-    }
+    // The schema requires the test's confidence; a record built without one
+    // (a hand-assembled record in a consumer's own tests) states the first
+    // criterion's, else the framework default every test starts from.
+    let confidence = record
+        .confidence_level()
+        .or_else(|| {
+            record
+                .statistical_analysis()
+                .map(StatisticalAnalysis::confidence_level)
+        })
+        .unwrap_or(DEFAULT_CONFIDENCE);
+    write!(w, " confidence=\"{confidence}\"").unwrap();
     writeln!(w, "/>").unwrap();
 }
 
 fn write_functional(w: &mut String, record: &VerdictRecord) {
-    let func = record.functional_summary();
+    let Some(func) = record.functional_summary() else {
+        return;
+    };
     let has_distribution = !func.failure_distribution().is_empty();
 
     write!(w, "  <functional").unwrap();
@@ -209,9 +220,11 @@ fn write_latency(w: &mut String, record: &VerdictRecord) {
         latency.advisory_violations()
     )
     .unwrap();
+    if let Some(verdict) = latency.verdict() {
+        write!(w, " verdict=\"{}\"", verdict_str(verdict)).unwrap();
+    }
     writeln!(w, ">").unwrap();
 
-    // Observed percentiles
     if !latency.observed_percentiles().is_empty() {
         writeln!(w, "    <observed>").unwrap();
         for (percentile, duration) in latency.observed_percentiles() {
@@ -226,55 +239,77 @@ fn write_latency(w: &mut String, record: &VerdictRecord) {
         writeln!(w, "    </observed>").unwrap();
     }
 
-    // Evaluations
     if !latency.evaluations().is_empty() {
         writeln!(w, "    <evaluations>").unwrap();
-        for ev in latency.evaluations() {
-            write!(
-                w,
-                "      <evaluation percentile=\"{}\"",
-                ev.percentile().label()
-            )
-            .unwrap();
-            if let Some(obs) = ev.observed() {
-                write!(w, " observed-ms=\"{}\"", obs.as_millis()).unwrap();
-            }
-            write!(w, " threshold-ms=\"{}\"", ev.threshold().as_millis()).unwrap();
-
-            match ev.provenance() {
-                ThresholdProvenance::Explicit => {
-                    write!(w, " provenance=\"explicit\"").unwrap();
-                }
-                ThresholdProvenance::BaselineDerived {
-                    confidence,
-                    rank,
-                    n,
-                } => {
-                    write!(w, " provenance=\"baseline-derived\"").unwrap();
-                    write!(w, " baseline-confidence=\"{confidence:.2}\"").unwrap();
-                    write!(w, " baseline-rank=\"{rank}\"").unwrap();
-                    write!(w, " baseline-n=\"{n}\"").unwrap();
-                }
-            }
-
-            let mode = match ev.mode() {
-                crate::latency::enforcement::LatencyEnforcementMode::Advisory => "advisory",
-                crate::latency::enforcement::LatencyEnforcementMode::Strict => "strict",
-            };
-            write!(w, " mode=\"{mode}\"").unwrap();
-
-            let status = match ev.status() {
-                EvaluationStatus::Pass => "PASS",
-                EvaluationStatus::StrictFail => "STRICT_FAIL",
-                EvaluationStatus::AdvisoryWarn => "ADVISORY_WARN",
-                EvaluationStatus::Infeasible => "INFEASIBLE",
-            };
-            writeln!(w, " status=\"{status}\"/>").unwrap();
+        for evaluation in latency.evaluations() {
+            write_evaluation(w, evaluation);
         }
         writeln!(w, "    </evaluations>").unwrap();
     }
 
     writeln!(w, "  </latency>").unwrap();
+}
+
+/// One `<evaluation>`: a saturated baseline-derived evaluation carries no
+/// threshold and no baseline rank; an enforced one names its rule, and an
+/// enforced explicit requirement its within-threshold and required counts.
+fn write_evaluation(w: &mut String, evaluation: &LatencyEvaluation) {
+    write!(
+        w,
+        "      <evaluation percentile=\"{}\"",
+        evaluation.percentile().label()
+    )
+    .unwrap();
+    if let Some(observed) = evaluation.observed() {
+        write!(w, " observed-ms=\"{}\"", observed.as_millis()).unwrap();
+    }
+    if let Some(threshold) = evaluation.threshold() {
+        write!(w, " threshold-ms=\"{}\"", threshold.as_millis()).unwrap();
+    }
+    match evaluation.provenance() {
+        ThresholdProvenance::Explicit => {
+            write!(w, " provenance=\"explicit\"").unwrap();
+        }
+        ThresholdProvenance::BaselineDerived {
+            confidence,
+            rank,
+            n,
+        } => {
+            write!(w, " provenance=\"baseline-derived\"").unwrap();
+            write!(w, " baseline-confidence=\"{confidence}\"").unwrap();
+            if let Some(rank) = rank {
+                write!(w, " baseline-rank=\"{rank}\"").unwrap();
+            }
+            write!(w, " baseline-n=\"{n}\"").unwrap();
+        }
+    }
+    let mode = match evaluation.mode() {
+        crate::latency::enforcement::LatencyEnforcementMode::Advisory => "advisory",
+        crate::latency::enforcement::LatencyEnforcementMode::Strict => "strict",
+    };
+    write!(w, " mode=\"{mode}\"").unwrap();
+    write!(w, " status=\"{}\"", evaluation.status().name()).unwrap();
+    if let Some(rule) = evaluation.decision_rule() {
+        write_rule(w, rule);
+    }
+    if let Some(within) = evaluation.within_threshold() {
+        write!(w, " within-threshold=\"{within}\"").unwrap();
+    }
+    if let Some(required) = evaluation.required_within() {
+        write!(w, " required-within=\"{required}\"").unwrap();
+    }
+    writeln!(w, "/>").unwrap();
+}
+
+/// The `decision-rule` and `decision-rule-version` attributes.
+fn write_rule(w: &mut String, rule: DecisionRule) {
+    write!(
+        w,
+        " decision-rule=\"{}\" decision-rule-version=\"{}\"",
+        rule.id(),
+        rule.version()
+    )
+    .unwrap();
 }
 
 fn write_statistics(w: &mut String, record: &VerdictRecord) {
@@ -288,11 +323,21 @@ fn write_statistics(w: &mut String, record: &VerdictRecord) {
     write!(w, " wilson-lower=\"{:.4}\"", stats.wilson_lower()).unwrap();
     write!(w, " threshold=\"{:.4}\"", stats.threshold()).unwrap();
     write!(w, " threshold-origin=\"{}\"", stats.threshold_origin()).unwrap();
-    if let Some(z) = stats.test_statistic() {
-        write!(w, " test-statistic=\"{z:.4}\"").unwrap();
-    }
-    if let Some(p) = stats.p_value() {
-        write!(w, " p-value=\"{p:.4}\"").unwrap();
+    if let RuleEvidence::Regression(evidence) = stats.evidence() {
+        let optional = [
+            (
+                "size-at-assumed-common-rate",
+                evidence.size_at_assumed_common_rate,
+            ),
+            ("design-alternative-rate", evidence.design_alternative_rate),
+            ("design-power", evidence.design_power),
+            ("resolved-test-power", evidence.resolved_test_power),
+        ];
+        for (name, value) in optional {
+            if let Some(value) = value {
+                write!(w, " {name}=\"{value}\"").unwrap();
+            }
+        }
     }
     writeln!(w, "/>").unwrap();
 }
@@ -470,7 +515,7 @@ const fn verdict_str(verdict: Verdict) -> &'static str {
 /// Emits the `<per-criterion>` bundle: one `<criterion>` row per criterion
 /// plus the `<composite>` verdict over them. Present whenever the run
 /// evaluated criteria (the normal case for a contract-driven run), which is
-/// what lifts the record to schema version 1.2.
+/// absent for a refused configuration, which judged nothing.
 fn write_per_criterion(w: &mut String, record: &VerdictRecord) {
     let assessment = record.functional_assessment();
     if assessment.criteria().is_empty() {
@@ -495,6 +540,7 @@ fn write_per_criterion(w: &mut String, record: &VerdictRecord) {
         }
         if let Some(analysis) = row.statistical_analysis() {
             write!(w, " threshold=\"{:.4}\"", analysis.threshold()).unwrap();
+            write_rule(w, analysis.decision_rule());
         }
         writeln!(w, "/>").unwrap();
     }
@@ -507,8 +553,24 @@ fn write_per_criterion(w: &mut String, record: &VerdictRecord) {
     writeln!(w, "  </per-criterion>").unwrap();
 }
 
+/// The `<verdict>`: the overall test verdict and — when one rule decided the
+/// whole test — that rule; for a refused configuration, the ordered
+/// configuration-error list and no value.
 fn write_verdict(w: &mut String, record: &VerdictRecord) {
-    write!(w, "  <verdict value=\"{}\"", verdict_str(record.verdict())).unwrap();
+    write!(w, "  <verdict").unwrap();
+    if let Some(verdict) = record.verdict() {
+        write!(w, " value=\"{}\"", verdict_str(verdict)).unwrap();
+        if let Some(rule) = record.single_decision_rule() {
+            write_rule(w, rule);
+        }
+    } else {
+        let codes: Vec<&str> = record
+            .configuration_errors()
+            .iter()
+            .map(|e| e.code())
+            .collect();
+        write!(w, " configuration-error=\"{}\"", codes.join(" ")).unwrap();
+    }
     let reason = record.verdict_reason();
     if !reason.is_empty() {
         write!(w, " reason=\"{}\"", escape_attr(reason)).unwrap();
@@ -552,9 +614,11 @@ mod tests {
         CostSummary, ExecutionSummary, ExpirationInfo, ExpirationStatus, PacingSummary,
         TerminationInfo, TerminationReason, TestIdentity, TestIntent, ThresholdOrigin, Warning,
     };
+    use crate::oracle_examples::{analysis_of, regression_row, two_criteria};
+    use crate::statistics::rules::ConfigurationError;
     use crate::verdict::{
         BaselineProvenance, CovariateStatus, CriterionRow, FunctionalAssessment, Misalignment,
-        SpecProvenance, StatisticalAnalysis,
+        SpecProvenance,
     };
     use insta::assert_snapshot;
     use std::time::Duration;
@@ -575,51 +639,90 @@ mod tests {
         )
     }
 
+    /// Oracle case `worked_example_pass_above_cutoff`: 97 of 100 against a
+    /// baseline of 951 of 1000, cutoff 91.
     fn pass_record() -> VerdictRecord {
-        let analysis =
-            StatisticalAnalysis::new(0.95, 0.022, 0.907, 0.900, ThresholdOrigin::Empirical)
-                .with_test_results(2.294, 0.011);
+        let row = regression_row("worked_example_pass_above_cutoff", "result");
+        let analysis = analysis_of(&row);
         let provenance =
             SpecProvenance::new(ThresholdOrigin::Empirical).with_spec_filename("my-service.yaml");
         let baseline_prov = BaselineProvenance::new(
             "my-service.yaml",
             "2026-03-27T10:00:00Z",
-            200,
-            0.9500,
-            0.9000,
+            1000,
+            0.951,
+            analysis.threshold(),
         );
 
         VerdictRecord::builder(
             TestIdentity::new("my-service").with_test_name("test_translation"),
             Verdict::Pass,
             TestIntent::Verification,
-            sample_execution(100, 100, 96, 4),
-            FunctionalAssessment::single(CriterionRow::result(96, 4, vec![], Verdict::Pass)),
+            sample_execution(100, 100, row.pass(), row.fail()),
+            FunctionalAssessment::single(row),
         )
+        .confidence_level(0.95)
         .statistical_analysis(analysis)
         .spec_provenance(provenance)
         .baseline_provenance(baseline_prov)
         .build()
     }
 
+    /// Oracle case `worked_example_fail_deep_degradation`: 80 of 100 against
+    /// a baseline of 951 of 1000, cutoff 91.
     fn fail_record() -> VerdictRecord {
-        let analysis =
-            StatisticalAnalysis::new(0.95, 0.040, 0.722, 0.900, ThresholdOrigin::Empirical)
-                .with_test_results(-1.500, 0.933);
+        let row = regression_row("worked_example_fail_deep_degradation", "result");
+        let analysis = analysis_of(&row);
 
         VerdictRecord::builder(
             TestIdentity::new("my-service").with_test_name("test_accuracy"),
             Verdict::Fail,
             TestIntent::Verification,
-            sample_execution(100, 100, 80, 20),
-            FunctionalAssessment::single(CriterionRow::result(
-                80,
-                20,
-                vec![("parse".to_string(), 12), ("content".to_string(), 8)],
-                Verdict::Fail,
-            )),
+            sample_execution(100, 100, row.pass(), row.fail()),
+            FunctionalAssessment::single(row),
         )
+        .confidence_level(0.95)
         .statistical_analysis(analysis)
+        .build()
+    }
+
+    /// A requirement and a baseline over the same postconditions as two
+    /// criteria: oracle case `two_criteria_fail_regression` (925 of 1000;
+    /// the requirement of 0.90 at alpha 0.01 is demonstrated, the Fisher
+    /// cutoff of 933 against 951 of 1000 is not reached).
+    fn two_criteria_record() -> VerdictRecord {
+        let (rows, triggering) = two_criteria("two_criteria_fail_regression");
+        VerdictRecord::builder(
+            TestIdentity::new("offer-extraction"),
+            Verdict::Fail,
+            TestIntent::Verification,
+            sample_execution(1000, 1000, 925, 75),
+            FunctionalAssessment::new(rows),
+        )
+        .triggering(triggering)
+        .confidence_level(0.95)
+        .build()
+    }
+
+    fn refused_record() -> VerdictRecord {
+        VerdictRecord::refused(
+            TestIdentity::new("offer-extraction"),
+            TestIntent::Verification,
+            ExecutionSummary::new(
+                200,
+                0,
+                0,
+                0,
+                TerminationInfo::new(TerminationReason::ConfigurationRefused)
+                    .with_detail("the test (200 samples) is larger than its baseline (100 trials)"),
+                CostSummary::new(Duration::ZERO, 0, 0),
+            ),
+            vec![
+                ConfigurationError::ComplianceInfeasible,
+                ConfigurationError::TestLargerThanBaseline,
+            ],
+        )
+        .confidence_level(0.95)
         .build()
     }
 
@@ -654,54 +757,55 @@ mod tests {
     }
 
     fn record_with_latency() -> VerdictRecord {
-        let analysis =
-            StatisticalAnalysis::new(0.95, 0.022, 0.907, 0.900, ThresholdOrigin::Empirical)
-                .with_test_results(2.294, 0.011);
+        let row = regression_row("worked_example_pass_above_cutoff", "result");
+        let analysis = analysis_of(&row);
 
         let latency = LatencyDimension::from_parts(
-            vec![
-                (Percentile::P50, Duration::from_millis(120)),
-                (Percentile::P95, Duration::from_millis(450)),
-                (Percentile::P99, Duration::from_millis(890)),
-            ],
             vec![
                 LatencyEvaluation::new(
                     Percentile::P50,
                     Some(Duration::from_millis(120)),
-                    Duration::from_millis(200),
+                    Some(Duration::from_millis(200)),
                     ThresholdProvenance::Explicit,
-                    LatencyEnforcementMode::Advisory,
+                    LatencyEnforcementMode::Strict,
                     EvaluationStatus::Pass,
                 ),
                 LatencyEvaluation::new(
                     Percentile::P95,
                     Some(Duration::from_millis(450)),
-                    Duration::from_millis(500),
-                    ThresholdProvenance::Explicit,
-                    LatencyEnforcementMode::Advisory,
-                    EvaluationStatus::Pass,
+                    None,
+                    ThresholdProvenance::BaselineDerived {
+                        confidence: 0.95,
+                        rank: None,
+                        n: 95,
+                    },
+                    LatencyEnforcementMode::Strict,
+                    EvaluationStatus::Saturated,
                 ),
                 LatencyEvaluation::new(
                     Percentile::P99,
                     Some(Duration::from_millis(890)),
-                    Duration::from_millis(800),
-                    ThresholdProvenance::Explicit,
+                    Some(Duration::from_millis(800)),
+                    ThresholdProvenance::BaselineDerived {
+                        confidence: 0.95,
+                        rank: Some(94),
+                        n: 95,
+                    },
                     LatencyEnforcementMode::Advisory,
                     EvaluationStatus::AdvisoryWarn,
                 ),
             ],
-            0,
-            1,
-            95,
+            97,
         );
 
         VerdictRecord::builder(
             TestIdentity::new("latency-service").with_test_name("test_response_time"),
-            Verdict::Pass,
+            Verdict::Inconclusive,
             TestIntent::Verification,
-            sample_execution(100, 100, 95, 5),
-            FunctionalAssessment::single(CriterionRow::result(95, 5, vec![], Verdict::Pass)),
+            sample_execution(100, 100, row.pass(), row.fail()),
+            FunctionalAssessment::single(row),
         )
+        .confidence_level(0.95)
         .statistical_analysis(analysis)
         .latency(latency)
         .build()
@@ -765,66 +869,72 @@ mod tests {
     }
 
     #[test]
-    fn single_criterion_record_emits_per_criterion_at_1_2() {
+    fn a_record_states_schema_1_7_and_its_methodology() {
         let xml = VerdictXmlWriter::write_record(&pass_record(), Some("2026-04-01T12:00:00Z"));
-
-        // The per-criterion bundle lifts the record to 1.2.
-        assert!(xml.contains("version=\"1.2\""));
-        assert!(xml.contains("<per-criterion>"));
-        // The conventional single row has no separate analysis, so it carries
-        // observed-rate but no threshold.
+        assert!(xml.contains("version=\"1.7\""));
+        assert!(xml.contains("methodology-version=\"1.5.0\""));
         assert!(xml.contains(
-            "<criterion id=\"result\" verdict=\"PASS\" pass=\"96\" fail=\"4\" \
-             inconclusive=\"0\" total=\"100\" observed-rate=\"0.9600\"/>"
+            "<criterion id=\"result\" verdict=\"PASS\" pass=\"97\" fail=\"3\" \
+             inconclusive=\"0\" total=\"100\" observed-rate=\"0.9700\" threshold=\"0.9100\" \
+             decision-rule=\"regression/fisher\" decision-rule-version=\"1\"/>"
         ));
         assert!(xml.contains("<composite value=\"PASS\"/>"));
+        // One rule decided the whole test, so <verdict> names it.
+        assert!(xml.contains(
+            "<verdict value=\"PASS\" decision-rule=\"regression/fisher\" \
+             decision-rule-version=\"1\""
+        ));
     }
 
     #[test]
-    fn per_criterion_emits_threshold_only_for_inferential_rows() {
-        let assessment = FunctionalAssessment::new(
-            Verdict::Pass,
-            vec![
-                // Inferential: carries an analysis, so threshold is emitted.
-                CriterionRow::new(
-                    "accuracy",
-                    90,
-                    10,
-                    vec![],
-                    Some(StatisticalAnalysis::new(
-                        0.95,
-                        0.03,
-                        0.85,
-                        0.90,
-                        ThresholdOrigin::Empirical,
-                    )),
-                    Verdict::Pass,
-                ),
-                // Observational: no analysis, so no threshold attribute.
-                CriterionRow::new("no-error", 100, 0, vec![], None, Verdict::Pass),
-            ],
-        );
-        let record = VerdictRecord::builder(
-            TestIdentity::new("svc").with_test_name("t"),
-            Verdict::Pass,
-            TestIntent::Verification,
-            sample_execution(100, 100, 90, 10),
-            assessment,
-        )
-        .build();
-
-        let xml = VerdictXmlWriter::write_record(&record, Some("2026-04-01T12:00:00Z"));
-
+    fn two_rules_are_stated_on_their_rows_and_not_on_the_verdict() {
+        let xml =
+            VerdictXmlWriter::write_record(&two_criteria_record(), Some("2026-04-01T12:00:00Z"));
+        assert!(xml.contains("decision-rule=\"compliance/exact-binomial\""));
+        assert!(xml.contains("decision-rule=\"regression/fisher\""));
         assert!(xml.contains(
-            "<criterion id=\"accuracy\" verdict=\"PASS\" pass=\"90\" fail=\"10\" \
-             inconclusive=\"0\" total=\"100\" observed-rate=\"0.9000\" threshold=\"0.9000\"/>"
+            "<verdict value=\"FAIL\" reason=\"failed: c_well_formed_regression: 925 of 1000 \
+             &lt; cutoff 933 (regression/fisher)\"/>"
         ));
-        // The observational row closes right after observed-rate — no threshold.
+    }
+
+    #[test]
+    fn a_refused_record_carries_its_codes_in_order_and_no_value() {
+        let xml = VerdictXmlWriter::write_record(&refused_record(), Some("2026-04-01T12:00:00Z"));
         assert!(xml.contains(
-            "<criterion id=\"no-error\" verdict=\"PASS\" pass=\"100\" fail=\"0\" \
-             inconclusive=\"0\" total=\"100\" observed-rate=\"1.0000\"/>"
+            "<verdict configuration-error=\"TEST_LARGER_THAN_BASELINE COMPLIANCE_INFEASIBLE\""
         ));
-        assert!(xml.contains("<composite value=\"PASS\"/>"));
+        assert!(!xml.contains("<verdict value="));
+        assert!(xml.contains("<termination reason=\"CONFIGURATION_REFUSED\""));
+        assert!(!xml.contains("<functional"));
+        assert!(!xml.contains("<per-criterion>"));
+    }
+
+    #[test]
+    fn a_saturated_evaluation_has_no_threshold_and_no_rank() {
+        let xml =
+            VerdictXmlWriter::write_record(&record_with_latency(), Some("2026-04-01T12:00:00Z"));
+        let saturated = xml
+            .lines()
+            .find(|line| line.contains("status=\"SATURATED\""))
+            .unwrap();
+        assert!(!saturated.contains("threshold-ms"));
+        assert!(!saturated.contains("baseline-rank"));
+        assert!(saturated.contains("decision-rule=\"latency/precedence\""));
+        assert!(xml.contains("verdict=\"INCONCLUSIVE\">"));
+    }
+
+    #[test]
+    fn xml_two_criteria_record() {
+        let xml =
+            VerdictXmlWriter::write_record(&two_criteria_record(), Some("2026-04-01T12:00:00Z"));
+        assert_snapshot!(xml);
+    }
+
+    #[test]
+    fn xml_refused_record() {
+        let xml = VerdictXmlWriter::write_record(&refused_record(), Some("2026-04-01T12:00:00Z"));
+        assert_snapshot!(xml);
     }
 
     // -----------------------------------------------------------------------
@@ -969,9 +1079,10 @@ mod tests {
         let pacing_config = PacingConfig::new().max_requests_per_second(5.0);
         let pacing_summary = PacingSummary::from_config(&pacing_config);
 
-        let analysis =
-            StatisticalAnalysis::new(0.95, 0.022, 0.907, 0.900, ThresholdOrigin::Empirical)
-                .with_test_results(2.294, 0.011);
+        // Oracle case `boundary_equal_sizes_pass_at_cutoff`: 933 of 1000
+        // against a baseline of 951 of 1000, cutoff 933.
+        let row = regression_row("boundary_equal_sizes_pass_at_cutoff", "result");
+        let analysis = analysis_of(&row);
 
         let provenance = SpecProvenance::new(ThresholdOrigin::Empirical)
             .with_spec_filename("full-service.yaml")
@@ -984,18 +1095,19 @@ mod tests {
         let baseline_prov = BaselineProvenance::new(
             "full-service.yaml",
             "2026-03-01T08:00:00Z",
-            500,
-            0.9600,
-            0.9200,
+            1000,
+            0.951,
+            analysis.threshold(),
         );
 
         let record = VerdictRecord::builder(
             TestIdentity::new("full-service").with_test_name("test_everything"),
             Verdict::Pass,
             TestIntent::Verification,
-            sample_execution(200, 200, 192, 8),
-            FunctionalAssessment::single(CriterionRow::result(192, 8, vec![], Verdict::Pass)),
+            sample_execution(1000, 1000, row.pass(), row.fail()),
+            FunctionalAssessment::single(row),
         )
+        .confidence_level(0.95)
         .statistical_analysis(analysis)
         .spec_provenance(provenance)
         .baseline_provenance(baseline_prov)

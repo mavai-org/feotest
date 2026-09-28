@@ -42,6 +42,8 @@ pub mod criteria;
 pub mod experiment;
 pub mod latency;
 pub mod model;
+#[cfg(test)]
+mod oracle_examples;
 pub mod ptest;
 pub mod reporting;
 pub mod sentinel;

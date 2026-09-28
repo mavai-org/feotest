@@ -24,7 +24,7 @@ fn threshold_first_terminates_on_failure_inevitable() {
         .run();
 
     let record = result.verdict_record();
-    assert_eq!(record.verdict(), Verdict::Fail);
+    assert_eq!(record.verdict(), Some(Verdict::Fail));
     assert_eq!(
         record.execution().termination().reason(),
         &TerminationReason::FailureInevitable
@@ -65,7 +65,7 @@ fn sample_size_first_terminates_on_failure_inevitable() {
             .run();
 
     let record = result.verdict_record();
-    assert_eq!(record.verdict(), Verdict::Fail);
+    assert_eq!(record.verdict(), Some(Verdict::Fail));
     assert_eq!(
         record.execution().termination().reason(),
         &TerminationReason::FailureInevitable
@@ -88,7 +88,7 @@ fn threshold_first_terminates_on_success_guaranteed() {
             .run();
 
     let record = result.verdict_record();
-    assert_eq!(record.verdict(), Verdict::Pass);
+    assert_eq!(record.verdict(), Some(Verdict::Pass));
     assert_eq!(
         record.execution().termination().reason(),
         &TerminationReason::SuccessGuaranteed
@@ -118,7 +118,7 @@ fn validity_floor_delays_runner_success_guaranteed() {
         .run();
 
     let record = result.verdict_record();
-    assert_eq!(record.verdict(), Verdict::Pass);
+    assert_eq!(record.verdict(), Some(Verdict::Pass));
     assert_eq!(
         record.execution().termination().reason(),
         &TerminationReason::SuccessGuaranteed
@@ -176,7 +176,7 @@ fn override_runs_all_samples_despite_inevitable_failure() {
             .run();
 
     let record = result.verdict_record();
-    assert_eq!(record.verdict(), Verdict::Fail);
+    assert_eq!(record.verdict(), Some(Verdict::Fail));
     assert_eq!(record.execution().samples_executed(), 200);
     assert_eq!(
         record.execution().termination().reason(),
@@ -200,7 +200,7 @@ fn override_runs_all_samples_despite_guaranteed_success() {
             .run();
 
     let record = result.verdict_record();
-    assert_eq!(record.verdict(), Verdict::Pass);
+    assert_eq!(record.verdict(), Some(Verdict::Pass));
     assert_eq!(record.execution().samples_executed(), 200);
     assert_eq!(
         record.execution().termination().reason(),

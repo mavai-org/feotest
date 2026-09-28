@@ -1,11 +1,11 @@
 ---
 source: src/reporting/console.rs
-assertion_line: 612
 expression: output
 ---
-═ VERDICT: PASS (1.0000 >= 0.0000) ═
+═ VERDICT: PASS (10 of 10 observed) ═
 Test:                warned-service
 
+Methodology:         1.5.0
 Pass rate:           1.0000 (10/10 samples)
 Elapsed:             0.5s
 

@@ -3,19 +3,24 @@ source: src/reporting/verdict_xml.rs
 expression: xml
 ---
 <?xml version="1.0" encoding="UTF-8"?>
-<verdict-record xmlns="http://mavai.org/verdict/1.0" version="1.2" timestamp="2026-04-01T12:00:00Z" generator="feotest/0.2.0">
+<verdict-record xmlns="http://mavai.org/verdict/1.0" version="1.7" methodology-version="1.5.0" timestamp="2026-04-01T12:00:00Z" generator="feotest/0.2.0">
   <identity use-case-id="my-service" test-name="test_translation"/>
-  <execution planned-samples="100" samples-executed="100" successes="96" failures="4" elapsed-ms="500" intent="VERIFICATION" confidence="0.95"/>
-  <functional successes="96" failures="4" pass-rate="0.9600"/>
-  <statistics confidence-level="0.9500" standard-error="0.0220" wilson-lower="0.9070" threshold="0.9000" threshold-origin="EMPIRICAL" test-statistic="2.2940" p-value="0.0110"/>
+  <execution planned-samples="100" samples-executed="100" successes="97" failures="3" elapsed-ms="500" intent="VERIFICATION" confidence="0.95"/>
+  <functional successes="97" failures="3" pass-rate="0.9700">
+    <failure-distribution>
+      <check name="parse" count="2"/>
+      <check name="content" count="1"/>
+    </failure-distribution>
+  </functional>
+  <statistics confidence-level="0.9500" standard-error="0.0171" wilson-lower="0.9273" threshold="0.9100" threshold-origin="EMPIRICAL" size-at-assumed-common-rate="0.033967392625028556"/>
   <covariates aligned="true"/>
   <provenance origin="EMPIRICAL" spec-filename="my-service.yaml"/>
-  <baseline source-file="my-service.yaml" generated-at="2026-03-27T10:00:00Z" samples="200" baseline-rate="0.9500" derived-threshold="0.9000"/>
+  <baseline source-file="my-service.yaml" generated-at="2026-03-27T10:00:00Z" samples="1000" baseline-rate="0.9510" derived-threshold="0.9100"/>
   <termination reason="COMPLETED"/>
   <cost total-time-ms="500" total-tokens="1000" avg-time-per-sample-ms="5" avg-tokens-per-sample="10"/>
   <per-criterion>
-    <criterion id="result" verdict="PASS" pass="96" fail="4" inconclusive="0" total="100" observed-rate="0.9600"/>
+    <criterion id="result" verdict="PASS" pass="97" fail="3" inconclusive="0" total="100" observed-rate="0.9700" threshold="0.9100" decision-rule="regression/fisher" decision-rule-version="1"/>
     <composite value="PASS"/>
   </per-criterion>
-  <verdict value="PASS" reason="0.9600 &gt;= 0.9000"/>
+  <verdict value="PASS" decision-rule="regression/fisher" decision-rule-version="1" reason="97 of 100 &gt;= cutoff 91 (regression/fisher)"/>
 </verdict-record>

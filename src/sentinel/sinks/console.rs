@@ -52,12 +52,14 @@ impl<W: Write + Send + Sync> ConsoleVerdictSink<W> {
 
 impl<W: Write + Send + Sync> VerdictSink for ConsoleVerdictSink<W> {
     fn accept(&mut self, verdict: &VerdictRecord) -> Result<(), SinkError> {
+        let outcome = verdict
+            .verdict()
+            .map_or_else(|| "Refused".to_owned(), |v| format!("{v:?}"));
         writeln!(
             self.writer,
-            "{}\t{}\t{:?}",
+            "{}\t{}\t{outcome}",
             verdict.identity().service_contract_id(),
             verdict.identity().test_name().unwrap_or("-"),
-            verdict.verdict()
         )
         .map_err(|e| SinkError::DeliveryFailed(e.to_string()))
     }

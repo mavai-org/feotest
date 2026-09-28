@@ -5,10 +5,12 @@
 //! judge the run against each stipulated threshold: the per-criterion
 //! tallies, the run's own sample count, and a threshold whose validity does
 //! not depend on any baseline. Each normative criterion is judged by
-//! comparing the one-sided Wilson lower bound of its observed pass rate — at
-//! the run's sample count and the framework's default confidence — against
-//! the stipulated threshold. Empirical criteria are never judged at
-//! experiment time: their bar does not exist until a baseline supplies it.
+//! `compliance/exact-binomial` at the framework's default confidence — its
+//! success count against the smallest count that demonstrates the stipulated
+//! threshold (equivalently, the one-sided Clopper–Pearson lower bound of its
+//! observed rate against the stipulation). Empirical criteria are never
+//! judged at experiment time: their bar does not exist until a baseline
+//! supplies it.
 //!
 //! A judgement states one fact — the relation of this run's evidence to a
 //! stipulation in force at measure time — and implies nothing further about
@@ -21,8 +23,9 @@ use std::fmt;
 
 use crate::criteria::{CriteriaCounts, CriterionTarget};
 use crate::spec::baseline::{NormativeJudgementBlock, NormativeJudgementState};
+use crate::statistics::decision::{Verdict, evaluate_compliance};
 use crate::statistics::types::ConfidenceLevel;
-use crate::statistics::{defaults, feasibility, proportion};
+use crate::statistics::{defaults, feasibility};
 
 /// The three-valued state of one normative judgement.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -91,7 +94,7 @@ impl NormativeJudgement {
         self.observed_rate
     }
 
-    /// The one-sided Wilson lower bound of the observed rate at the run's
+    /// The one-sided Clopper–Pearson lower bound of the observed rate at the run's
     /// sample count, or `None` when no samples were recorded.
     #[must_use]
     pub const fn lower_bound(&self) -> Option<f64> {
@@ -170,30 +173,37 @@ pub fn judge_normative_criteria(
         .collect()
 }
 
-/// Judges one normative criterion: unsupportable when the tally cannot carry
-/// the stipulated threshold at the judgement confidence, otherwise met or
-/// failed by whether the Wilson lower bound clears the stipulation.
+/// Judges one normative criterion by `compliance/exact-binomial`:
+/// unsupportable when no outcome of the tally's size can demonstrate the
+/// stipulated threshold, otherwise met or failed by whether this run's count
+/// demonstrates it.
 fn judge_criterion(name: &str, stipulated: f64, counts: &CriteriaCounts) -> NormativeJudgement {
     let confidence = ConfidenceLevel::new(defaults::DEFAULT_CONFIDENCE);
+    let alpha = confidence.alpha();
     let (pass, total) = counts
         .get(name)
         .map_or((0, 0), |tally| (tally.pass(), tally.total()));
 
     let observed_rate = (total > 0).then(|| f64::from(pass) / f64::from(total));
-    let lower_bound = (total > 0).then(|| proportion::lower_bound(pass, total, confidence));
+    let decision = (total > 0).then(|| evaluate_compliance(pass, total, stipulated, alpha));
+    let lower_bound = decision.map(|d| d.clopper_pearson_lower());
 
-    let feasibility = feasibility::feasibility_check(total, stipulated, confidence);
-    let state = if feasibility.feasible() {
-        // Feasibility implies total > 0, so the lower bound exists.
-        if lower_bound.expect("a feasible tally has samples") >= stipulated {
-            JudgementState::Met
-        } else {
-            JudgementState::Failed
+    let state = match decision {
+        Some(decision) if decision.pass_possible() => {
+            if decision.verdict() == Verdict::Pass {
+                JudgementState::Met
+            } else {
+                JudgementState::Failed
+            }
         }
-    } else {
-        JudgementState::Unsupportable {
-            feasible_minimum_samples: feasibility.minimum_samples(),
-        }
+        _ => JudgementState::Unsupportable {
+            feasible_minimum_samples: feasibility::feasibility_check(
+                total.max(1),
+                stipulated,
+                alpha,
+            )
+            .minimum_samples(),
+        },
     };
 
     NormativeJudgement {

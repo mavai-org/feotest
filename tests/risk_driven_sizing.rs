@@ -1,9 +1,10 @@
 //! Risk-driven sizing through the contract-driven probabilistic test.
 //!
 //! Drives a scripted contract end to end: a measure experiment establishes a
-//! baseline at a known rate, the test declares a risk appetite (tolerance,
-//! confidence, target power), and the runner computes the sample count the
-//! statistics layer prices for that promise.
+//! baseline at a known count, the test declares a risk appetite (the design
+//! alternative rate, confidence, target power), and the runner computes the
+//! sample count resolved sizing against the observed baseline prices for
+//! that promise (Statistical Companion §5.4.1).
 
 use std::sync::atomic::{AtomicU32, Ordering};
 
@@ -15,7 +16,6 @@ use feotest::ptest::builder::ThresholdApproach;
 use feotest::service_contract::ServiceContract;
 use feotest::spec::SpecResolver;
 use feotest::statistics::risk_driven_sizing;
-use feotest::statistics::types::ConfidenceLevel;
 
 /// One criterion's script: its name and how many judged samples pass before
 /// every subsequent one fails.
@@ -108,7 +108,7 @@ fn run_risk_driven(
     service_contract_id: &str,
     baseline_dir: &std::path::Path,
     criterion_names: &'static [&'static str],
-    minimum_acceptable_rate: f64,
+    design_alternative_rate: f64,
 ) -> feotest::ptest::ProbabilisticTestResult {
     let inputs = vec!["input".to_string()];
     ProbabilisticTest::for_contract(ScriptedContract {
@@ -123,7 +123,7 @@ fn run_risk_driven(
     })
     .inputs(&inputs)
     .approach(ThresholdApproach::RiskDriven {
-        minimum_acceptable_rate,
+        design_alternative_rate,
         confidence: 0.95,
         target_power: 0.80,
     })
@@ -133,28 +133,31 @@ fn run_risk_driven(
 }
 
 #[test]
-fn computed_sample_count_matches_the_oracle_for_the_worked_baseline() {
-    // A baseline measured at exactly 0.96: tolerating a true rate down to
-    // 0.93 at 95% confidence and 80% power prices to 405 samples — the
-    // oracle's published answer for this tuple.
-    let id = "risk-driven-worked-baseline";
-    let baseline_dir = establish_scripted_baseline(id, &[("accuracy", 96)], 100);
+fn computed_sample_count_matches_the_oracle_for_the_walkthrough_baseline() {
+    // Oracle case `resolved_walkthrough_1920_of_2000_at_093`: a baseline of
+    // 1920 of 2000, a design alternative rate of 0.93 at 95% confidence and
+    // 80% power resolves to 460 samples.
+    let id = "risk-driven-walkthrough-baseline";
+    let baseline_dir = establish_scripted_baseline(id, &[("accuracy", 1920)], 2000);
 
     let result = run_risk_driven(id, baseline_dir.path(), &["accuracy"], 0.93);
 
     let execution = result.verdict_record().execution();
-    assert_eq!(execution.samples_planned(), 405);
+    assert_eq!(execution.samples_planned(), 460);
     assert!(result.passed());
 }
 
 #[test]
 fn governing_sample_count_is_the_weakest_criterions_requirement() {
     // Two baseline-derived criteria at different rates: the lower-rate
-    // criterion sits closer to the tolerance and demands more samples, so
-    // its requirement governs the whole run.
+    // criterion sits closer to the design alternative and demands more
+    // samples, so its requirement governs the whole run.
     let id = "risk-driven-governing";
-    let baseline_dir =
-        establish_scripted_baseline(id, &[("format valid", 96), ("content faithful", 94)], 100);
+    let baseline_dir = establish_scripted_baseline(
+        id,
+        &[("format valid", 1920), ("content faithful", 1900)],
+        2000,
+    );
 
     let result = run_risk_driven(
         id,
@@ -163,9 +166,13 @@ fn governing_sample_count_is_the_weakest_criterions_requirement() {
         0.93,
     );
 
-    let confidence = ConfidenceLevel::new(0.95);
-    let governing = risk_driven_sizing::required_sample_size(0.94, 0.93, confidence, 0.80);
-    let weaker = risk_driven_sizing::required_sample_size(0.96, 0.93, confidence, 0.80);
+    let required = |successes| {
+        risk_driven_sizing::resolved_sizing(successes, 2000, 0.93, 0.05, 0.80)
+            .unwrap()
+            .required_samples()
+    };
+    let governing = required(1900);
+    let weaker = required(1920);
     assert!(
         governing > weaker,
         "the lower rate must demand more samples"
@@ -177,12 +184,24 @@ fn governing_sample_count_is_the_weakest_criterions_requirement() {
 }
 
 #[test]
-#[should_panic(expected = "risk-driven sizing is undefined for criterion 'accuracy'")]
-fn over_reaching_tolerance_panics_naming_the_governing_criterion() {
-    // Tolerating no rate below 0.97 against a baseline measured at 0.96
+#[should_panic(
+    expected = "sizing is undefined for criterion 'accuracy' (ALTERNATIVE_NOT_BELOW_BASELINE)"
+)]
+fn a_design_alternative_above_the_baseline_panics_naming_the_criterion() {
+    // A design alternative rate of 0.97 against a baseline measured at 0.96
     // asks the test to detect a degradation the baseline already exceeds.
     let id = "risk-driven-over-reach";
     let baseline_dir = establish_scripted_baseline(id, &[("accuracy", 96)], 100);
 
     run_risk_driven(id, baseline_dir.path(), &["accuracy"], 0.97);
+}
+
+#[test]
+#[should_panic(expected = "sizing is undefined for criterion 'accuracy' (BASELINE_TOO_SMALL)")]
+fn a_baseline_too_small_for_the_design_panics_naming_the_criterion() {
+    // Oracle case `resolved_baseline_too_small_288_of_300_at_093`.
+    let id = "risk-driven-too-small";
+    let baseline_dir = establish_scripted_baseline(id, &[("accuracy", 288)], 300);
+
+    run_risk_driven(id, baseline_dir.path(), &["accuracy"], 0.93);
 }

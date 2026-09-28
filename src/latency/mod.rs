@@ -2,10 +2,11 @@
 //!
 //! This module hosts the domain-level machinery for the latency dimension
 //! of a probabilistic test: threshold declaration, resolution against a
-//! baseline, enforcement policy, and the verdict dimension. The underlying
-//! statistical primitives (nearest-rank percentile, non-parametric binomial
-//! threshold, minimum-sample feasibility) live in `crate::statistics::latency`
-//! and are exercised by the conformance suite.
+//! baseline, enforcement policy, and the verdict dimension. The decision
+//! rules (`latency/compliance-exact-binomial` for an explicit requirement,
+//! `latency/precedence` for a baseline-derived threshold) and the latency
+//! gates live in `crate::statistics::latency` and are exercised by the
+//! conformance suite.
 
 pub mod criterion;
 pub mod dimension;
@@ -18,8 +19,11 @@ pub use criterion::LatencyCriterion;
 pub use dimension::{EvaluationStatus, LatencyDimension, LatencyEvaluation};
 pub use enforcement::{LatencyEnforcementMode, resolved_mode_from_env};
 pub use percentile::Percentile;
-pub use resolver::{ResolvedLatencyThreshold, ThresholdProvenance, resolve};
+pub use resolver::{
+    ConstraintConfidence, ConstraintSource, ResolvedLatencyConstraint, ThresholdProvenance, resolve,
+};
 pub use thresholds::LatencyThresholds;
 
-/// Default baseline-derivation confidence level used when none is supplied.
-pub const DEFAULT_BASELINE_CONFIDENCE: f64 = 0.95;
+/// Default confidence level of a latency decision when none is supplied —
+/// for an explicit requirement and for a baseline-derived threshold alike.
+pub const DEFAULT_LATENCY_CONFIDENCE: f64 = 0.95;

@@ -2,15 +2,17 @@
 source: src/reporting/console.rs
 expression: output
 ---
-═ VERDICT: FAIL (0.4762 < 0.9000) ═
+═ VERDICT: FAIL (17 of 25 < cutoff 18 (regression/fisher)) ═
 Test:                degraded-service
 
-Pass rate:           0.4762 (20/42 samples)
-Threshold:           0.9000
+Methodology:         1.5.0
+Pass rate:           0.6800 (17/25 samples)
+Rule:                regression/fisher (cutoff 18)
+Threshold:           0.7200
 Confidence:          0.9500
-Wilson lower:        0.3420
+Wilson lower:        0.5156 (descriptive)
 Origin:              EMPIRICAL
 
 Termination:         FAILURE_INEVITABLE
-Executed:            42 of 100 planned
+Executed:            25 of 100 planned
 Elapsed:             0.2s

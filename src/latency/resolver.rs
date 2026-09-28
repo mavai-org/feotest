@@ -1,5 +1,11 @@
-//! Resolves explicit and baseline-derived latency thresholds into a single
-//! list of evaluation targets.
+//! Resolves explicit and baseline-derived latency constraints into a single
+//! list of constraints to judge after the run.
+//!
+//! A baseline-derived threshold depends on the number of successful
+//! latencies the test itself collects (`latency/precedence`, Statistical
+//! Companion §12.4), so it is derived after the run, not here: the resolver
+//! carries the baseline's latencies forward and the latency dimension
+//! derives and judges.
 
 use std::time::Duration;
 
@@ -9,149 +15,212 @@ use crate::latency::enforcement::LatencyEnforcementMode;
 use crate::latency::percentile::Percentile;
 use crate::latency::thresholds::LatencyThresholds;
 use crate::spec::baseline::LatencyBlock;
-use crate::statistics::latency;
 
-/// Where a resolved threshold came from.
+/// Where a judged threshold came from, as the verdict records it.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize)]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum ThresholdProvenance {
-    /// User declared the threshold explicitly on the builder.
+    /// The contract declared the threshold explicitly.
     Explicit,
-    /// Derived from the baseline spec at the given confidence level, landing
-    /// on rank `k` of the baseline sample.
+    /// Derived from the baseline's successful latencies by
+    /// `latency/precedence`.
     BaselineDerived {
-        /// Confidence level used for the binomial bound.
+        /// Confidence level of the precedence rank (`1 − alpha`).
         confidence: f64,
-        /// 1-indexed order-statistic rank chosen.
-        rank: u32,
-        /// Size of the baseline sample.
+        /// 1-indexed baseline rank the threshold sits at; `None` when no
+        /// rank achieves alpha (saturated).
+        #[serde(skip_serializing_if = "Option::is_none")]
+        rank: Option<u32>,
+        /// Number of baseline successful latencies.
         n: u32,
     },
 }
 
-/// A percentile threshold that has been resolved to a concrete duration and
-/// is ready for evaluation against observed latencies.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct ResolvedLatencyThreshold {
-    percentile: Percentile,
-    threshold: Duration,
-    provenance: ThresholdProvenance,
-    mode: LatencyEnforcementMode,
-    feasible: bool,
+/// Where a constraint's threshold comes from, before the run.
+#[derive(Debug, Clone, PartialEq)]
+pub enum ConstraintSource {
+    /// A threshold the contract declares.
+    Explicit {
+        /// The declared ceiling (inclusive).
+        threshold: Duration,
+    },
+    /// A threshold to be derived from the baseline's successful latencies.
+    BaselineDerived {
+        /// The baseline's successful latencies in milliseconds, ascending.
+        baseline_latencies_ms: Vec<f64>,
+    },
 }
 
-impl ResolvedLatencyThreshold {
-    /// The percentile this threshold targets.
+/// A latency constraint ready to be judged on the run's successful
+/// latencies.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ResolvedLatencyConstraint {
+    percentile: Percentile,
+    source: ConstraintSource,
+    mode: LatencyEnforcementMode,
+    confidence: f64,
+}
+
+impl ResolvedLatencyConstraint {
+    /// The percentile this constraint targets.
     #[must_use]
     pub const fn percentile(&self) -> Percentile {
         self.percentile
     }
 
-    /// The threshold value (inclusive upper bound).
+    /// Where the threshold comes from.
     #[must_use]
-    pub const fn threshold(&self) -> Duration {
-        self.threshold
+    pub const fn source(&self) -> &ConstraintSource {
+        &self.source
     }
 
-    /// Where this threshold came from.
-    #[must_use]
-    pub const fn provenance(&self) -> ThresholdProvenance {
-        self.provenance
-    }
-
-    /// The enforcement mode that governs this threshold.
+    /// The enforcement mode that governs this constraint.
     #[must_use]
     pub const fn mode(&self) -> LatencyEnforcementMode {
         self.mode
     }
 
-    /// Whether the baseline held enough successful samples for the percentile
-    /// estimate to be non-degenerate. Always `true` for `Explicit` thresholds.
+    /// The confidence level of the constraint's decision (`1 − alpha`).
     #[must_use]
-    pub const fn feasible(&self) -> bool {
-        self.feasible
+    pub const fn confidence(&self) -> f64 {
+        self.confidence
+    }
+
+    /// Whether the constraint consumes the baseline's latencies.
+    #[must_use]
+    pub const fn is_baseline_derived(&self) -> bool {
+        matches!(self.source, ConstraintSource::BaselineDerived { .. })
+    }
+
+    /// Whether the constraint takes part in the verdict.
+    #[must_use]
+    pub fn is_enforced(&self) -> bool {
+        self.mode == LatencyEnforcementMode::Strict
     }
 }
 
-/// Resolves explicit and baseline-derived thresholds into one list.
+/// The confidence levels the resolved constraints are decided at.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ConstraintConfidence {
+    /// For the contract's explicit latency requirements.
+    pub explicit: f64,
+    /// For thresholds derived from the baseline.
+    pub baseline: f64,
+}
+
+/// Resolves explicit and baseline-derived constraints into one list.
 ///
-/// - Explicit thresholds always win over baseline-derived ones for the same
-///   percentile and are marked `Strict`, `feasible = true`.
-/// - Baseline-derived thresholds call the non-parametric binomial bound in
-///   `statistics::latency::derive_latency_threshold` and inherit
-///   `mode_for_baseline`.
-/// - Percentiles that lack enough baseline samples (see `min_samples_for`)
-///   are still returned but flagged `feasible = false`; no threshold is
-///   emitted for them (the caller reports this as a warning).
+/// - An explicit threshold wins over the baseline for its percentile and is
+///   enforced strictly (`latency/compliance-exact-binomial`).
+/// - A percentile the contract does not bound gets a baseline-derived
+///   constraint when the baseline recorded successful latencies, governed by
+///   `mode_for_baseline` (`latency/precedence`).
 #[must_use]
 // mavai-ref: JVI-QVNG2SX — do not remove (resolves in mavai-orchestrator)
 pub fn resolve(
     explicit: &LatencyThresholds,
     baseline: Option<&LatencyBlock>,
-    baseline_confidence: f64,
+    confidence: ConstraintConfidence,
     mode_for_baseline: LatencyEnforcementMode,
-) -> Vec<ResolvedLatencyThreshold> {
-    let mut out = Vec::new();
-
-    for &p in &Percentile::ALL {
-        if let Some(value) = explicit.get(p) {
-            out.push(ResolvedLatencyThreshold {
-                percentile: p,
-                threshold: value,
-                provenance: ThresholdProvenance::Explicit,
-                mode: LatencyEnforcementMode::Strict,
-                feasible: true,
-            });
-            continue;
-        }
-
-        if let Some(block) = baseline {
-            let n = u32::try_from(block.latencies_ms.len()).unwrap_or(u32::MAX);
-            let min = latency::min_samples_for(p.as_fraction());
-            if n < min {
-                // Infeasible: record with a sentinel threshold; caller emits warning.
-                out.push(ResolvedLatencyThreshold {
-                    percentile: p,
-                    threshold: Duration::ZERO,
-                    provenance: ThresholdProvenance::BaselineDerived {
-                        confidence: baseline_confidence,
-                        rank: 0,
-                        n,
-                    },
-                    mode: mode_for_baseline,
-                    feasible: false,
-                });
-                continue;
-            }
+) -> Vec<ResolvedLatencyConstraint> {
+    let baseline_latencies: Option<Vec<f64>> = baseline
+        .filter(|block| !block.latencies_ms.is_empty())
+        .map(|block| {
             #[allow(
                 clippy::cast_precision_loss,
                 reason = "millisecond latencies fit in f64 mantissa"
             )]
-            let latencies_f64: Vec<f64> = block.latencies_ms.iter().map(|&x| x as f64).collect();
-            let derived = latency::derive_latency_threshold(
-                &latencies_f64,
-                p.as_fraction(),
-                baseline_confidence,
-            );
-            #[allow(
-                clippy::cast_possible_truncation,
-                clippy::cast_sign_loss,
-                reason = "threshold is a non-negative latency in ms; fits in u64"
-            )]
-            let threshold_ms = derived.threshold() as u64;
-            out.push(ResolvedLatencyThreshold {
-                percentile: p,
-                threshold: Duration::from_millis(threshold_ms),
-                provenance: ThresholdProvenance::BaselineDerived {
-                    confidence: baseline_confidence,
-                    rank: derived.rank(),
-                    n: derived.n(),
-                },
-                mode: mode_for_baseline,
-                feasible: true,
-            });
+            let latencies = block.latencies_ms.iter().map(|&ms| ms as f64).collect();
+            latencies
+        });
+    Percentile::ALL
+        .iter()
+        .filter_map(|&percentile| {
+            if let Some(threshold) = explicit.get(percentile) {
+                return Some(ResolvedLatencyConstraint {
+                    percentile,
+                    source: ConstraintSource::Explicit { threshold },
+                    mode: LatencyEnforcementMode::Strict,
+                    confidence: confidence.explicit,
+                });
+            }
+            baseline_latencies
+                .as_ref()
+                .map(|latencies| ResolvedLatencyConstraint {
+                    percentile,
+                    source: ConstraintSource::BaselineDerived {
+                        baseline_latencies_ms: latencies.clone(),
+                    },
+                    mode: mode_for_baseline,
+                    confidence: confidence.baseline,
+                })
+        })
+        .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn block(latencies: Vec<u64>) -> LatencyBlock {
+        LatencyBlock {
+            mean_ms: 0,
+            max_ms: latencies.last().copied().unwrap_or(0),
+            latencies_ms: latencies,
         }
     }
 
-    out
+    const CONFIDENCE: ConstraintConfidence = ConstraintConfidence {
+        explicit: 0.95,
+        baseline: 0.99,
+    };
+
+    #[test]
+    fn explicit_thresholds_win_and_are_enforced() {
+        let explicit = LatencyThresholds::new().with(Percentile::P95, Duration::from_millis(500));
+        let baseline = block((1..=100).collect());
+        let resolved = resolve(
+            &explicit,
+            Some(&baseline),
+            CONFIDENCE,
+            LatencyEnforcementMode::Advisory,
+        );
+        assert_eq!(resolved.len(), 4);
+        let p95 = resolved
+            .iter()
+            .find(|c| c.percentile() == Percentile::P95)
+            .unwrap();
+        assert!(p95.is_enforced());
+        assert!(!p95.is_baseline_derived());
+        assert!((p95.confidence() - 0.95).abs() < f64::EPSILON);
+        let p99 = resolved
+            .iter()
+            .find(|c| c.percentile() == Percentile::P99)
+            .unwrap();
+        assert!(p99.is_baseline_derived());
+        assert!(!p99.is_enforced());
+        assert!((p99.confidence() - 0.99).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn a_baseline_without_latencies_derives_nothing() {
+        let resolved = resolve(
+            &LatencyThresholds::new(),
+            Some(&block(Vec::new())),
+            CONFIDENCE,
+            LatencyEnforcementMode::Strict,
+        );
+        assert!(resolved.is_empty());
+    }
+
+    #[test]
+    fn no_baseline_and_no_explicit_thresholds_resolve_to_nothing() {
+        let resolved = resolve(
+            &LatencyThresholds::new(),
+            None,
+            CONFIDENCE,
+            LatencyEnforcementMode::Strict,
+        );
+        assert!(resolved.is_empty());
+    }
 }

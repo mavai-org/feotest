@@ -25,25 +25,53 @@ use crate::latency::thresholds::LatencyThresholds;
 ///
 /// assert_eq!(latency.thresholds().get(Percentile::P95), Some(Duration::from_millis(500)));
 /// ```
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct LatencyCriterion {
     thresholds: LatencyThresholds,
+    confidence: f64,
 }
 
 impl LatencyCriterion {
     /// Begins a latency criterion whose ceilings are normative targets the
     /// service is required to meet. Each declared percentile is enforced
-    /// strictly: an observed percentile above its ceiling fails the criterion.
+    /// strictly and decided by `latency/compliance-exact-binomial`: the count
+    /// of successful latencies at or below the ceiling must demonstrate, at
+    /// the criterion's confidence, that at least the percentile's share of
+    /// latencies meets it.
     ///
     /// Chain [`at_most`](Self::at_most) to bound one or more percentiles.
     #[must_use]
     pub const fn meeting() -> Self {
         Self {
             thresholds: LatencyThresholds::new(),
+            confidence: crate::latency::DEFAULT_LATENCY_CONFIDENCE,
         }
     }
 
-    /// Bounds a percentile at `max`. The observed percentile must not exceed it.
+    /// Sets the confidence level (`1 − alpha`) at which every ceiling of this
+    /// criterion is decided. Defaults to 0.95.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `confidence` is not in the open interval `(0, 1)`.
+    #[must_use]
+    pub fn confidence(mut self, confidence: f64) -> Self {
+        assert!(
+            confidence > 0.0 && confidence < 1.0,
+            "latency confidence must be in (0, 1), got {confidence}"
+        );
+        self.confidence = confidence;
+        self
+    }
+
+    /// The confidence level the ceilings are decided at.
+    #[must_use]
+    pub const fn decision_confidence(&self) -> f64 {
+        self.confidence
+    }
+
+    /// Bounds a percentile at `max`: at least the percentile's share of the
+    /// successful latencies must be at or below it.
     ///
     /// Re-declaring a percentile replaces its earlier ceiling.
     ///
@@ -111,6 +139,19 @@ mod tests {
             latency.thresholds().get(Percentile::P95),
             Some(Duration::from_millis(800))
         );
+    }
+
+    #[test]
+    fn confidence_defaults_to_095_and_can_be_declared() {
+        assert!((LatencyCriterion::meeting().decision_confidence() - 0.95).abs() < f64::EPSILON);
+        let declared = LatencyCriterion::meeting().confidence(0.99);
+        assert!((declared.decision_confidence() - 0.99).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    #[should_panic(expected = "latency confidence must be in (0, 1)")]
+    fn rejects_a_confidence_outside_the_unit_interval() {
+        let _ = LatencyCriterion::meeting().confidence(1.0);
     }
 
     #[test]

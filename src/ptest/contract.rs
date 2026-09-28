@@ -295,11 +295,10 @@ impl<'a, C: ServiceContract> ContractTest<'a, C> {
             threshold_origin: self.threshold_origin,
             contract_ref: self.contract_ref,
             latency: LatencyConfig {
-                thresholds: crate::latency::LatencyThresholds::new(),
                 baseline_mode: self.baseline_latency_mode,
                 baseline_confidence: self
                     .baseline_latency_confidence
-                    .unwrap_or(crate::latency::DEFAULT_BASELINE_CONFIDENCE),
+                    .unwrap_or(crate::latency::DEFAULT_LATENCY_CONFIDENCE),
             },
             fail_on_expired_baseline: self.fail_on_expired_baseline,
             on_budget_exhausted: self.on_budget_exhausted,

@@ -1,6 +1,5 @@
 ---
 source: tests/verdict_serde.rs
-assertion_line: 66
 expression: "serde_json::to_value(&record).unwrap()"
 ---
 {
@@ -42,17 +41,25 @@ expression: "serde_json::to_value(&record).unwrap()"
     "useCaseId": "basket"
   },
   "intent": "VERIFICATION",
+  "methodologyVersion": "1.5.0",
   "statisticalAnalysis": {
+    "alpha": 0.05,
     "confidenceLevel": 0.95,
-    "pValue": 0.011,
+    "decisionRule": "regression/fisher",
+    "decisionRuleVersion": 1,
+    "evidence": {
+      "baselineSuccesses": 951,
+      "baselineTrials": 1000,
+      "cutoff": 91,
+      "sizeAtAssumedCommonRate": 0.033967392625028556
+    },
     "standardError": 0.04,
-    "testStatistic": 2.29,
-    "threshold": 0.9,
+    "threshold": 0.91,
     "thresholdOrigin": "EMPIRICAL",
-    "wilsonLower": 0.722
+    "wilsonLower": 0.7266961911903833
   },
   "verdict": "FAIL",
-  "verdictReason": "0.8000 < 0.9000",
+  "verdictReason": "80 of 100 observed",
   "warnings": [
     {
       "code": "BASELINE_EXPIRED",

@@ -108,6 +108,11 @@ fn choose(n: u64, k: u64) -> BigUint {
     (0..k).fold(BigUint::from(1_u32), |acc, i| acc * (n - i) / (i + 1))
 }
 
+/// The rising factorial `start (start + 1) … (start + count − 1)`.
+fn rising(start: u64, count: u64) -> BigUint {
+    (0..count).fold(BigUint::from(1_u32), |acc, i| acc * (start + i))
+}
+
 /// The one-sided Fisher p-value `P(X ≤ k_t)` as a rational.
 ///
 /// `X` is hypergeometric: of `s = k_b + k_t` pooled successes, the number
@@ -146,6 +151,29 @@ pub(crate) fn binomial_upper_tail_exact(count: u32, trials: u32, rate: f64) -> R
         sum + choose(u64::from(trials), u64::from(j)) * a.pow(j) * complement.pow(trials - j)
     });
     Rational::new(numerator, b.pow(trials))
+}
+
+/// The precedence breach probability of baseline rank `k` as a rational.
+///
+/// `Σ_{j < r} C(n_t, j) B(k + j, n_b − k + 1 + n_t − j) / B(k, n_b − k + 1)`,
+/// each beta-function ratio written as rising factorials over one common
+/// denominator.
+#[must_use]
+pub(crate) fn breach_probability_exact(
+    baseline_trials: u32,
+    rank: u32,
+    test_samples: u32,
+    test_rank: u32,
+) -> Rational {
+    let (n_b, k, n_t) = (
+        u64::from(baseline_trials),
+        u64::from(rank),
+        u64::from(test_samples),
+    );
+    let numerator = (0..u64::from(test_rank)).fold(BigUint::ZERO, |sum, j| {
+        sum + choose(n_t, j) * rising(k, j) * rising(n_b - k + 1, n_t - j)
+    });
+    Rational::new(numerator, rising(n_b + 1, n_t))
 }
 
 #[cfg(test)]
@@ -201,5 +229,18 @@ mod tests {
         assert!(equal(&binomial_upper_tail_exact(5, 5, 0.5), &ratio(1, 32)));
         assert!(equal(&binomial_upper_tail_exact(0, 5, 0.5), &ratio(1, 1)));
         assert!(equal(&binomial_upper_tail_exact(6, 5, 0.5), &ratio(0, 1)));
+    }
+
+    #[test]
+    fn breach_exact_at_the_top_rank_with_one_test_latency() {
+        // n_t = 1, r = 1: breach(k) = P(test latency above X_(k)) = (n_b - k + 1) / (n_b + 1).
+        assert!(equal(
+            &breach_probability_exact(19, 19, 1, 1),
+            &ratio(1, 20)
+        ));
+        assert!(equal(
+            &breach_probability_exact(19, 10, 1, 1),
+            &ratio(10, 20)
+        ));
     }
 }

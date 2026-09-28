@@ -1,7 +1,15 @@
 {
   "suite": "latency_percentile_minimums",
-  "description": "Minimum sample sizes for empirical latency percentiles (p50/p90/p95/p99) — the single published standard every mavai framework's gating table must equal exactly. Cases with approach 'emission_non_degeneracy' carry the Statistical Companion §12.5.2 minimums for emitting a percentile in experiment artefacts (baseline, exploration, optimization) and verdicts: below the minimum the percentile key is omitted entirely and renderers display a placeholder. Cases with approach 'bound_existence' carry the §12.5.2.1 minimums for the exact binomial order-statistic construction to admit a non-saturated one-sided upper confidence bound on the p-quantile at the stated confidence — judgement-time minimums for latency-criterion evaluation, not emission rules. All values are integers; conformance is exact equality (tolerance: 0).",
-  "method": "Emission minimums per companion §12.5.2 (non-degeneracy: 5/10/20/100 for p50/p90/p95/p99); bound-existence minimums per §12.5.2.1, n_s >= ceiling(log(alpha) / log(p)) (Wilks).",
+  "methodologyVersion": "1.5.0",
+  "fixtureSchemaVersion": 2,
+  "decisionRules": [
+    {
+      "id": "latency/precedence",
+      "version": 1
+    }
+  ],
+  "description": "Minimum sample sizes and the existence gate for empirical latency percentiles (p50/p90/p95/p99). A successful latency is that of a sample that passed every functional criterion (companion §12.2.1); baseline_success_rate is the baseline run's fraction of such samples. Cases with approach 'emission_non_degeneracy' carry the Statistical Companion §12.5.2 minimums for emitting a percentile in experiment artefacts (baseline, exploration, optimization) and verdicts: below the minimum the percentile key is omitted entirely and renderers display a placeholder. Cases with approach 'precedence_existence' carry the §12.5.2.1 existence condition of latency/precedence from the baseline size, the test's number of successful latencies, the percentile and alpha: saturated (no rank achieves alpha) and otherwise the rank; on the actual count after the run it is the binding saturation decision, and saturated is INCONCLUSIVE. Cases with approach 'precedence_planning' carry the §12.5.3 pre-run check: the same search on the expected successful count floor(planned_samples * baseline_success_rate), an expectation and not a lower bound, giving a warning (no rank at the expected count), the planning rank and the smallest baseline at least as large as the expected count that supports a rank; it decides nothing. Cases with approach 'nondegeneracy_planning' carry the §12.5.3 pre-run non-degeneracy check: the expected successful count against the emission minimum, giving a warning and the planning figure planned_samples_needed, never a refusal. Cases with approach 'nondegeneracy_decision' carry the binding decision on the actual count after the run, where the decision statistic is the empirical percentile: the gate applies to a baseline-derived assertion and to an advisory raw comparison, not to an enforced explicit requirement (applies = false; decided by latency/compliance-exact-binomial). Below the minimum an enforced baseline-derived VERIFICATION assertion is INCONCLUSIVE, and a SMOKE or advisory one INDICATIVE; otherwise DECIDED by its rule. The p50 minimum of 5 is an engineering minimum; the mathematical one is 3. The withdrawn Wilks minimums are no longer published. Cases named exact_boundary have breach(n_b) = n_t / (n_b + n_t) = alpha exactly (the test percentile is the test maximum); the inclusive rule admits the rank, and double precision alone does not: implementations follow the exact-boundary convention (companion §10.6). Conformance is exact equality (tolerance: 0).",
+  "method": "Emission minimums per companion §12.5.2 (non-degeneracy: 5/10/20/100 for p50/p90/p95/p99); existence per §12.5.2.1: a rank exists iff breach(n_b) <= alpha, with breach(k) = sum_{j=0}^{r-1} C(n_t, j) B(k + j, n_b - k + 1 + n_t - j) / B(k, n_b - k + 1) and r = ceiling(P n_t / 100); rank = the smallest k with breach(k) <= alpha (latency/precedence v1). Planning: expected_test_samples = floor(planned_samples * baseline_success_rate); warning = no rank at that count; planning_rank = the rank at it (null under a warning); minimum_baseline_trials = the smallest n_b >= expected_test_samples with a rank. Non-degeneracy planning: warning = expected_test_samples < minimum_contributing_samples; planned_samples_needed = the smallest planned size with floor(planned * rate) >= the minimum. Non-degeneracy decision: applies = not (threshold_source explicit and enforced); degenerate = test_samples < the minimum; outcome = DECIDED when the gate does not apply or the percentile is not degenerate, else INCONCLUSIVE when intent is VERIFICATION and the assertion enforced, else INDICATIVE.",
   "tolerance": 0,
   "cases": [
     {
@@ -45,91 +53,539 @@
       }
     },
     {
-      "name": "bound_existence_minimum_p50_c95",
-      "approach": "bound_existence",
-      "inputs": {
-        "percentile": 0.5,
-        "confidence": 0.95
-      },
-      "expected": {
-        "minimum_baseline_samples": 5
-      }
-    },
-    {
-      "name": "bound_existence_minimum_p90_c95",
-      "approach": "bound_existence",
-      "inputs": {
-        "percentile": 0.9,
-        "confidence": 0.95
-      },
-      "expected": {
-        "minimum_baseline_samples": 29
-      }
-    },
-    {
-      "name": "bound_existence_minimum_p95_c95",
-      "approach": "bound_existence",
-      "inputs": {
-        "percentile": 0.95,
-        "confidence": 0.95
-      },
-      "expected": {
-        "minimum_baseline_samples": 59
-      }
-    },
-    {
-      "name": "bound_existence_minimum_p99_c95",
-      "approach": "bound_existence",
+      "name": "p99_planned110_rate080_warning",
+      "approach": "nondegeneracy_planning",
+      "description": "88 successful latencies expected, below the p99 minimum of 100: a warning and the planning figure 125, not a refusal.",
       "inputs": {
         "percentile": 0.99,
-        "confidence": 0.95
+        "planned_samples": 110,
+        "baseline_success_rate": 0.8
       },
       "expected": {
-        "minimum_baseline_samples": 299
+        "expected_test_samples": 88,
+        "minimum_contributing_samples": 100,
+        "warning": true,
+        "planned_samples_needed": 125
       }
     },
     {
-      "name": "bound_existence_minimum_p50_c99",
-      "approach": "bound_existence",
-      "inputs": {
-        "percentile": 0.5,
-        "confidence": 0.99
-      },
-      "expected": {
-        "minimum_baseline_samples": 7
-      }
-    },
-    {
-      "name": "bound_existence_minimum_p90_c99",
-      "approach": "bound_existence",
-      "inputs": {
-        "percentile": 0.9,
-        "confidence": 0.99
-      },
-      "expected": {
-        "minimum_baseline_samples": 44
-      }
-    },
-    {
-      "name": "bound_existence_minimum_p95_c99",
-      "approach": "bound_existence",
-      "inputs": {
-        "percentile": 0.95,
-        "confidence": 0.99
-      },
-      "expected": {
-        "minimum_baseline_samples": 90
-      }
-    },
-    {
-      "name": "bound_existence_minimum_p99_c99",
-      "approach": "bound_existence",
+      "name": "p99_planned125_rate080_no_warning",
+      "approach": "nondegeneracy_planning",
       "inputs": {
         "percentile": 0.99,
-        "confidence": 0.99
+        "planned_samples": 125,
+        "baseline_success_rate": 0.8
       },
       "expected": {
-        "minimum_baseline_samples": 459
+        "expected_test_samples": 100,
+        "minimum_contributing_samples": 100,
+        "warning": false,
+        "planned_samples_needed": 125
+      }
+    },
+    {
+      "name": "p95_planned30_rate090_no_warning",
+      "approach": "nondegeneracy_planning",
+      "inputs": {
+        "percentile": 0.95,
+        "planned_samples": 30,
+        "baseline_success_rate": 0.9
+      },
+      "expected": {
+        "expected_test_samples": 27,
+        "minimum_contributing_samples": 20,
+        "warning": false,
+        "planned_samples_needed": 23
+      }
+    },
+    {
+      "name": "p90_planned12_rate075_warning",
+      "approach": "nondegeneracy_planning",
+      "inputs": {
+        "percentile": 0.9,
+        "planned_samples": 12,
+        "baseline_success_rate": 0.75
+      },
+      "expected": {
+        "expected_test_samples": 9,
+        "minimum_contributing_samples": 10,
+        "warning": true,
+        "planned_samples_needed": 14
+      }
+    },
+    {
+      "name": "p99_actual99_verification_enforced_inconclusive",
+      "approach": "nondegeneracy_decision",
+      "description": "One successful latency short of the p99 minimum after the run: the enforced assertion is INCONCLUSIVE.",
+      "inputs": {
+        "percentile": 0.99,
+        "test_samples": 99,
+        "intent": "VERIFICATION",
+        "enforced": true,
+        "threshold_source": "baseline-derived"
+      },
+      "expected": {
+        "applies": true,
+        "degenerate": true,
+        "outcome": "INCONCLUSIVE"
+      }
+    },
+    {
+      "name": "p99_actual100_verification_enforced_decided",
+      "approach": "nondegeneracy_decision",
+      "description": "The pre-run warning at 110 planned (88 expected) does not bind: a run that returns 100 successful latencies is decided.",
+      "inputs": {
+        "percentile": 0.99,
+        "test_samples": 100,
+        "intent": "VERIFICATION",
+        "enforced": true,
+        "threshold_source": "baseline-derived"
+      },
+      "expected": {
+        "applies": true,
+        "degenerate": false,
+        "outcome": "DECIDED"
+      }
+    },
+    {
+      "name": "p99_actual40_smoke_indicative",
+      "approach": "nondegeneracy_decision",
+      "inputs": {
+        "percentile": 0.99,
+        "test_samples": 40,
+        "intent": "SMOKE",
+        "enforced": true,
+        "threshold_source": "baseline-derived"
+      },
+      "expected": {
+        "applies": true,
+        "degenerate": true,
+        "outcome": "INDICATIVE"
+      }
+    },
+    {
+      "name": "p95_actual19_verification_advisory_indicative",
+      "approach": "nondegeneracy_decision",
+      "inputs": {
+        "percentile": 0.95,
+        "test_samples": 19,
+        "intent": "VERIFICATION",
+        "enforced": false,
+        "threshold_source": "baseline-derived"
+      },
+      "expected": {
+        "applies": true,
+        "degenerate": true,
+        "outcome": "INDICATIVE"
+      }
+    },
+    {
+      "name": "p50_actual5_verification_enforced_decided",
+      "approach": "nondegeneracy_decision",
+      "inputs": {
+        "percentile": 0.5,
+        "test_samples": 5,
+        "intent": "VERIFICATION",
+        "enforced": true,
+        "threshold_source": "baseline-derived"
+      },
+      "expected": {
+        "applies": true,
+        "degenerate": false,
+        "outcome": "DECIDED"
+      }
+    },
+    {
+      "name": "explicit_p50_actual4_enforced_not_gated",
+      "approach": "nondegeneracy_decision",
+      "description": "An enforced explicit requirement is decided by latency/compliance-exact-binomial on the within-threshold count; the percentile non-degeneracy gate does not apply (at alpha 0.10, 4 of 4 can PASS: latency_compliance_decision/explicit_p50_n4_alpha010_pass).",
+      "inputs": {
+        "percentile": 0.5,
+        "test_samples": 4,
+        "intent": "VERIFICATION",
+        "enforced": true,
+        "threshold_source": "explicit"
+      },
+      "expected": {
+        "applies": false,
+        "degenerate": true,
+        "outcome": "DECIDED"
+      }
+    },
+    {
+      "name": "explicit_p50_actual4_advisory_indicative",
+      "approach": "nondegeneracy_decision",
+      "description": "The same percentile compared raw in advisory mode: the gate marks it indicative.",
+      "inputs": {
+        "percentile": 0.5,
+        "test_samples": 4,
+        "intent": "VERIFICATION",
+        "enforced": false,
+        "threshold_source": "explicit"
+      },
+      "expected": {
+        "applies": true,
+        "degenerate": true,
+        "outcome": "INDICATIVE"
+      }
+    },
+    {
+      "name": "p95_100_test15_saturated",
+      "approach": "precedence_existence",
+      "decisionRule": "latency/precedence",
+      "inputs": {
+        "baseline_trials": 100,
+        "test_samples": 15,
+        "percentile": 0.95,
+        "alpha": 0.05
+      },
+      "expected": {
+        "saturated": true,
+        "rank": null
+      }
+    },
+    {
+      "name": "p95_1000_test15",
+      "approach": "precedence_existence",
+      "decisionRule": "latency/precedence",
+      "inputs": {
+        "baseline_trials": 1000,
+        "test_samples": 15,
+        "percentile": 0.95,
+        "alpha": 0.05
+      },
+      "expected": {
+        "saturated": false,
+        "rank": 998
+      }
+    },
+    {
+      "name": "p99_300_test100_saturated",
+      "approach": "precedence_existence",
+      "decisionRule": "latency/precedence",
+      "inputs": {
+        "baseline_trials": 300,
+        "test_samples": 100,
+        "percentile": 0.99,
+        "alpha": 0.05
+      },
+      "expected": {
+        "saturated": true,
+        "rank": null
+      }
+    },
+    {
+      "name": "p95_935_test192",
+      "approach": "precedence_existence",
+      "decisionRule": "latency/precedence",
+      "inputs": {
+        "baseline_trials": 935,
+        "test_samples": 192,
+        "percentile": 0.95,
+        "alpha": 0.05
+      },
+      "expected": {
+        "saturated": false,
+        "rank": 911
+      }
+    },
+    {
+      "name": "p90_32_test10_saturated",
+      "approach": "precedence_existence",
+      "decisionRule": "latency/precedence",
+      "inputs": {
+        "baseline_trials": 32,
+        "test_samples": 10,
+        "percentile": 0.9,
+        "alpha": 0.05
+      },
+      "expected": {
+        "saturated": true,
+        "rank": null
+      }
+    },
+    {
+      "name": "p90_33_test10_first_rank",
+      "approach": "precedence_existence",
+      "decisionRule": "latency/precedence",
+      "inputs": {
+        "baseline_trials": 33,
+        "test_samples": 10,
+        "percentile": 0.9,
+        "alpha": 0.05
+      },
+      "expected": {
+        "saturated": false,
+        "rank": 33
+      }
+    },
+    {
+      "name": "p95_85_test25_saturated",
+      "approach": "precedence_existence",
+      "decisionRule": "latency/precedence",
+      "inputs": {
+        "baseline_trials": 85,
+        "test_samples": 25,
+        "percentile": 0.95,
+        "alpha": 0.05
+      },
+      "expected": {
+        "saturated": true,
+        "rank": null
+      }
+    },
+    {
+      "name": "p95_86_test25_first_rank",
+      "approach": "precedence_existence",
+      "decisionRule": "latency/precedence",
+      "inputs": {
+        "baseline_trials": 86,
+        "test_samples": 25,
+        "percentile": 0.95,
+        "alpha": 0.05
+      },
+      "expected": {
+        "saturated": false,
+        "rank": 86
+      }
+    },
+    {
+      "name": "p99_949_test50_saturated",
+      "approach": "precedence_existence",
+      "decisionRule": "latency/precedence",
+      "inputs": {
+        "baseline_trials": 949,
+        "test_samples": 50,
+        "percentile": 0.99,
+        "alpha": 0.05
+      },
+      "expected": {
+        "saturated": true,
+        "rank": null
+      }
+    },
+    {
+      "name": "p99_950_test50_first_rank_exact_boundary",
+      "approach": "precedence_existence",
+      "decisionRule": "latency/precedence",
+      "inputs": {
+        "baseline_trials": 950,
+        "test_samples": 50,
+        "percentile": 0.99,
+        "alpha": 0.05
+      },
+      "expected": {
+        "saturated": false,
+        "rank": 950
+      }
+    },
+    {
+      "name": "p95_189_test10_saturated",
+      "approach": "precedence_existence",
+      "decisionRule": "latency/precedence",
+      "inputs": {
+        "baseline_trials": 189,
+        "test_samples": 10,
+        "percentile": 0.95,
+        "alpha": 0.05
+      },
+      "expected": {
+        "saturated": true,
+        "rank": null
+      }
+    },
+    {
+      "name": "p95_190_test10_first_rank_exact_boundary",
+      "approach": "precedence_existence",
+      "decisionRule": "latency/precedence",
+      "inputs": {
+        "baseline_trials": 190,
+        "test_samples": 10,
+        "percentile": 0.95,
+        "alpha": 0.05
+      },
+      "expected": {
+        "saturated": false,
+        "rank": 190
+      }
+    },
+    {
+      "name": "p99_474_test25_saturated",
+      "approach": "precedence_existence",
+      "decisionRule": "latency/precedence",
+      "inputs": {
+        "baseline_trials": 474,
+        "test_samples": 25,
+        "percentile": 0.99,
+        "alpha": 0.05
+      },
+      "expected": {
+        "saturated": true,
+        "rank": null
+      }
+    },
+    {
+      "name": "p99_475_test25_first_rank_exact_boundary",
+      "approach": "precedence_existence",
+      "decisionRule": "latency/precedence",
+      "inputs": {
+        "baseline_trials": 475,
+        "test_samples": 25,
+        "percentile": 0.99,
+        "alpha": 0.05
+      },
+      "expected": {
+        "saturated": false,
+        "rank": 475
+      }
+    },
+    {
+      "name": "p99_553_test160_saturated",
+      "approach": "precedence_existence",
+      "decisionRule": "latency/precedence",
+      "inputs": {
+        "baseline_trials": 553,
+        "test_samples": 160,
+        "percentile": 0.99,
+        "alpha": 0.05
+      },
+      "expected": {
+        "saturated": true,
+        "rank": null
+      }
+    },
+    {
+      "name": "p99_554_test160_first_rank",
+      "approach": "precedence_existence",
+      "decisionRule": "latency/precedence",
+      "inputs": {
+        "baseline_trials": 554,
+        "test_samples": 160,
+        "percentile": 0.99,
+        "alpha": 0.05
+      },
+      "expected": {
+        "saturated": false,
+        "rank": 554
+      }
+    },
+    {
+      "name": "p50_20_test10",
+      "approach": "precedence_existence",
+      "decisionRule": "latency/precedence",
+      "inputs": {
+        "baseline_trials": 20,
+        "test_samples": 10,
+        "percentile": 0.5,
+        "alpha": 0.05
+      },
+      "expected": {
+        "saturated": false,
+        "rank": 16
+      }
+    },
+    {
+      "name": "p95_500_test100_alpha001",
+      "approach": "precedence_existence",
+      "decisionRule": "latency/precedence",
+      "inputs": {
+        "baseline_trials": 500,
+        "test_samples": 100,
+        "percentile": 0.95,
+        "alpha": 0.01
+      },
+      "expected": {
+        "saturated": false,
+        "rank": 494
+      }
+    },
+    {
+      "name": "p99_554_test161_saturated",
+      "approach": "precedence_existence",
+      "decisionRule": "latency/precedence",
+      "inputs": {
+        "baseline_trials": 554,
+        "test_samples": 161,
+        "percentile": 0.99,
+        "alpha": 0.05
+      },
+      "expected": {
+        "saturated": true,
+        "rank": null
+      }
+    },
+    {
+      "name": "p99_400_planned200_rate080_warning",
+      "approach": "precedence_planning",
+      "decisionRule": "latency/precedence",
+      "description": "The §12.5.3 example: 160 expected successful latencies, no rank at a baseline of 400; a warning and the planning figure 554, not a verdict.",
+      "inputs": {
+        "baseline_trials": 400,
+        "planned_samples": 200,
+        "baseline_success_rate": 0.8,
+        "percentile": 0.99,
+        "alpha": 0.05
+      },
+      "expected": {
+        "expected_test_samples": 160,
+        "warning": true,
+        "planning_rank": null,
+        "minimum_baseline_trials": 554
+      }
+    },
+    {
+      "name": "p99_554_planned200_rate080_no_warning",
+      "approach": "precedence_planning",
+      "decisionRule": "latency/precedence",
+      "description": "A rank exists at the expected 160; if the run returns 161 or more successful latencies the post-run decision is saturated (p99_554_test161_saturated).",
+      "inputs": {
+        "baseline_trials": 554,
+        "planned_samples": 200,
+        "baseline_success_rate": 0.8,
+        "percentile": 0.99,
+        "alpha": 0.05
+      },
+      "expected": {
+        "expected_test_samples": 160,
+        "warning": false,
+        "planning_rank": 554,
+        "minimum_baseline_trials": 554
+      }
+    },
+    {
+      "name": "p95_1000_planned20_rate075",
+      "approach": "precedence_planning",
+      "decisionRule": "latency/precedence",
+      "inputs": {
+        "baseline_trials": 1000,
+        "planned_samples": 20,
+        "baseline_success_rate": 0.75,
+        "percentile": 0.95,
+        "alpha": 0.05
+      },
+      "expected": {
+        "expected_test_samples": 15,
+        "warning": false,
+        "planning_rank": 998,
+        "minimum_baseline_trials": 285
+      }
+    },
+    {
+      "name": "p90_30_planned12_rate090_warning",
+      "approach": "precedence_planning",
+      "decisionRule": "latency/precedence",
+      "inputs": {
+        "baseline_trials": 30,
+        "planned_samples": 12,
+        "baseline_success_rate": 0.9,
+        "percentile": 0.9,
+        "alpha": 0.05
+      },
+      "expected": {
+        "expected_test_samples": 10,
+        "warning": true,
+        "planning_rank": null,
+        "minimum_baseline_trials": 33
       }
     }
   ]

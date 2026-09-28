@@ -81,7 +81,7 @@ fn pass_with_baseline_renders_all_sections() {
     assert!(output.contains("Wilson lower:"));
     assert!(output.contains("Baseline:"));
     assert!(output.contains("cr-pass-full.yaml"));
-    assert!(output.contains("minPassRate="));
+    assert!(output.contains("derived threshold"));
     assert!(output.contains("Spec:"));
     assert!(output.contains("Origin:"));
     assert!(output.contains("Elapsed:"));
@@ -148,8 +148,10 @@ fn latency_section_renders_when_thresholds_set() {
         p95_ceiling: Duration::from_millis(50),
     })
     .inputs(&inputs)
+    // The explicit p95 ceiling is a requirement: 59 successful latencies are
+    // the fewest from which any count can demonstrate it.
     .approach(ThresholdApproach::ThresholdFirst {
-        samples: 30,
+        samples: 60,
         min_pass_rate: 0.80,
     })
     .run();
@@ -234,5 +236,5 @@ fn sample_size_first_renders_baseline_provenance() {
     assert!(output.contains("Baseline:"));
     assert!(output.contains("cr-ssf.yaml"));
     assert!(output.contains("samples"));
-    assert!(output.contains("minPassRate="));
+    assert!(output.contains("derived threshold"));
 }

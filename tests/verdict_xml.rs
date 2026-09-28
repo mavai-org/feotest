@@ -12,9 +12,10 @@ use feotest::model::{
 };
 use feotest::reporting::VerdictXmlWriter;
 use feotest::verdict::{
-    BaselineProvenance, CriterionRow, FunctionalAssessment, SpecProvenance, StatisticalAnalysis,
-    Verdict, VerdictRecord,
+    BaselineProvenance, CriterionRow, FunctionalAssessment, SpecProvenance, Verdict, VerdictRecord,
 };
+
+mod common;
 
 const fn sample_execution(
     planned: u32,
@@ -33,8 +34,7 @@ const fn sample_execution(
 }
 
 fn full_record() -> VerdictRecord {
-    let analysis = StatisticalAnalysis::new(0.95, 0.022, 0.907, 0.900, ThresholdOrigin::Empirical)
-        .with_test_results(2.294, 0.011);
+    let analysis = common::regression_analysis(192, 200, 951, 1000);
 
     let provenance = SpecProvenance::new(ThresholdOrigin::Empirical)
         .with_spec_filename("full-service.yaml")
@@ -79,9 +79,10 @@ fn full_verdict_contains_all_rp07_elements() {
     let xml = VerdictXmlWriter::write_record(&full_record(), Some("2026-04-19T10:00:00Z"));
 
     // Root structure. The namespace is stable across schema revisions; the
-    // per-criterion bundle a contract-driven record carries lifts it to 1.2.
+    // record is schema 1.7 and names the methodology whose rules decided it.
     assert!(xml.contains("xmlns=\"http://mavai.org/verdict/1.0\""));
-    assert!(xml.contains("version=\"1.2\""));
+    assert!(xml.contains("version=\"1.7\""));
+    assert!(xml.contains("methodology-version=\"1.5.0\""));
     assert!(xml.contains("generator=\"feotest/"));
 
     // All verdict XML elements present

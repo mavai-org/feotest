@@ -3,29 +3,34 @@ source: src/reporting/verdict_xml.rs
 expression: xml
 ---
 <?xml version="1.0" encoding="UTF-8"?>
-<verdict-record xmlns="http://mavai.org/verdict/1.0" version="1.2" timestamp="2026-04-01T12:00:00Z" generator="feotest/0.2.0">
+<verdict-record xmlns="http://mavai.org/verdict/1.0" version="1.7" methodology-version="1.5.0" timestamp="2026-04-01T12:00:00Z" generator="feotest/0.2.0">
   <identity use-case-id="latency-service" test-name="test_response_time"/>
-  <execution planned-samples="100" samples-executed="100" successes="95" failures="5" elapsed-ms="500" intent="VERIFICATION" confidence="0.95"/>
-  <functional successes="95" failures="5" pass-rate="0.9500"/>
-  <latency successful-samples="95" strict-violations="0" advisory-violations="1">
+  <execution planned-samples="100" samples-executed="100" successes="97" failures="3" elapsed-ms="500" intent="VERIFICATION" confidence="0.95"/>
+  <functional successes="97" failures="3" pass-rate="0.9700">
+    <failure-distribution>
+      <check name="parse" count="2"/>
+      <check name="content" count="1"/>
+    </failure-distribution>
+  </functional>
+  <latency successful-samples="97" strict-violations="0" advisory-violations="1" verdict="INCONCLUSIVE">
     <observed>
       <percentile label="p50" value-ms="120"/>
       <percentile label="p95" value-ms="450"/>
       <percentile label="p99" value-ms="890"/>
     </observed>
     <evaluations>
-      <evaluation percentile="p50" observed-ms="120" threshold-ms="200" provenance="explicit" mode="advisory" status="PASS"/>
-      <evaluation percentile="p95" observed-ms="450" threshold-ms="500" provenance="explicit" mode="advisory" status="PASS"/>
-      <evaluation percentile="p99" observed-ms="890" threshold-ms="800" provenance="explicit" mode="advisory" status="ADVISORY_WARN"/>
+      <evaluation percentile="p50" observed-ms="120" threshold-ms="200" provenance="explicit" mode="strict" status="PASS" decision-rule="latency/compliance-exact-binomial" decision-rule-version="1"/>
+      <evaluation percentile="p95" observed-ms="450" provenance="baseline-derived" baseline-confidence="0.95" baseline-n="95" mode="strict" status="SATURATED" decision-rule="latency/precedence" decision-rule-version="1"/>
+      <evaluation percentile="p99" observed-ms="890" threshold-ms="800" provenance="baseline-derived" baseline-confidence="0.95" baseline-rank="94" baseline-n="95" mode="advisory" status="ADVISORY_WARN"/>
     </evaluations>
   </latency>
-  <statistics confidence-level="0.9500" standard-error="0.0220" wilson-lower="0.9070" threshold="0.9000" threshold-origin="EMPIRICAL" test-statistic="2.2940" p-value="0.0110"/>
+  <statistics confidence-level="0.9500" standard-error="0.0171" wilson-lower="0.9273" threshold="0.9100" threshold-origin="EMPIRICAL" size-at-assumed-common-rate="0.033967392625028556"/>
   <covariates aligned="true"/>
   <termination reason="COMPLETED"/>
   <cost total-time-ms="500" total-tokens="1000" avg-time-per-sample-ms="5" avg-tokens-per-sample="10"/>
   <per-criterion>
-    <criterion id="result" verdict="PASS" pass="95" fail="5" inconclusive="0" total="100" observed-rate="0.9500"/>
+    <criterion id="result" verdict="PASS" pass="97" fail="3" inconclusive="0" total="100" observed-rate="0.9700" threshold="0.9100" decision-rule="regression/fisher" decision-rule-version="1"/>
     <composite value="PASS"/>
   </per-criterion>
-  <verdict value="PASS" reason="0.9500 &gt;= 0.9000"/>
+  <verdict value="INCONCLUSIVE" reason="insufficient evidence"/>
 </verdict-record>

@@ -97,7 +97,7 @@ fn matching_covariates_resolves_cleanly() {
         .run();
 
     let record = result.verdict_record();
-    assert_eq!(record.verdict(), Verdict::Pass);
+    assert_eq!(record.verdict(), Some(Verdict::Pass));
     // No covariate mismatch warnings
     assert!(
         !record
@@ -150,7 +150,7 @@ fn mismatched_covariates_produce_warnings() {
 
     let record = result.verdict_record();
     // The test still passes (baseline still resolves, just with a mismatch warning)
-    assert_eq!(record.verdict(), Verdict::Pass);
+    assert_eq!(record.verdict(), Some(Verdict::Pass));
     assert!(
         record
             .warnings()
@@ -237,7 +237,7 @@ fn threshold_first_with_covariates_loads_baseline() {
         .run();
 
     let record = result.verdict_record();
-    assert_eq!(record.verdict(), Verdict::Pass);
+    assert_eq!(record.verdict(), Some(Verdict::Pass));
     // Baseline was loaded (for integrity check), so provenance is populated
     assert!(record.baseline_provenance().is_some());
 }

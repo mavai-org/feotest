@@ -7,6 +7,12 @@ use crate::model::{
     ExecutionSummary, ExpirationInfo, PacingSummary, TestIdentity, TestIntent, ThresholdOrigin,
     Warning,
 };
+use crate::statistics::decision::{
+    ComplianceDecision, Envelopes, RegressionDecision, Trigger, TriggerKind, type_one_envelopes,
+};
+use crate::statistics::proportion;
+use crate::statistics::rules::{ConfigurationError, DecisionRule, METHODOLOGY_VERSION};
+use crate::statistics::types::ConfidenceLevel;
 use crate::verdict::{CriterionRow, FunctionalAssessment, Verdict};
 
 /// The complete record of a probabilistic test verdict.
@@ -19,9 +25,17 @@ use crate::verdict::{CriterionRow, FunctionalAssessment, Verdict};
 // mavai-ref: JVI-NSB1JPC — do not remove (resolves in mavai-orchestrator)
 pub struct VerdictRecord {
     identity: TestIdentity,
-    verdict: Verdict,
+    methodology_version: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    verdict: Option<Verdict>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    configuration_errors: Vec<ConfigurationError>,
     verdict_reason: String,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    triggering: Vec<Trigger>,
     intent: TestIntent,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    confidence_level: Option<f64>,
     execution: ExecutionSummary,
     functional_assessment: FunctionalAssessment,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -62,7 +76,11 @@ fn serialize_environment<S: serde::Serializer>(
 }
 
 impl VerdictRecord {
-    /// Starts building a new verdict record.
+    /// Starts building a verdict record for a test that ran and was decided.
+    ///
+    /// `verdict` is the overall test verdict `V_test`: the structural
+    /// composite of the functional criteria and the enforced latency
+    /// constraints.
     #[must_use]
     pub const fn builder(
         identity: TestIdentity,
@@ -73,10 +91,53 @@ impl VerdictRecord {
     ) -> VerdictRecordBuilder {
         VerdictRecordBuilder {
             identity,
-            verdict,
+            verdict: Some(verdict),
+            configuration_errors: Vec::new(),
+            triggering: Vec::new(),
             intent,
+            confidence_level: None,
             execution,
             functional_assessment,
+            statistical_analysis: None,
+            spec_provenance: None,
+            baseline_provenance: None,
+            covariate_status: CovariateStatus::all_aligned(),
+            warnings: Vec::new(),
+            latency: None,
+            correlation_id: None,
+            pacing: None,
+            environment: Vec::new(),
+        }
+    }
+
+    /// Starts building the record of a configuration refused before any
+    /// sample ran: it carries every applicable configuration error, in the
+    /// fixed order, and no verdict — a refusal is not INCONCLUSIVE, which
+    /// is reserved for outcomes that depend on the data.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `errors` is empty — a refusal names at least one error.
+    #[must_use]
+    pub fn refused(
+        identity: TestIdentity,
+        intent: TestIntent,
+        execution: ExecutionSummary,
+        errors: Vec<ConfigurationError>,
+    ) -> VerdictRecordBuilder {
+        assert!(
+            !errors.is_empty(),
+            "a refused configuration names at least one configuration error"
+        );
+        VerdictRecordBuilder {
+            identity,
+            verdict: None,
+            configuration_errors: crate::statistics::rules::ordered_configuration_errors(errors),
+            triggering: Vec::new(),
+            intent,
+            confidence_level: None,
+            execution,
+            functional_assessment: FunctionalAssessment::refused(),
             statistical_analysis: None,
             spec_provenance: None,
             baseline_provenance: None,
@@ -95,16 +156,81 @@ impl VerdictRecord {
         &self.identity
     }
 
-    /// The overall verdict.
+    /// The methodology whose decision rules produced the verdict.
     #[must_use]
-    pub const fn verdict(&self) -> Verdict {
+    pub const fn methodology_version(&self) -> &'static str {
+        self.methodology_version
+    }
+
+    /// The overall test verdict `V_test`; `None` when the configuration was
+    /// refused before any sample ran.
+    #[must_use]
+    pub const fn verdict(&self) -> Option<Verdict> {
         self.verdict
+    }
+
+    /// Every configuration error that refused the run, in the fixed order;
+    /// empty for a run that was decided.
+    #[must_use]
+    pub fn configuration_errors(&self) -> &[ConfigurationError] {
+        &self.configuration_errors
+    }
+
+    /// Whether the configuration was refused before any sample ran.
+    #[must_use]
+    pub const fn is_refused(&self) -> bool {
+        self.verdict.is_none()
+    }
+
+    /// For a FAIL or an INCONCLUSIVE, the functional criteria and enforced
+    /// latency constraints whose verdict is the test's, criteria first.
+    #[must_use]
+    pub fn triggering(&self) -> &[Trigger] {
+        &self.triggering
+    }
+
+    /// The rule that decided the whole test, when exactly one did: every
+    /// judged criterion and every enforced latency evaluation was decided by
+    /// it. `None` when several rules decided (each is stated where it
+    /// decided) or none did.
+    #[must_use]
+    pub fn single_decision_rule(&self) -> Option<DecisionRule> {
+        let mut rules = self.decisions().map(|(rule, _)| rule);
+        let first = rules.next()?;
+        rules.all(|rule| rule == first).then_some(first)
+    }
+
+    /// The union-bound Type-I envelopes over the decisions the test made,
+    /// split by direction (false compliance, false degradation signal).
+    #[must_use]
+    pub fn envelopes(&self) -> Envelopes {
+        type_one_envelopes(self.decisions())
+    }
+
+    /// Every `(rule, alpha)` decision: the judged criteria, then the
+    /// enforced latency evaluations.
+    fn decisions(&self) -> impl Iterator<Item = (DecisionRule, f64)> + '_ {
+        let criteria = self
+            .functional_assessment
+            .criteria()
+            .iter()
+            .filter_map(CriterionRow::statistical_analysis)
+            .map(|analysis| (analysis.decision_rule(), analysis.alpha()));
+        let latency = self.latency.iter().flat_map(LatencyDimension::decisions);
+        criteria.chain(latency)
     }
 
     /// The declared test intent.
     #[must_use]
     pub const fn intent(&self) -> TestIntent {
         self.intent
+    }
+
+    /// The test's confidence level (`1 − alpha`), when the record states
+    /// one; a criterion may be decided at its own.
+    #[must_use]
+    pub const fn confidence_level(&self) -> Option<f64> {
+        self.confidence_level
     }
 
     /// Execution summary (samples, timing, termination).
@@ -121,21 +247,11 @@ impl VerdictRecord {
         &self.functional_assessment
     }
 
-    /// The single criterion row summarising the run, for renderers that show
-    /// one functional figure. Valid while runs are single-criterion;
-    /// multi-criterion rendering iterates
-    /// [`functional_assessment`](Self::functional_assessment) directly.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the assessment carries no rows — an invariant a built record
-    /// always upholds.
+    /// The first criterion row, for renderers that show one functional
+    /// figure; `None` for a refused configuration, which judged nothing.
     #[must_use]
-    pub(crate) fn functional_summary(&self) -> &CriterionRow {
-        self.functional_assessment
-            .criteria()
-            .first()
-            .expect("a verdict always carries at least one criterion row")
+    pub(crate) fn functional_summary(&self) -> Option<&CriterionRow> {
+        self.functional_assessment.criteria().first()
     }
 
     /// Statistical analysis, if performed.
@@ -199,44 +315,45 @@ impl VerdictRecord {
         &self.environment
     }
 
-    /// Whether the overall verdict passed.
+    /// Whether the overall test verdict `V_test` is PASS.
     ///
-    /// Combines the functional verdict with the latency dimension when
-    /// present. Advisory latency violations never affect this result.
+    /// `V_test` composes the functional criteria with the enforced latency
+    /// constraints; advisory latency evaluations never affect it. A refused
+    /// configuration has not passed.
     #[must_use]
     // mavai-ref: JVI-ZCSHQ5K — do not remove (resolves in mavai-orchestrator)
     pub fn passed(&self) -> bool {
-        let functional_ok = self.verdict == Verdict::Pass;
-        let latency_ok = self.latency.as_ref().is_none_or(LatencyDimension::passed);
-        functional_ok && latency_ok
+        self.verdict == Some(Verdict::Pass)
     }
 
-    /// Panics if the functional dimension did not pass.
+    /// Panics if the functional dimension `V_rate` did not pass.
     ///
     /// # Panics
     ///
-    /// Panics with a diagnostic message when the functional verdict is not
-    /// `Verdict::Pass`.
+    /// Panics with a diagnostic message when the configuration was refused
+    /// or the functional criteria's composite is not PASS.
     // mavai-ref: JVI-Y3710A7 — do not remove (resolves in mavai-orchestrator)
     pub fn assert_contract(&self) {
+        self.assert_not_refused();
+        let composite = self.functional_assessment.composite();
         assert!(
-            self.verdict == Verdict::Pass,
-            "functional contract failed: verdict = {}",
-            self.verdict
+            composite == Verdict::Pass,
+            "functional contract failed: verdict = {composite}"
         );
     }
 
-    /// Panics if the latency dimension recorded any strict violation.
+    /// Panics if the latency dimension `V_latency` is FAIL or INCONCLUSIVE.
     ///
-    /// No-op when no latency dimension is attached or when the dimension
-    /// passed (including advisory-only violations).
+    /// No-op when the test enforces no latency constraint; advisory
+    /// evaluations never fail it.
     ///
     /// # Panics
     ///
-    /// Panics with a diagnostic message listing strict violations when the
-    /// latency dimension has any.
+    /// Panics with a diagnostic message when the configuration was refused
+    /// or the enforced latency constraints did not pass.
     // mavai-ref: JVI-Y3710A7 — do not remove (resolves in mavai-orchestrator)
     pub fn assert_latency(&self) {
+        self.assert_not_refused();
         if let Some(dim) = self.latency.as_ref() {
             assert!(
                 dim.passed(),
@@ -247,19 +364,36 @@ impl VerdictRecord {
         }
     }
 
-    /// Panics if either dimension failed.
+    /// Panics unless the overall test verdict is PASS.
+    ///
+    /// # Panics
+    ///
+    /// Panics when the configuration was refused or either dimension did not
+    /// pass.
     // mavai-ref: JVI-Y3710A7 — do not remove (resolves in mavai-orchestrator)
     pub fn assert_all(&self) {
         self.assert_contract();
         self.assert_latency();
+    }
+
+    /// Panics with the configuration errors when the run was refused.
+    fn assert_not_refused(&self) {
+        assert!(
+            !self.is_refused(),
+            "configuration refused before any sample ran: {}",
+            self.verdict_reason
+        );
     }
 }
 
 /// Builder for [`VerdictRecord`].
 pub struct VerdictRecordBuilder {
     identity: TestIdentity,
-    verdict: Verdict,
+    verdict: Option<Verdict>,
+    configuration_errors: Vec<ConfigurationError>,
+    triggering: Vec<Trigger>,
     intent: TestIntent,
+    confidence_level: Option<f64>,
     execution: ExecutionSummary,
     functional_assessment: FunctionalAssessment,
     statistical_analysis: Option<StatisticalAnalysis>,
@@ -274,6 +408,21 @@ pub struct VerdictRecordBuilder {
 }
 
 impl VerdictRecordBuilder {
+    /// Names the criteria and enforced latency constraints that decided a
+    /// FAIL or an INCONCLUSIVE.
+    #[must_use]
+    pub fn triggering(mut self, triggering: Vec<Trigger>) -> Self {
+        self.triggering = triggering;
+        self
+    }
+
+    /// States the test's confidence level (`1 − alpha`).
+    #[must_use]
+    pub const fn confidence_level(mut self, confidence_level: f64) -> Self {
+        self.confidence_level = Some(confidence_level);
+        self
+    }
+
     /// Attaches statistical analysis to the verdict.
     #[must_use]
     pub const fn statistical_analysis(mut self, analysis: StatisticalAnalysis) -> Self {
@@ -343,23 +492,27 @@ impl VerdictRecordBuilder {
     /// execution, covariate status, and statistical analysis.
     #[must_use]
     pub fn build(self) -> VerdictRecord {
-        let observed_pass_rate = self
-            .functional_assessment
-            .criteria()
-            .first()
-            .map_or(0.0, CriterionRow::pass_rate);
-        let verdict_reason = derive_verdict_reason(
-            self.verdict,
-            &self.execution,
-            &self.covariate_status,
-            observed_pass_rate,
-            self.statistical_analysis.as_ref(),
+        let verdict_reason = self.verdict.map_or_else(
+            || refusal_reason(&self.configuration_errors),
+            |verdict| {
+                derive_verdict_reason(
+                    verdict,
+                    &self.execution,
+                    &self.covariate_status,
+                    self.functional_assessment.criteria(),
+                    &self.triggering,
+                )
+            },
         );
         VerdictRecord {
             identity: self.identity,
+            methodology_version: METHODOLOGY_VERSION,
             verdict: self.verdict,
+            configuration_errors: self.configuration_errors,
             verdict_reason,
+            triggering: self.triggering,
             intent: self.intent,
+            confidence_level: self.confidence_level,
             execution: self.execution,
             functional_assessment: self.functional_assessment,
             statistical_analysis: self.statistical_analysis,
@@ -375,48 +528,111 @@ impl VerdictRecordBuilder {
     }
 }
 
-/// Statistical analysis attached to a verdict.
+/// The statistics behind one criterion's verdict: the rule that decided it,
+/// the evidence the rule computed, and the descriptive context reported
+/// beside it.
+///
+/// The Wilson lower bound and the standard error are descriptive only — no
+/// rule decides with them.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct StatisticalAnalysis {
     confidence_level: f64,
+    alpha: f64,
     standard_error: f64,
     wilson_lower: f64,
     threshold: f64,
     threshold_origin: ThresholdOrigin,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    test_statistic: Option<f64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    p_value: Option<f64>,
+    decision_rule: DecisionRule,
+    decision_rule_version: u32,
+    evidence: RuleEvidence,
 }
 
 impl StatisticalAnalysis {
-    /// Creates a new statistical analysis.
+    /// Creates the statistical analysis of one decided criterion.
+    ///
+    /// `threshold` is the bar as a rate: the requirement for a compliance
+    /// decision, the cutoff over the test size for a regression decision.
     #[must_use]
-    pub const fn new(
+    pub fn new(
         confidence_level: f64,
         standard_error: f64,
         wilson_lower: f64,
         threshold: f64,
         threshold_origin: ThresholdOrigin,
+        evidence: RuleEvidence,
     ) -> Self {
+        let decision_rule = evidence.rule();
         Self {
             confidence_level,
+            alpha: crate::statistics::rules::alpha_from_confidence(confidence_level),
             standard_error,
             wilson_lower,
             threshold,
             threshold_origin,
-            test_statistic: None,
-            p_value: None,
+            decision_rule,
+            decision_rule_version: decision_rule.version(),
+            evidence,
         }
     }
 
-    /// Attaches hypothesis test results.
+    /// The analysis of a criterion decided by `compliance/exact-binomial`,
+    /// with its descriptive Wilson context.
     #[must_use]
-    pub const fn with_test_results(mut self, test_statistic: f64, p_value: f64) -> Self {
-        self.test_statistic = Some(test_statistic);
-        self.p_value = Some(p_value);
-        self
+    pub fn compliance(
+        decision: &ComplianceDecision,
+        confidence_level: f64,
+        threshold_origin: ThresholdOrigin,
+    ) -> Self {
+        Self::new(
+            confidence_level,
+            proportion::standard_error(decision.successes(), decision.trials()),
+            proportion::lower_bound(
+                decision.successes(),
+                decision.trials(),
+                ConfidenceLevel::new(confidence_level),
+            ),
+            decision.requirement(),
+            threshold_origin,
+            RuleEvidence::Compliance(ComplianceEvidence {
+                requirement: decision.requirement(),
+                minimum_passing_count: decision.minimum_passing(),
+                false_compliance: decision.false_compliance(),
+                clopper_pearson_lower: decision.clopper_pearson_lower(),
+            }),
+        )
+    }
+
+    /// The analysis of a criterion decided by `regression/fisher`, with its
+    /// descriptive Wilson context and what the design can detect.
+    #[must_use]
+    pub fn regression(
+        decision: &RegressionDecision,
+        confidence_level: f64,
+        disclosure: DesignDisclosure,
+    ) -> Self {
+        let derivation = decision.derivation();
+        Self::new(
+            confidence_level,
+            proportion::standard_error(decision.successes(), decision.trials()),
+            proportion::lower_bound(
+                decision.successes(),
+                decision.trials(),
+                ConfidenceLevel::new(confidence_level),
+            ),
+            derivation.threshold_real(),
+            ThresholdOrigin::Empirical,
+            RuleEvidence::Regression(RegressionEvidence {
+                baseline_successes: decision.baseline_successes(),
+                baseline_trials: decision.baseline_trials(),
+                cutoff: derivation.cutoff(),
+                size_at_assumed_common_rate: derivation.size_at_assumed_common_rate(),
+                minimum_detectable_degradation: disclosure.minimum_detectable_degradation,
+                design_alternative_rate: disclosure.design_alternative_rate,
+                design_power: disclosure.design_power,
+                resolved_test_power: disclosure.resolved_test_power,
+            }),
+        )
     }
 
     /// The confidence level used.
@@ -425,23 +641,27 @@ impl StatisticalAnalysis {
         self.confidence_level
     }
 
-    /// Standard error of the observed proportion.
+    /// The one-sided level of the decision, `1 − confidence`.
+    #[must_use]
+    pub const fn alpha(&self) -> f64 {
+        self.alpha
+    }
+
+    /// Standard error of the observed proportion (descriptive).
     #[must_use]
     pub const fn standard_error(&self) -> f64 {
         self.standard_error
     }
 
-    /// Wilson one-sided lower bound at the verdict's confidence level.
-    ///
-    /// The verdict path is left-tailed (degradation only); the upper
-    /// bound carries no operational meaning here and is therefore not
-    /// retained.
+    /// Wilson one-sided lower bound at the verdict's confidence level
+    /// (descriptive; no rule decides with it).
     #[must_use]
     pub const fn wilson_lower(&self) -> f64 {
         self.wilson_lower
     }
 
-    /// The threshold used for the verdict.
+    /// The bar as a rate: the requirement (compliance) or the cutoff over the
+    /// test size (regression).
     #[must_use]
     pub const fn threshold(&self) -> f64 {
         self.threshold
@@ -453,17 +673,98 @@ impl StatisticalAnalysis {
         self.threshold_origin
     }
 
-    /// The z-test statistic, if computed.
+    /// The versioned rule that decided the criterion.
     #[must_use]
-    pub const fn test_statistic(&self) -> Option<f64> {
-        self.test_statistic
+    pub const fn decision_rule(&self) -> DecisionRule {
+        self.decision_rule
     }
 
-    /// The p-value, if computed.
+    /// What the rule computed.
     #[must_use]
-    pub const fn p_value(&self) -> Option<f64> {
-        self.p_value
+    pub const fn evidence(&self) -> &RuleEvidence {
+        &self.evidence
     }
+}
+
+/// What a decision rule computed for one criterion.
+#[derive(Debug, Clone, Copy, Serialize)]
+#[serde(untagged)]
+pub enum RuleEvidence {
+    /// `compliance/exact-binomial`.
+    Compliance(ComplianceEvidence),
+    /// `regression/fisher`.
+    Regression(RegressionEvidence),
+}
+
+impl RuleEvidence {
+    /// The rule this evidence belongs to.
+    #[must_use]
+    pub const fn rule(&self) -> DecisionRule {
+        match self {
+            Self::Compliance(_) => DecisionRule::ComplianceExactBinomial,
+            Self::Regression(_) => DecisionRule::RegressionFisher,
+        }
+    }
+}
+
+/// The evidence of `compliance/exact-binomial`.
+#[derive(Debug, Clone, Copy, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ComplianceEvidence {
+    /// The requirement `p_req`.
+    pub requirement: f64,
+    /// `k_min`, the smallest passing count; `None` when no count can pass.
+    pub minimum_passing_count: Option<u32>,
+    /// `P_{p_req}(K ≥ k_min)`, 0 when no count can pass.
+    pub false_compliance: f64,
+    /// The one-sided Clopper–Pearson lower bound (descriptive).
+    pub clopper_pearson_lower: f64,
+}
+
+/// What a regression design can detect, as a report discloses it.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct DesignDisclosure {
+    /// The smallest degradation the design detects at 80% design power;
+    /// `None` when none is detectable.
+    pub minimum_detectable_degradation: Option<f64>,
+    /// The design alternative rate the run was sized for.
+    pub design_alternative_rate: Option<f64>,
+    /// The design power at it (baseline and test both yet to be drawn).
+    pub design_power: Option<f64>,
+    /// The resolved power at it (the observed baseline's cutoff fixed).
+    pub resolved_test_power: Option<f64>,
+}
+
+/// The evidence of `regression/fisher`, and what the design can detect.
+#[derive(Debug, Clone, Copy, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RegressionEvidence {
+    /// `K_b`, the baseline successes the cutoff was derived from.
+    pub baseline_successes: u32,
+    /// `n_b`, the baseline trials.
+    pub baseline_trials: u32,
+    /// The integer cutoff: PASS iff `K_t ≥ cutoff`.
+    pub cutoff: u32,
+    /// The false-degradation-signal probability were the common rate the
+    /// baseline's observed rate — a property of the procedure, not the run.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub size_at_assumed_common_rate: Option<f64>,
+    /// The smallest degradation the design detects at 80% design power —
+    /// the inversion of the design power; `None` when none is detectable.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub minimum_detectable_degradation: Option<f64>,
+    /// The true rate at which the test is to reach its target power, when
+    /// the sizing declared one.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub design_alternative_rate: Option<f64>,
+    /// The power at the design alternative rate with the baseline and the
+    /// test both yet to be drawn.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub design_power: Option<f64>,
+    /// The power at the design alternative rate of the test resolved against
+    /// the observed baseline.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub resolved_test_power: Option<f64>,
 }
 
 /// Covariate alignment status between the baseline and the observed run.
@@ -733,34 +1034,64 @@ impl SpecProvenance {
     }
 }
 
-/// Renders the judged comparison behind a pass/fail verdict.
-///
-/// The figure named is the quantity the decision rule actually compared: a
-/// normative (declared) threshold is judged by the sample's own Wilson lower
-/// bound, so the reason states that bound; a derived threshold is judged by
-/// the observed rate (equivalently, the success count against the integer
-/// cutoff), so the reason states the observed rate.
-fn judged_comparison(
-    observed_pass_rate: f64,
-    analysis: Option<&StatisticalAnalysis>,
-    relation: &str,
-) -> String {
-    match analysis {
-        Some(analysis) if analysis.threshold_origin().is_normative() => {
-            format!(
-                "wilson lower {:.4} {relation} {:.4}",
-                analysis.wilson_lower(),
-                analysis.threshold()
-            )
-        }
-        Some(analysis) => {
-            format!(
-                "{observed_pass_rate:.4} {relation} {:.4}",
-                analysis.threshold()
-            )
-        }
-        None => format!("{observed_pass_rate:.4} {relation} 0.0000"),
-    }
+/// The reason a refused record states: every configuration error.
+fn refusal_reason(errors: &[ConfigurationError]) -> String {
+    let codes: Vec<&str> = errors.iter().map(|e| e.code()).collect();
+    format!("configuration refused: {}", codes.join(" "))
+}
+
+/// Renders the comparison the rule decided on for one criterion row: the
+/// success count against the smallest passing count (compliance) or against
+/// the cutoff (regression), the relation read from the row's own verdict.
+fn judged_comparison(row: Option<&CriterionRow>) -> String {
+    let Some(row) = row else {
+        return "no criterion judged".to_owned();
+    };
+    let Some(analysis) = row.statistical_analysis() else {
+        return format!("{} of {} observed", row.pass(), row.total());
+    };
+    let relation = if row.verdict() == Verdict::Pass {
+        ">="
+    } else {
+        "<"
+    };
+    let bar = match analysis.evidence() {
+        RuleEvidence::Compliance(evidence) => match evidence.minimum_passing_count {
+            Some(k_min) => format!("k_min {k_min}"),
+            None => {
+                return format!(
+                    "{} of {}: no count of {} can pass ({})",
+                    row.pass(),
+                    row.total(),
+                    row.total(),
+                    analysis.decision_rule()
+                );
+            }
+        },
+        RuleEvidence::Regression(evidence) => format!("cutoff {}", evidence.cutoff),
+    };
+    format!(
+        "{} of {} {relation} {bar} ({})",
+        row.pass(),
+        row.total(),
+        analysis.decision_rule()
+    )
+}
+
+/// Names what triggered the verdict: each triggering criterion by the
+/// comparison its rule decided on, each latency constraint by its label.
+fn triggered_by(rows: &[CriterionRow], triggering: &[Trigger]) -> String {
+    let names: Vec<String> = triggering
+        .iter()
+        .map(|t| match t.kind() {
+            TriggerKind::Criterion => rows.iter().find(|row| row.name() == t.id()).map_or_else(
+                || format!("criterion {}", t.id()),
+                |row| format!("{}: {}", t.id(), judged_comparison(Some(row))),
+            ),
+            TriggerKind::Latency => format!("latency {}", t.id()),
+        })
+        .collect();
+    names.join("; ")
 }
 
 /// Derives the verdict reason from the verdict, execution, and analysis context.
@@ -768,27 +1099,34 @@ fn derive_verdict_reason(
     verdict: Verdict,
     execution: &ExecutionSummary,
     covariate_status: &CovariateStatus,
-    observed_pass_rate: f64,
-    analysis: Option<&StatisticalAnalysis>,
+    rows: &[CriterionRow],
+    triggering: &[Trigger],
 ) -> String {
     let is_budget_exhausted = execution.termination().reason().is_budget_exhausted();
+    let first_row = rows.first();
+    let single_row_trigger = matches!(
+        (first_row, triggering),
+        (Some(row), [trigger]) if rows.len() == 1
+            && trigger.kind() == TriggerKind::Criterion
+            && trigger.id() == row.name()
+    );
 
     match verdict {
-        Verdict::Pass => judged_comparison(observed_pass_rate, analysis, ">="),
-        Verdict::Fail => {
-            if is_budget_exhausted {
-                "budget exhausted".to_string()
-            } else {
-                judged_comparison(observed_pass_rate, analysis, "<")
-            }
+        Verdict::Pass => judged_comparison(first_row),
+        Verdict::Fail if is_budget_exhausted => "budget exhausted".to_string(),
+        Verdict::Fail if single_row_trigger || triggering.is_empty() => {
+            judged_comparison(first_row)
         }
+        Verdict::Fail => format!("failed: {}", triggered_by(rows, triggering)),
         Verdict::Inconclusive => {
             if !covariate_status.aligned() {
                 "covariate misalignment".to_string()
             } else if is_budget_exhausted {
                 "budget exhausted".to_string()
-            } else {
+            } else if triggering.is_empty() {
                 "insufficient evidence".to_string()
+            } else {
+                format!("inconclusive: {}", triggered_by(rows, triggering))
             }
         }
     }
@@ -822,7 +1160,9 @@ mod tests {
         )
         .build();
 
-        assert_eq!(record.verdict(), Verdict::Pass);
+        assert_eq!(record.verdict(), Some(Verdict::Pass));
+        assert_eq!(record.methodology_version(), "1.5.0");
+        assert!(record.configuration_errors().is_empty());
         assert_eq!(record.intent(), TestIntent::Verification);
         assert_eq!(record.identity().service_contract_id(), "shopping-basket");
         assert!(record.statistical_analysis().is_none());
@@ -832,9 +1172,9 @@ mod tests {
 
     #[test]
     fn builds_full_verdict_record() {
-        let analysis =
-            StatisticalAnalysis::new(0.95, 0.0218, 0.9073, 0.90, ThresholdOrigin::Empirical)
-                .with_test_results(2.29, 0.011);
+        let analysis = crate::oracle_examples::analysis_of(
+            &crate::oracle_examples::regression_row("worked_example_pass_at_cutoff", "result"),
+        );
 
         let provenance = SpecProvenance::new(ThresholdOrigin::Empirical)
             .with_spec_filename("shopping-basket.yaml")
@@ -859,8 +1199,8 @@ mod tests {
 
         assert!(record.statistical_analysis().is_some());
         let stats = record.statistical_analysis().unwrap();
-        assert!((stats.threshold() - 0.90).abs() < 1e-10);
-        assert_eq!(stats.test_statistic(), Some(2.29));
+        assert!((stats.threshold() - 0.91).abs() < 1e-10);
+        assert_eq!(stats.decision_rule(), DecisionRule::RegressionFisher);
 
         assert!(record.spec_provenance().is_some());
         let prov = record.spec_provenance().unwrap();
@@ -878,18 +1218,17 @@ mod tests {
             Verdict::Pass,
             TestIntent::Verification,
             sample_execution(),
-            FunctionalAssessment::single(CriterionRow::result(95, 5, vec![], Verdict::Pass)),
+            FunctionalAssessment::single(crate::oracle_examples::regression_row(
+                "worked_example_pass_at_cutoff",
+                "result",
+            )),
         )
-        .statistical_analysis(StatisticalAnalysis::new(
-            0.95,
-            0.022,
-            0.907,
-            0.900,
-            ThresholdOrigin::Empirical,
-        ))
         .build();
 
-        assert_eq!(record.verdict_reason(), "0.9500 >= 0.9000");
+        assert_eq!(
+            record.verdict_reason(),
+            "91 of 100 >= cutoff 91 (regression/fisher)"
+        );
     }
 
     #[test]
@@ -899,18 +1238,85 @@ mod tests {
             Verdict::Fail,
             TestIntent::Verification,
             sample_execution(),
-            FunctionalAssessment::single(CriterionRow::result(80, 20, vec![], Verdict::Fail)),
+            FunctionalAssessment::single(crate::oracle_examples::compliance_row(
+                "p95_n150_fail_below_k_min",
+                "result",
+                ThresholdOrigin::Sla,
+            )),
         )
-        .statistical_analysis(StatisticalAnalysis::new(
-            0.95,
-            0.040,
-            0.722,
-            0.900,
-            ThresholdOrigin::Empirical,
-        ))
         .build();
 
-        assert_eq!(record.verdict_reason(), "0.8000 < 0.9000");
+        assert_eq!(
+            record.verdict_reason(),
+            "147 of 150 < k_min 148 (compliance/exact-binomial)"
+        );
+    }
+
+    #[test]
+    fn verdict_reason_names_the_triggering_criteria() {
+        let record = VerdictRecord::builder(
+            TestIdentity::new("test"),
+            Verdict::Fail,
+            TestIntent::Verification,
+            sample_execution(),
+            FunctionalAssessment::single(CriterionRow::result(80, 20, vec![], Verdict::Fail)),
+        )
+        .triggering(
+            crate::statistics::decision::compose_overall_verdict(
+                &[("result".to_owned(), Verdict::Fail)],
+                &[("p95".to_owned(), Verdict::Fail)],
+            )
+            .triggering()
+            .to_vec(),
+        )
+        .build();
+
+        assert_eq!(
+            record.verdict_reason(),
+            "failed: result: 80 of 100 observed; latency p95"
+        );
+    }
+
+    #[test]
+    fn a_refused_record_has_no_verdict_and_names_every_code_in_order() {
+        let record = VerdictRecord::refused(
+            TestIdentity::new("test"),
+            TestIntent::Verification,
+            sample_execution(),
+            vec![
+                ConfigurationError::ComplianceInfeasible,
+                ConfigurationError::TestLargerThanBaseline,
+            ],
+        )
+        .build();
+        assert_eq!(record.verdict(), None);
+        assert!(record.is_refused());
+        assert!(!record.passed());
+        assert_eq!(
+            record.verdict_reason(),
+            "configuration refused: TEST_LARGER_THAN_BASELINE COMPLIANCE_INFEASIBLE"
+        );
+        assert!(record.functional_assessment().criteria().is_empty());
+    }
+
+    #[test]
+    fn envelopes_sum_alpha_by_direction_over_the_decisions() {
+        let record = VerdictRecord::builder(
+            TestIdentity::new("test"),
+            Verdict::Fail,
+            TestIntent::Verification,
+            sample_execution(),
+            FunctionalAssessment::new(
+                crate::oracle_examples::two_criteria("two_criteria_fail_regression").0,
+            ),
+        )
+        .build();
+        // Oracle case `two_criteria_fail_regression`: compliance at alpha
+        // 0.01, regression at alpha 0.05.
+        let envelopes = record.envelopes();
+        assert!((envelopes.false_compliance().unwrap() - 0.01).abs() < 1e-12);
+        assert!((envelopes.false_degradation_signal().unwrap() - 0.05).abs() < 1e-12);
+        assert_eq!(record.single_decision_rule(), None);
     }
 
     #[test]

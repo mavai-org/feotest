@@ -1,7 +1,15 @@
 {
   "suite": "risk_driven_sizing",
-  "description": "Self-consistent power for baseline-derived thresholds (companion S5.4.1). The acceptance floor p*(n) moves with the test's own sample size, so sizing is computed against the moving floor rather than a fixed threshold: POWER_AT cases give the floor and power at a candidate n; REQUIRED_N cases give the smallest n meeting a target power for a declared minimal acceptable rate; DETECTABLE_RATE cases invert to the largest tolerable rate detectable at a fixed n. Defined for minimum_acceptable_rate < baseline_rate only; designs outside that domain are published as refusals rather than omitted -- sizing_gate is REFUSE, every numeric expectation is null, and refusal_category names the cause. A zero baseline (S4.3.4) reaches the refusal by way of an effective baseline rate of exactly 0, at which the domain is empty for every tolerance.",
-  "method": "floor = WilsonLower(baseline_rate, n, confidence) (from-rate form, shared z); Power(n) = pnorm((floor - p_min) / sqrt(p_min (1 - p_min) / n)); required_n = min{ n : Power(n) >= target_power } by doubling + bisection; detectable_rate by bisection on p_min over (0, p0) to 1e-10.",
+  "methodologyVersion": "1.5.0",
+  "fixtureSchemaVersion": 2,
+  "decisionRules": [
+    {
+      "id": "regression/fisher",
+      "version": 1
+    }
+  ],
+  "description": "Risk-driven sizing (companion §5.4.1) against the operative regression rule, in two operations. Design sizing, before the baseline exists (approaches power_at, required_n, detectable_rate), plans baseline and test together and uses the design power. Resolved sizing, against an existing baseline (approaches resolved_power_at, resolved_required_n), uses the resolved power at the observed baseline count, whose cutoff is fixed; once a baseline exists BASELINE_TOO_SMALL is judged by it. Design sizing: regression/fisher: the exact power of the rule at a declared design alternative rate p_design - the true rate at which the test must reach its target power; the test still flags any degradation from the baseline - with the baseline's n_b trials at rate p0. POWER_AT gives the power at a candidate n_t; REQUIRED_N the smallest n_t <= n_b from which power stays at or above the target up to n_b; DETECTABLE_RATE the largest p_design detectable at the target with n_t samples. Designs outside the domain are published as refusals: sizing_gate REFUSE, every numeric expectation null, refusal_category ZERO_BASELINE, ALTERNATIVE_NOT_BELOW_BASELINE, TEST_LARGER_THAN_BASELINE or BASELINE_TOO_SMALL (the target is not reached and held within n_t <= n_b).",
+  "method": "Power(n_t) = sum_k dbinom(k, n_b, p0) pbinom(c(k) - 1, n_t, p_design), c the regression/fisher cutoff at (k, n_b, n_t, alpha), over the baseline counts from qbinom(1e-17, n_b, p0) to qbinom(1 - 1e-17, n_b, p0); required_n = 1 + the largest n_t <= n_b with Power < target (refused when that is n_b); detectable_rate by bisection on p_design over (0, p0) to 1e-10. Resolved: resolved_power(n_t) = pbinom(c(K_b; n_b, n_t, alpha) - 1, n_t, p_design); resolved_required_n = 1 + the largest n_t <= n_b with resolved power < target (refused BASELINE_TOO_SMALL when that is n_b); first_crossing = the smallest n_t with resolved power >= target; refusals as for design with p0 = K_b / n_b.",
   "tolerance": 1e-06,
   "cases": [
     {
@@ -9,15 +17,15 @@
       "approach": "required_n",
       "inputs": {
         "baseline_rate": 0.87,
-        "minimum_acceptable_rate": 0.84,
-        "confidence": 0.95,
+        "baseline_trials": 3000,
+        "design_alternative_rate": 0.84,
+        "alpha": 0.05,
         "target_power": 0.8
       },
       "expected": {
         "sizing_gate": "ADMIT",
-        "required_n": 891,
-        "floor": 0.850342198223955,
-        "achieved_power": 0.800127719084018
+        "required_n": 1243,
+        "achieved_power": 0.800205956478356
       }
     },
     {
@@ -25,31 +33,15 @@
       "approach": "required_n",
       "inputs": {
         "baseline_rate": 0.96,
-        "minimum_acceptable_rate": 0.93,
-        "confidence": 0.95,
+        "baseline_trials": 2000,
+        "design_alternative_rate": 0.93,
+        "alpha": 0.05,
         "target_power": 0.8
       },
       "expected": {
         "sizing_gate": "ADMIT",
-        "required_n": 405,
-        "floor": 0.940694999361299,
-        "achieved_power": 0.800543316235589
-      }
-    },
-    {
-      "name": "higher_confidence_costs_samples",
-      "approach": "required_n",
-      "inputs": {
-        "baseline_rate": 0.96,
-        "minimum_acceptable_rate": 0.93,
-        "confidence": 0.99,
-        "target_power": 0.8
-      },
-      "expected": {
-        "sizing_gate": "ADMIT",
-        "required_n": 667,
-        "floor": 0.938331933755243,
-        "achieved_power": 0.800489272488643
+        "required_n": 463,
+        "achieved_power": 0.801382673611577
       }
     },
     {
@@ -57,47 +49,64 @@
       "approach": "required_n",
       "inputs": {
         "baseline_rate": 0.96,
-        "minimum_acceptable_rate": 0.93,
-        "confidence": 0.95,
+        "baseline_trials": 2000,
+        "design_alternative_rate": 0.93,
+        "alpha": 0.05,
         "target_power": 0.9
       },
       "expected": {
         "sizing_gate": "ADMIT",
-        "required_n": 553,
-        "floor": 0.943905003015732,
-        "achieved_power": 0.900003663045442
+        "required_n": 697,
+        "achieved_power": 0.900805124869345
       }
     },
     {
-      "name": "wide_tolerance_is_cheap",
+      "name": "smaller_alpha_costs_samples",
+      "approach": "required_n",
+      "inputs": {
+        "baseline_rate": 0.96,
+        "baseline_trials": 2000,
+        "design_alternative_rate": 0.93,
+        "alpha": 0.01,
+        "target_power": 0.8
+      },
+      "expected": {
+        "sizing_gate": "ADMIT",
+        "required_n": 843,
+        "achieved_power": 0.800312972339846
+      }
+    },
+    {
+      "name": "large_design_drop_is_cheap",
       "approach": "required_n",
       "inputs": {
         "baseline_rate": 0.9,
-        "minimum_acceptable_rate": 0.8,
-        "confidence": 0.95,
+        "baseline_trials": 1000,
+        "design_alternative_rate": 0.8,
+        "alpha": 0.05,
         "target_power": 0.8
       },
       "expected": {
         "sizing_gate": "ADMIT",
-        "required_n": 90,
-        "floor": 0.835763381885699,
-        "achieved_power": 0.801837558016471
+        "required_n": 91,
+        "achieved_power": 0.800203564465043
       }
     },
     {
-      "name": "high_baseline_tight_tolerance",
+      "name": "baseline_too_small_for_design",
       "approach": "required_n",
       "inputs": {
-        "baseline_rate": 0.99,
-        "minimum_acceptable_rate": 0.97,
-        "confidence": 0.95,
+        "baseline_rate": 0.96,
+        "baseline_trials": 300,
+        "design_alternative_rate": 0.93,
+        "alpha": 0.05,
         "target_power": 0.8
       },
       "expected": {
-        "sizing_gate": "ADMIT",
-        "required_n": 377,
-        "floor": 0.977412893239254,
-        "achieved_power": 0.800594429782472
+        "sizing_gate": "REFUSE",
+        "refusal_category": "BASELINE_TOO_SMALL",
+        "required_n": null,
+        "achieved_power": null
       }
     },
     {
@@ -105,14 +114,14 @@
       "approach": "power_at",
       "inputs": {
         "baseline_rate": 0.96,
-        "minimum_acceptable_rate": 0.93,
-        "confidence": 0.95,
+        "baseline_trials": 2000,
+        "design_alternative_rate": 0.93,
+        "alpha": 0.05,
         "test_samples": 50
       },
       "expected": {
         "sizing_gate": "ADMIT",
-        "floor": 0.88609975173007,
-        "power": 0.111870931803045
+        "power": 0.194625949230233
       }
     },
     {
@@ -120,86 +129,59 @@
       "approach": "power_at",
       "inputs": {
         "baseline_rate": 0.96,
-        "minimum_acceptable_rate": 0.93,
-        "confidence": 0.95,
+        "baseline_trials": 2000,
+        "design_alternative_rate": 0.93,
+        "alpha": 0.05,
         "test_samples": 150
       },
       "expected": {
         "sizing_gate": "ADMIT",
-        "floor": 0.924522904770754,
-        "power": 0.396310365719903
+        "power": 0.429662855980919
       }
     },
     {
-      "name": "closed_form_seed_underpowers",
+      "name": "worked_example_at_891",
       "approach": "power_at",
       "inputs": {
         "baseline_rate": 0.87,
-        "minimum_acceptable_rate": 0.84,
-        "confidence": 0.95,
-        "test_samples": 826
+        "baseline_trials": 3000,
+        "design_alternative_rate": 0.84,
+        "alpha": 0.05,
+        "test_samples": 891
       },
       "expected": {
         "sizing_gate": "ADMIT",
-        "floor": 0.849538300802139,
-        "power": 0.77269710438157
+        "power": 0.707820921501856
       }
     },
     {
-      "name": "beyond_required_n",
-      "approach": "power_at",
-      "inputs": {
-        "baseline_rate": 0.87,
-        "minimum_acceptable_rate": 0.84,
-        "confidence": 0.95,
-        "test_samples": 1200
-      },
-      "expected": {
-        "sizing_gate": "ADMIT",
-        "floor": 0.853195296867579,
-        "power": 0.893771613435378
-      }
-    },
-    {
-      "name": "companion_inversion_at_100",
+      "name": "inversion_at_100",
       "approach": "detectable_rate",
       "inputs": {
         "baseline_rate": 0.87,
-        "confidence": 0.95,
+        "baseline_trials": 3000,
+        "alpha": 0.05,
         "target_power": 0.8,
         "test_samples": 100
       },
       "expected": {
         "sizing_gate": "ADMIT",
-        "detectable_rate": 0.769353242502843
+        "detectable_rate": 0.770139832415152
       }
     },
     {
-      "name": "roundtrip_worked_example",
-      "approach": "detectable_rate",
-      "inputs": {
-        "baseline_rate": 0.87,
-        "confidence": 0.95,
-        "target_power": 0.8,
-        "test_samples": 891
-      },
-      "expected": {
-        "sizing_gate": "ADMIT",
-        "detectable_rate": 0.840005754492288
-      }
-    },
-    {
-      "name": "roundtrip_walkthrough",
+      "name": "inversion_at_400",
       "approach": "detectable_rate",
       "inputs": {
         "baseline_rate": 0.96,
-        "confidence": 0.95,
+        "baseline_trials": 2000,
+        "alpha": 0.05,
         "target_power": 0.8,
-        "test_samples": 405
+        "test_samples": 400
       },
       "expected": {
         "sizing_gate": "ADMIT",
-        "detectable_rate": 0.930026492134955
+        "detectable_rate": 0.927832706384361
       }
     },
     {
@@ -207,15 +189,15 @@
       "approach": "required_n",
       "inputs": {
         "baseline_rate": 0,
-        "minimum_acceptable_rate": 0.9,
-        "confidence": 0.95,
+        "baseline_trials": 1000,
+        "design_alternative_rate": 0.9,
+        "alpha": 0.05,
         "target_power": 0.8
       },
       "expected": {
         "sizing_gate": "REFUSE",
         "refusal_category": "ZERO_BASELINE",
         "required_n": null,
-        "floor": null,
         "achieved_power": null
       }
     },
@@ -224,14 +206,14 @@
       "approach": "power_at",
       "inputs": {
         "baseline_rate": 0,
-        "minimum_acceptable_rate": 0.9,
-        "confidence": 0.95,
+        "baseline_trials": 1000,
+        "design_alternative_rate": 0.9,
+        "alpha": 0.05,
         "test_samples": 100
       },
       "expected": {
         "sizing_gate": "REFUSE",
         "refusal_category": "ZERO_BASELINE",
-        "floor": null,
         "power": null
       }
     },
@@ -240,7 +222,8 @@
       "approach": "detectable_rate",
       "inputs": {
         "baseline_rate": 0,
-        "confidence": 0.95,
+        "baseline_trials": 1000,
+        "alpha": 0.05,
         "target_power": 0.8,
         "test_samples": 100
       },
@@ -251,20 +234,191 @@
       }
     },
     {
-      "name": "tolerance_at_baseline_refused",
+      "name": "design_alternative_at_baseline_refused",
       "approach": "required_n",
       "inputs": {
         "baseline_rate": 0.9,
-        "minimum_acceptable_rate": 0.9,
-        "confidence": 0.95,
+        "baseline_trials": 1000,
+        "design_alternative_rate": 0.9,
+        "alpha": 0.05,
         "target_power": 0.8
       },
       "expected": {
         "sizing_gate": "REFUSE",
-        "refusal_category": "EMPTY_TOLERANCE_INTERVAL",
+        "refusal_category": "ALTERNATIVE_NOT_BELOW_BASELINE",
         "required_n": null,
-        "floor": null,
         "achieved_power": null
+      }
+    },
+    {
+      "name": "test_larger_than_baseline_refused",
+      "approach": "power_at",
+      "inputs": {
+        "baseline_rate": 0.9,
+        "baseline_trials": 100,
+        "design_alternative_rate": 0.8,
+        "alpha": 0.05,
+        "test_samples": 200
+      },
+      "expected": {
+        "sizing_gate": "REFUSE",
+        "refusal_category": "TEST_LARGER_THAN_BASELINE",
+        "power": null
+      }
+    },
+    {
+      "name": "resolved_section_10_3_951_of_1000_at_0925",
+      "approach": "resolved_required_n",
+      "description": "Admissible under resolved sizing (stays at 0.80 from 966, first reaching it at 868), where design sizing for the same planned baseline refuses.",
+      "inputs": {
+        "baseline_successes": 951,
+        "baseline_trials": 1000,
+        "design_alternative_rate": 0.925,
+        "alpha": 0.05,
+        "target_power": 0.8
+      },
+      "expected": {
+        "sizing_gate": "ADMIT",
+        "required_n": 966,
+        "resolved_power": 0.800750874586063,
+        "first_crossing": 868
+      }
+    },
+    {
+      "name": "design_section_10_3_planned_1000_at_0951_vs_0925",
+      "approach": "required_n",
+      "inputs": {
+        "baseline_rate": 0.951,
+        "baseline_trials": 1000,
+        "design_alternative_rate": 0.925,
+        "alpha": 0.05,
+        "target_power": 0.8
+      },
+      "expected": {
+        "sizing_gate": "REFUSE",
+        "refusal_category": "BASELINE_TOO_SMALL",
+        "required_n": null,
+        "achieved_power": null
+      }
+    },
+    {
+      "name": "resolved_walkthrough_1920_of_2000_at_093",
+      "approach": "resolved_required_n",
+      "inputs": {
+        "baseline_successes": 1920,
+        "baseline_trials": 2000,
+        "design_alternative_rate": 0.93,
+        "alpha": 0.05,
+        "target_power": 0.8
+      },
+      "expected": {
+        "sizing_gate": "ADMIT",
+        "required_n": 460,
+        "resolved_power": 0.803001007250628,
+        "first_crossing": 413
+      }
+    },
+    {
+      "name": "resolved_baseline_too_small_288_of_300_at_093",
+      "approach": "resolved_required_n",
+      "inputs": {
+        "baseline_successes": 288,
+        "baseline_trials": 300,
+        "design_alternative_rate": 0.93,
+        "alpha": 0.05,
+        "target_power": 0.8
+      },
+      "expected": {
+        "sizing_gate": "REFUSE",
+        "refusal_category": "BASELINE_TOO_SMALL",
+        "required_n": null,
+        "resolved_power": null,
+        "first_crossing": null
+      }
+    },
+    {
+      "name": "resolved_alternative_at_baseline_refused",
+      "approach": "resolved_required_n",
+      "inputs": {
+        "baseline_successes": 900,
+        "baseline_trials": 1000,
+        "design_alternative_rate": 0.9,
+        "alpha": 0.05,
+        "target_power": 0.8
+      },
+      "expected": {
+        "sizing_gate": "REFUSE",
+        "refusal_category": "ALTERNATIVE_NOT_BELOW_BASELINE",
+        "required_n": null,
+        "resolved_power": null,
+        "first_crossing": null
+      }
+    },
+    {
+      "name": "resolved_zero_baseline_refused",
+      "approach": "resolved_required_n",
+      "inputs": {
+        "baseline_successes": 0,
+        "baseline_trials": 1000,
+        "design_alternative_rate": 0.9,
+        "alpha": 0.05,
+        "target_power": 0.8
+      },
+      "expected": {
+        "sizing_gate": "REFUSE",
+        "refusal_category": "ZERO_BASELINE",
+        "required_n": null,
+        "resolved_power": null,
+        "first_crossing": null
+      }
+    },
+    {
+      "name": "resolved_power_at_1000_section_10_3",
+      "approach": "resolved_power_at",
+      "inputs": {
+        "baseline_successes": 951,
+        "baseline_trials": 1000,
+        "design_alternative_rate": 0.925,
+        "alpha": 0.05,
+        "test_samples": 1000
+      },
+      "expected": {
+        "sizing_gate": "ADMIT",
+        "cutoff_integer": 933,
+        "resolved_power": 0.815266681807277
+      }
+    },
+    {
+      "name": "resolved_power_at_463_walkthrough",
+      "approach": "resolved_power_at",
+      "inputs": {
+        "baseline_successes": 1920,
+        "baseline_trials": 2000,
+        "design_alternative_rate": 0.93,
+        "alpha": 0.05,
+        "test_samples": 463
+      },
+      "expected": {
+        "sizing_gate": "ADMIT",
+        "cutoff_integer": 436,
+        "resolved_power": 0.813168627296219
+      }
+    },
+    {
+      "name": "resolved_test_larger_than_baseline_refused",
+      "approach": "resolved_power_at",
+      "inputs": {
+        "baseline_successes": 95,
+        "baseline_trials": 100,
+        "design_alternative_rate": 0.85,
+        "alpha": 0.05,
+        "test_samples": 200
+      },
+      "expected": {
+        "sizing_gate": "REFUSE",
+        "refusal_category": "TEST_LARGER_THAN_BASELINE",
+        "cutoff_integer": null,
+        "resolved_power": null
       }
     }
   ]

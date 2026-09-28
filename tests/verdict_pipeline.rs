@@ -31,7 +31,7 @@ fn pass_verdict_has_rate_comparison_reason() {
         .run();
 
     let record = result.verdict_record();
-    assert_eq!(record.verdict(), Verdict::Pass);
+    assert_eq!(record.verdict(), Some(Verdict::Pass));
     // Reason should be "observed >= threshold"
     assert!(
         record.verdict_reason().contains(">="),
@@ -55,7 +55,7 @@ fn fail_verdict_has_rate_comparison_reason() {
         .run();
 
     let record = result.verdict_record();
-    assert_eq!(record.verdict(), Verdict::Fail);
+    assert_eq!(record.verdict(), Some(Verdict::Fail));
     assert!(
         record.verdict_reason().contains('<'),
         "expected '<' in verdict reason, got: {}",
@@ -183,7 +183,7 @@ fn sample_size_first_derives_threshold_from_baseline() {
         .run();
 
     let record = result.verdict_record();
-    assert_eq!(record.verdict(), Verdict::Pass);
+    assert_eq!(record.verdict(), Some(Verdict::Pass));
     let stats = record
         .statistical_analysis()
         .expect("statistical analysis present");

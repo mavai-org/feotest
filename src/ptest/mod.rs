@@ -5,17 +5,18 @@
 //! service meet its threshold?
 //!
 //! This module consumes the output of experiments (baseline specs) and the
-//! machinery of the statistics module (threshold derivation, evaluation,
-//! feasibility checking) to produce [`VerdictRecord`]s.
+//! decision rules of the statistics module to produce [`VerdictRecord`]s.
+//! A configuration with any invalid part is refused whole before any sample
+//! runs, and the refusal is itself recorded.
 //!
 //! Four operational approaches are supported:
 //!
 //! | Approach | User specifies | Framework computes |
 //! |---|---|---|
-//! | **Sample-size-first** | `samples` + `threshold_confidence` | `min_pass_rate` |
-//! | **Confidence-first** | `confidence` + `min_detectable_effect` + `power` | `samples` |
-//! | **Threshold-first** | `samples` + `min_pass_rate` | implied confidence |
-//! | **Risk-driven** | `minimum_acceptable_rate` + `confidence` + `target_power` | `samples` + `min_pass_rate` |
+//! | **Sample-size-first** | `samples` + `confidence` | each regression cutoff |
+//! | **Confidence-first** | `confidence` + `min_detectable_effect` + `power` | `samples` (resolved sizing) |
+//! | **Threshold-first** | `samples` + `min_pass_rate` | the implied alpha of the cutoff |
+//! | **Risk-driven** | `design_alternative_rate` + `confidence` + `target_power` | `samples` (resolved sizing) |
 //!
 //! [`VerdictRecord`]: crate::verdict::VerdictRecord
 
@@ -25,6 +26,8 @@ pub mod builder;
 mod contract;
 mod diagnostics;
 mod disclosure;
+mod judge;
+mod preflight;
 mod probabilistic_test;
 mod runner;
 

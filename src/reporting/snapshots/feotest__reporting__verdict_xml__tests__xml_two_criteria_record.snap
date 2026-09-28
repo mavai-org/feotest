@@ -1,0 +1,24 @@
+---
+source: src/reporting/verdict_xml.rs
+expression: xml
+---
+<?xml version="1.0" encoding="UTF-8"?>
+<verdict-record xmlns="http://mavai.org/verdict/1.0" version="1.7" methodology-version="1.5.0" timestamp="2026-04-01T12:00:00Z" generator="feotest/0.2.0">
+  <identity use-case-id="offer-extraction"/>
+  <execution planned-samples="1000" samples-executed="1000" successes="925" failures="75" elapsed-ms="500" intent="VERIFICATION" confidence="0.95"/>
+  <functional successes="925" failures="75" pass-rate="0.9250">
+    <failure-distribution>
+      <check name="parse" count="38"/>
+      <check name="content" count="37"/>
+    </failure-distribution>
+  </functional>
+  <covariates aligned="true"/>
+  <termination reason="COMPLETED"/>
+  <cost total-time-ms="500" total-tokens="1000" avg-time-per-sample-ms="0" avg-tokens-per-sample="1"/>
+  <per-criterion>
+    <criterion id="c_well_formed_compliance" verdict="PASS" pass="925" fail="75" inconclusive="0" total="1000" observed-rate="0.9250" threshold="0.9000" decision-rule="compliance/exact-binomial" decision-rule-version="1"/>
+    <criterion id="c_well_formed_regression" verdict="FAIL" pass="925" fail="75" inconclusive="0" total="1000" observed-rate="0.9250" threshold="0.9330" decision-rule="regression/fisher" decision-rule-version="1"/>
+    <composite value="FAIL"/>
+  </per-criterion>
+  <verdict value="FAIL" reason="failed: c_well_formed_regression: 925 of 1000 &lt; cutoff 933 (regression/fisher)"/>
+</verdict-record>

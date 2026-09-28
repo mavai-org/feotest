@@ -15,8 +15,7 @@ use feotest::ptest::ProbabilisticTest;
 use feotest::ptest::builder::ThresholdApproach;
 use feotest::service_contract::ServiceContract;
 use feotest::spec::SpecResolver;
-use feotest::statistics::risk_driven_sizing;
-use feotest::statistics::types::ConfidenceLevel;
+use feotest::statistics::regression;
 use feotest::verdict::VerdictRecord;
 
 /// A single-criterion contract that passes exactly the first `passing`
@@ -110,14 +109,16 @@ fn entry<'a>(record: &'a VerdictRecord, key: &str) -> Option<&'a str> {
 
 #[test]
 fn every_run_records_its_approach_with_declared_parameters() {
+    // Oracle case `resolved_walkthrough_1920_of_2000_at_093`: resolved
+    // sizing prices the run at 460 of the baseline's 2000 samples.
     let id = "disclosure-risk-driven";
-    let baseline_dir = establish_baseline(id, 96, 100);
+    let baseline_dir = establish_baseline(id, 1920, 2000);
 
     let result = run_with_approach(
         id,
         baseline_dir.path(),
         ThresholdApproach::RiskDriven {
-            minimum_acceptable_rate: 0.93,
+            design_alternative_rate: 0.93,
             confidence: 0.95,
             target_power: 0.80,
         },
@@ -128,17 +129,16 @@ fn every_run_records_its_approach_with_declared_parameters() {
         entry(record, "sizing-approach"),
         Some("confidence-first (risk-driven)")
     );
-    assert_eq!(entry(record, "sizing-tolerated-rate"), Some("0.93"));
+    assert_eq!(
+        entry(record, "sizing-design-alternative-rate"),
+        Some("0.93")
+    );
     assert_eq!(entry(record, "sizing-declared-confidence"), Some("0.95"));
     assert_eq!(entry(record, "sizing-declared-power"), Some("0.8"));
-    assert_eq!(
-        entry(record, "sizing-computed-samples"),
-        Some(record.execution().samples_planned().to_string().as_str())
-    );
-    // Risk-driven sizing prices the run above the baseline's own 100
-    // samples here, so there is no downsizing trade to disclose.
-    assert!(entry(record, "sizing-detectable-rate").is_none());
-    assert!(entry(record, "sizing-saved-fraction").is_none());
+    assert_eq!(entry(record, "sizing-computed-samples"), Some("460"));
+    // Sized below the baseline's own size, the run discloses the trade.
+    assert!(entry(record, "sizing-detectable-rate").is_some());
+    assert_eq!(entry(record, "sizing-saved-fraction"), Some("0.77"));
 }
 
 #[test]
@@ -161,7 +161,7 @@ fn a_downsized_run_records_the_trade_from_the_sizing_statistics() {
         .expect("a run sized below its baseline must disclose the detectable rate")
         .parse()
         .unwrap();
-    let expected = risk_driven_sizing::detectable_rate(50, 0.96, ConfidenceLevel::new(0.95), 0.80);
+    let expected = regression::resolved_detectable_rate(192, 200, 50, 0.05, 0.80).unwrap();
     assert!((disclosed - expected).abs() < 1e-12);
     assert_eq!(entry(record, "sizing-detectable-power"), Some("0.8"));
     assert_eq!(entry(record, "sizing-saved-fraction"), Some("0.75"));

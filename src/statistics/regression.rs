@@ -213,6 +213,22 @@ pub(crate) fn fisher_cutoffs(
     cutoffs
 }
 
+/// The cutoffs for every baseline count in `counts`, each walked from the
+/// corresponding entry of `guesses`.
+pub(crate) fn fisher_cutoffs_near(
+    counts: &RangeInclusive<u32>,
+    baseline_trials: u32,
+    test_samples: u32,
+    alpha: f64,
+    guesses: &[u32],
+) -> Vec<u32> {
+    counts
+        .clone()
+        .zip(guesses)
+        .map(|(count, &guess)| cutoff_near(count, baseline_trials, test_samples, alpha, guess))
+        .collect()
+}
+
 /// The baseline counts carrying all but `2e-17` of `Bin(n_b, rate)`.
 ///
 /// # Panics

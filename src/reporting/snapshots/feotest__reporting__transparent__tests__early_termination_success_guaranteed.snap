@@ -1,40 +1,45 @@
 ---
 source: src/reporting/transparent.rs
-expression: buf
+expression: "render_with(&record, &threshold_first(120, 0.90))"
 ---
 ║═════════════════════════════════════════════════════════════║
 ║ TRANSPARENT STATISTICS                                      ║
 ║                                                             ║
-║ Test:       solid-service                                   ║
-║ Approach:   threshold-first                                 ║
-║ Intent:     VERIFICATION                                    ║
-║ Origin:     EMPIRICAL                                       ║
+║ Test:        solid-service                                  ║
+║ Approach:    threshold-first                                ║
+║ Intent:      VERIFICATION                                   ║
+║ Methodology: 1.5.0                                          ║
+║ Origin:      EMPIRICAL                                      ║
 ║─────────────────────────────────────────────────────────────║
 ║ HYPOTHESES                                                  ║
 ║                                                             ║
-║ H0: p >= 0.900  (service meets threshold)                   ║
-║ H1: p <  0.900  (service is degraded)                       ║
+║ H0: p_test = p_baseline  (no degradation)                   ║
+║ H1: p_test < p_baseline  (the service has degraded)         ║
 ║─────────────────────────────────────────────────────────────║
 ║ OBSERVED DATA AND INFERENCE                                 ║
 ║                                                             ║
-║ Successes / Total:    58 / 60                               ║
-║ Observed pass rate:   0.967                                 ║
-║ Threshold:            0.900                                 ║
-║   (implied confidence: 0.950)                               ║
-║ z-statistic:          3.867                                 ║
-║ p-value:              0.000                                 ║
-║ Wilson lower [95%]: 0.918                                   ║
-║ Standard error:       0.025                                 ║
+║ Successes / Total:    94 / 100                              ║
+║ Observed pass rate:   0.940                                 ║
+║ Decision rule:        regression/fisher v1                  ║
+║ Threshold:            0.940                                 ║
+║   (declared floor; each criterion decided by its rule)      ║
+║ Baseline:             99 / 100                              ║
+║ Cutoff:               94                                    ║
+║ Size at common rate:  0.0013                                ║
+║ Min detectable drop:  0.0830 (80% design power)             ║
+║ Wilson lower [95%]: 0.888 (descriptive)                     ║
+║ Standard error:       0.024                                 ║
 ║─────────────────────────────────────────────────────────────║
 ║ EARLY TERMINATION                                           ║
 ║                                                             ║
 ║ Reason:     Success guaranteed                              ║
-║ Executed:   60 of 100 planned samples                       ║
+║ Executed:   100 of 120 planned samples                      ║
 ║─────────────────────────────────────────────────────────────║
 ║ VERDICT                                                     ║
 ║                                                             ║
 ║ PASS                                                        ║
 ║                                                             ║
-║ The observed success rate of 0.967 is consistent with the   ║
-║ baseline expectation. No evidence of degradation.           ║
+║ Every criterion passed under its rule (regression/fisher    ║
+║ for the first) and every enforced latency constraint        ║
+║ passed: 94 of 100 >= cutoff 94 (regression/fisher).         ║
 ║═════════════════════════════════════════════════════════════║

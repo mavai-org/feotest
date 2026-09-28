@@ -1,18 +1,18 @@
 ---
 source: src/reporting/transparent.rs
-expression: buf
+expression: "render_with(&inconclusive_record(), &threshold_first(10, 0.80))"
 ---
 ║═════════════════════════════════════════════════════════════║
 ║ TRANSPARENT STATISTICS                                      ║
 ║                                                             ║
-║ Test:       flaky-service                                   ║
-║ Approach:   threshold-first                                 ║
-║ Intent:     VERIFICATION                                    ║
+║ Test:        flaky-service                                  ║
+║ Approach:    threshold-first                                ║
+║ Intent:      VERIFICATION                                   ║
+║ Methodology: 1.5.0                                          ║
 ║─────────────────────────────────────────────────────────────║
 ║ VERDICT                                                     ║
 ║                                                             ║
 ║ INCONCLUSIVE                                                ║
 ║                                                             ║
-║ Insufficient evidence to reach a conclusion. The            ║
-║ statistical analysis is unreliable at this sample size.     ║
+║ The data cannot decide the test: insufficient evidence.     ║
 ║═════════════════════════════════════════════════════════════║

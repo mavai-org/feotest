@@ -1,0 +1,395 @@
+{
+  "suite": "latency_compliance_decision",
+  "methodologyVersion": "1.5.0",
+  "fixtureSchemaVersion": 2,
+  "decisionRules": [
+    {
+      "id": "latency/compliance-exact-binomial",
+      "version": 1
+    }
+  ],
+  "description": "Verdicts of explicit latency requirements under latency/compliance-exact-binomial (companion §12.3): a requirement that the p-th percentile of successful latencies is at most tau is tested as H0: F(tau) <= p against H1: F(tau) > p. Y counts the successful latencies at or below tau; PASS iff Y >= y_min, the compliance/exact-binomial k_min at p_req = p over the realised number of successful latencies. A VERIFICATION plan whose planned samples are below the feasibility minimum is refused as COMPLIANCE_INFEASIBLE; a run whose realised successful count is below it is INCONCLUSIVE. The raw comparison of the observed percentile with tau is advisory and reported only. Binding: test_samples, within_threshold, y_min, pass_possible, verdict, configuration_error. Informational: false_compliance, clopper_pearson_lower, observed_percentile_ms, advisory_percentile_pass. The latencies are those of the samples that passed every functional criterion (companion §12.2.1). Frameworks MUST evaluate these cases through their production verdict path.",
+  "method": "latency/compliance-exact-binomial v1: Y = #{latencies <= tau}; y_min = min{y : P_p(Y >= y) <= alpha}, Y ~ Bin(n_s, p) (null when no y <= n_s qualifies); PASS iff Y >= y_min; INCONCLUSIVE when y_min is null. COMPLIANCE_INFEASIBLE iff intent is VERIFICATION and planned_samples < ceiling(log(alpha) / log(p)). false_compliance = P_p(Y >= y_min); clopper_pearson_lower = qbeta(alpha, Y, n_s - Y + 1) (0 at Y = 0); observed_percentile_ms is the nearest-rank percentile, rank ceiling(p n_s); advisory_percentile_pass = observed_percentile_ms <= tau.",
+  "tolerance": 1e-10,
+  "cases": [
+    {
+      "name": "p95_n100_pass_at_y_min",
+      "inputs": {
+        "percentile": 0.95,
+        "threshold_ms": 500,
+        "alpha": 0.05,
+        "intent": "VERIFICATION",
+        "planned_samples": 100,
+        "latencies": [350, 352, 353, 355, 356, 358, 359, 361, 362, 364, 365, 367, 368, 370, 371, 373, 374, 376, 377, 379, 380, 382, 383, 385, 386, 388, 390, 391, 393, 394, 396, 397, 399, 400, 402, 403, 405, 406, 408, 409, 411, 412, 414, 415, 417, 418, 420, 421, 423, 424, 426, 428, 429, 431, 432, 434, 435, 437, 438, 440, 441, 443, 444, 446, 447, 449, 450, 452, 453, 455, 456, 458, 459, 461, 463, 464, 466, 467, 469, 470, 472, 473, 475, 476, 478, 479, 481, 482, 484, 485, 487, 488, 490, 491, 493, 494, 496, 497, 499, 501]
+      },
+      "expected": {
+        "test_samples": 100,
+        "within_threshold": 99,
+        "y_min": 99,
+        "pass_possible": true,
+        "verdict": "PASS",
+        "configuration_error": [],
+        "false_compliance": 0.0370812093273551,
+        "clopper_pearson_lower": 0.953440188546461,
+        "observed_percentile_ms": 493,
+        "advisory_percentile_pass": true
+      }
+    },
+    {
+      "name": "p95_n100_fail_below_y_min",
+      "inputs": {
+        "percentile": 0.95,
+        "threshold_ms": 500,
+        "alpha": 0.05,
+        "intent": "VERIFICATION",
+        "planned_samples": 100,
+        "latencies": [350, 352, 353, 355, 356, 358, 359, 361, 362, 364, 365, 367, 368, 370, 372, 373, 375, 376, 378, 379, 381, 382, 384, 385, 387, 388, 390, 391, 393, 395, 396, 398, 399, 401, 402, 404, 405, 407, 408, 410, 411, 413, 415, 416, 418, 419, 421, 422, 424, 425, 427, 428, 430, 431, 433, 434, 436, 438, 439, 441, 442, 444, 445, 447, 448, 450, 451, 453, 454, 456, 458, 459, 461, 462, 464, 465, 467, 468, 470, 471, 473, 474, 476, 477, 479, 481, 482, 484, 485, 487, 488, 490, 491, 493, 494, 496, 497, 499, 501, 900]
+      },
+      "expected": {
+        "test_samples": 100,
+        "within_threshold": 98,
+        "y_min": 99,
+        "pass_possible": true,
+        "verdict": "FAIL",
+        "configuration_error": [],
+        "false_compliance": 0.0370812093273551,
+        "clopper_pearson_lower": 0.938380799603959,
+        "observed_percentile_ms": 494,
+        "advisory_percentile_pass": true
+      }
+    },
+    {
+      "name": "p95_n100_advisory_pass_not_demonstrated",
+      "description": "The observed p95 is within 500 ms (95 of 100 at or below), so the advisory comparison passes; compliance is not demonstrated.",
+      "inputs": {
+        "percentile": 0.95,
+        "threshold_ms": 500,
+        "alpha": 0.05,
+        "intent": "VERIFICATION",
+        "planned_samples": 100,
+        "latencies": [350, 352, 353, 355, 356, 358, 360, 361, 363, 364, 366, 367, 369, 371, 372, 374, 375, 377, 379, 380, 382, 383, 385, 386, 388, 390, 391, 393, 394, 396, 398, 399, 401, 402, 404, 405, 407, 409, 410, 412, 413, 415, 417, 418, 420, 421, 423, 424, 426, 428, 429, 431, 432, 434, 436, 437, 439, 440, 442, 444, 445, 447, 448, 450, 451, 453, 455, 456, 458, 459, 461, 463, 464, 466, 467, 469, 470, 472, 474, 475, 477, 478, 480, 482, 483, 485, 486, 488, 489, 491, 493, 494, 496, 497, 499, 501, 601, 700, 800, 900]
+      },
+      "expected": {
+        "test_samples": 100,
+        "within_threshold": 95,
+        "y_min": 99,
+        "pass_possible": true,
+        "verdict": "FAIL",
+        "configuration_error": [],
+        "false_compliance": 0.0370812093273551,
+        "clopper_pearson_lower": 0.897746622356726,
+        "observed_percentile_ms": 499,
+        "advisory_percentile_pass": true
+      }
+    },
+    {
+      "name": "p95_n100_advisory_fail",
+      "description": "94 of 100 within: the observed p95 exceeds 500 ms and the verdict is FAIL.",
+      "inputs": {
+        "percentile": 0.95,
+        "threshold_ms": 500,
+        "alpha": 0.05,
+        "intent": "VERIFICATION",
+        "planned_samples": 100,
+        "latencies": [350, 352, 353, 355, 356, 358, 360, 361, 363, 364, 366, 368, 369, 371, 372, 374, 376, 377, 379, 380, 382, 384, 385, 387, 388, 390, 392, 393, 395, 396, 398, 400, 401, 403, 404, 406, 408, 409, 411, 412, 414, 416, 417, 419, 420, 422, 424, 425, 427, 429, 430, 432, 433, 435, 437, 438, 440, 441, 443, 445, 446, 448, 449, 451, 453, 454, 456, 457, 459, 461, 462, 464, 465, 467, 469, 470, 472, 473, 475, 477, 478, 480, 481, 483, 485, 486, 488, 489, 491, 493, 494, 496, 497, 499, 501, 581, 661, 740, 820, 900]
+      },
+      "expected": {
+        "test_samples": 100,
+        "within_threshold": 94,
+        "y_min": 99,
+        "pass_possible": true,
+        "verdict": "FAIL",
+        "configuration_error": [],
+        "false_compliance": 0.0370812093273551,
+        "clopper_pearson_lower": 0.885014744392079,
+        "observed_percentile_ms": 501,
+        "advisory_percentile_pass": false
+      }
+    },
+    {
+      "name": "tie_at_threshold_counts_within",
+      "description": "Latencies equal to the threshold count as within it.",
+      "inputs": {
+        "percentile": 0.95,
+        "threshold_ms": 500,
+        "alpha": 0.05,
+        "intent": "VERIFICATION",
+        "planned_samples": 100,
+        "latencies": [500, 500, 500, 500, 500, 500, 500, 500, 500, 500, 500, 500, 500, 500, 500, 500, 500, 500, 500, 500, 500, 500, 500, 500, 500, 500, 500, 500, 500, 500, 500, 500, 500, 500, 500, 500, 500, 500, 500, 500, 500, 500, 500, 500, 500, 500, 500, 500, 500, 500, 500, 500, 500, 500, 500, 500, 500, 500, 500, 500, 500, 500, 500, 500, 500, 500, 500, 500, 500, 500, 500, 500, 500, 500, 500, 500, 500, 500, 500, 500, 500, 500, 500, 500, 500, 500, 500, 500, 500, 500, 500, 500, 500, 500, 500, 500, 500, 500, 500, 900]
+      },
+      "expected": {
+        "test_samples": 100,
+        "within_threshold": 99,
+        "y_min": 99,
+        "pass_possible": true,
+        "verdict": "PASS",
+        "configuration_error": [],
+        "false_compliance": 0.0370812093273551,
+        "clopper_pearson_lower": 0.953440188546461,
+        "observed_percentile_ms": 500,
+        "advisory_percentile_pass": true
+      }
+    },
+    {
+      "name": "p95_plan_58_verification_refused",
+      "description": "The plan of 58 is below the feasibility minimum of 59 even if every sample succeeds.",
+      "inputs": {
+        "percentile": 0.95,
+        "threshold_ms": 500,
+        "alpha": 0.05,
+        "intent": "VERIFICATION",
+        "planned_samples": 58,
+        "latencies": []
+      },
+      "expected": {
+        "test_samples": null,
+        "within_threshold": null,
+        "y_min": null,
+        "pass_possible": null,
+        "verdict": null,
+        "configuration_error": [
+          "COMPLIANCE_INFEASIBLE"
+        ],
+        "false_compliance": null,
+        "clopper_pearson_lower": null,
+        "observed_percentile_ms": null,
+        "advisory_percentile_pass": null
+      }
+    },
+    {
+      "name": "p95_plan_58_smoke_inconclusive",
+      "description": "SMOKE runs the undersized plan; 58 of 58 within the threshold cannot PASS.",
+      "inputs": {
+        "percentile": 0.95,
+        "threshold_ms": 500,
+        "alpha": 0.05,
+        "intent": "SMOKE",
+        "planned_samples": 58,
+        "latencies": [350, 353, 355, 358, 360, 363, 366, 368, 371, 374, 376, 379, 381, 384, 387, 389, 392, 394, 397, 400, 402, 405, 408, 410, 413, 415, 418, 421, 423, 426, 428, 431, 434, 436, 439, 441, 444, 447, 449, 452, 455, 457, 460, 462, 465, 468, 470, 473, 475, 478, 481, 483, 486, 489, 491, 494, 496, 499]
+      },
+      "expected": {
+        "test_samples": 58,
+        "within_threshold": 58,
+        "y_min": null,
+        "pass_possible": false,
+        "verdict": "INCONCLUSIVE",
+        "configuration_error": [],
+        "false_compliance": null,
+        "clopper_pearson_lower": 0.94966066166958,
+        "observed_percentile_ms": 494,
+        "advisory_percentile_pass": true
+      }
+    },
+    {
+      "name": "p95_plan_60_realised_58_inconclusive",
+      "description": "The plan is feasible, but two samples fail and 58 successful latencies remain: too few to decide.",
+      "inputs": {
+        "percentile": 0.95,
+        "threshold_ms": 500,
+        "alpha": 0.05,
+        "intent": "VERIFICATION",
+        "planned_samples": 60,
+        "latencies": [350, 353, 355, 358, 360, 363, 366, 368, 371, 374, 376, 379, 381, 384, 387, 389, 392, 394, 397, 400, 402, 405, 408, 410, 413, 415, 418, 421, 423, 426, 428, 431, 434, 436, 439, 441, 444, 447, 449, 452, 455, 457, 460, 462, 465, 468, 470, 473, 475, 478, 481, 483, 486, 489, 491, 494, 496, 499]
+      },
+      "expected": {
+        "test_samples": 58,
+        "within_threshold": 58,
+        "y_min": null,
+        "pass_possible": false,
+        "verdict": "INCONCLUSIVE",
+        "configuration_error": [],
+        "false_compliance": null,
+        "clopper_pearson_lower": 0.94966066166958,
+        "observed_percentile_ms": 494,
+        "advisory_percentile_pass": true
+      }
+    },
+    {
+      "name": "p95_n59_zero_exceedances_pass",
+      "description": "The feasibility minimum: y_min = n_s.",
+      "inputs": {
+        "percentile": 0.95,
+        "threshold_ms": 500,
+        "alpha": 0.05,
+        "intent": "VERIFICATION",
+        "planned_samples": 59,
+        "latencies": [350, 353, 355, 358, 360, 363, 365, 368, 371, 373, 376, 378, 381, 383, 386, 389, 391, 394, 396, 399, 401, 404, 407, 409, 412, 414, 417, 419, 422, 424, 427, 430, 432, 435, 437, 440, 442, 445, 448, 450, 453, 455, 458, 460, 463, 466, 468, 471, 473, 476, 478, 481, 484, 486, 489, 491, 494, 496, 499]
+      },
+      "expected": {
+        "test_samples": 59,
+        "within_threshold": 59,
+        "y_min": 59,
+        "pass_possible": true,
+        "verdict": "PASS",
+        "configuration_error": [],
+        "false_compliance": 0.0484945252494231,
+        "clopper_pearson_lower": 0.950492390111773,
+        "observed_percentile_ms": 494,
+        "advisory_percentile_pass": true
+      }
+    },
+    {
+      "name": "p99_n500_pass_at_y_min",
+      "inputs": {
+        "percentile": 0.99,
+        "threshold_ms": 1200,
+        "alpha": 0.05,
+        "intent": "VERIFICATION",
+        "planned_samples": 500,
+        "latencies": [1050, 1050, 1051, 1051, 1051, 1051, 1052, 1052, 1052, 1053, 1053, 1053, 1054, 1054, 1054, 1054, 1055, 1055, 1055, 1056, 1056, 1056, 1057, 1057, 1057, 1057, 1058, 1058, 1058, 1059, 1059, 1059, 1060, 1060, 1060, 1060, 1061, 1061, 1061, 1062, 1062, 1062, 1063, 1063, 1063, 1063, 1064, 1064, 1064, 1065, 1065, 1065, 1066, 1066, 1066, 1066, 1067, 1067, 1067, 1068, 1068, 1068, 1069, 1069, 1069, 1069, 1070, 1070, 1070, 1071, 1071, 1071, 1072, 1072, 1072, 1072, 1073, 1073, 1073, 1074, 1074, 1074, 1075, 1075, 1075, 1075, 1076, 1076, 1076, 1077, 1077, 1077, 1078, 1078, 1078, 1078, 1079, 1079, 1079, 1080, 1080, 1080, 1081, 1081, 1081, 1081, 1082, 1082, 1082, 1083, 1083, 1083, 1084, 1084, 1084, 1084, 1085, 1085, 1085, 1086, 1086, 1086, 1087, 1087, 1087, 1087, 1088, 1088, 1088, 1089, 1089, 1089, 1089, 1090, 1090, 1090, 1091, 1091, 1091, 1092, 1092, 1092, 1092, 1093, 1093, 1093, 1094, 1094, 1094, 1095, 1095, 1095, 1095, 1096, 1096, 1096, 1097, 1097, 1097, 1098, 1098, 1098, 1098, 1099, 1099, 1099, 1100, 1100, 1100, 1101, 1101, 1101, 1101, 1102, 1102, 1102, 1103, 1103, 1103, 1104, 1104, 1104, 1104, 1105, 1105, 1105, 1106, 1106, 1106, 1107, 1107, 1107, 1107, 1108, 1108, 1108, 1109, 1109, 1109, 1110, 1110, 1110, 1110, 1111, 1111, 1111, 1112, 1112, 1112, 1113, 1113, 1113, 1113, 1114, 1114, 1114, 1115, 1115, 1115, 1116, 1116, 1116, 1116, 1117, 1117, 1117, 1118, 1118, 1118, 1119, 1119, 1119, 1119, 1120, 1120, 1120, 1121, 1121, 1121, 1122, 1122, 1122, 1122, 1123, 1123, 1123, 1124, 1124, 1124, 1124, 1125, 1125, 1125, 1126, 1126, 1126, 1127, 1127, 1127, 1127, 1128, 1128, 1128, 1129, 1129, 1129, 1130, 1130, 1130, 1130, 1131, 1131, 1131, 1132, 1132, 1132, 1133, 1133, 1133, 1133, 1134, 1134, 1134, 1135, 1135, 1135, 1136, 1136, 1136, 1136, 1137, 1137, 1137, 1138, 1138, 1138, 1139, 1139, 1139, 1139, 1140, 1140, 1140, 1141, 1141, 1141, 1142, 1142, 1142, 1142, 1143, 1143, 1143, 1144, 1144, 1144, 1145, 1145, 1145, 1145, 1146, 1146, 1146, 1147, 1147, 1147, 1148, 1148, 1148, 1148, 1149, 1149, 1149, 1150, 1150, 1150, 1151, 1151, 1151, 1151, 1152, 1152, 1152, 1153, 1153, 1153, 1154, 1154, 1154, 1154, 1155, 1155, 1155, 1156, 1156, 1156, 1157, 1157, 1157, 1157, 1158, 1158, 1158, 1159, 1159, 1159, 1160, 1160, 1160, 1160, 1161, 1161, 1161, 1162, 1162, 1162, 1162, 1163, 1163, 1163, 1164, 1164, 1164, 1165, 1165, 1165, 1165, 1166, 1166, 1166, 1167, 1167, 1167, 1168, 1168, 1168, 1168, 1169, 1169, 1169, 1170, 1170, 1170, 1171, 1171, 1171, 1171, 1172, 1172, 1172, 1173, 1173, 1173, 1174, 1174, 1174, 1174, 1175, 1175, 1175, 1176, 1176, 1176, 1177, 1177, 1177, 1177, 1178, 1178, 1178, 1179, 1179, 1179, 1180, 1180, 1180, 1180, 1181, 1181, 1181, 1182, 1182, 1182, 1183, 1183, 1183, 1183, 1184, 1184, 1184, 1185, 1185, 1185, 1186, 1186, 1186, 1186, 1187, 1187, 1187, 1188, 1188, 1188, 1189, 1189, 1189, 1189, 1190, 1190, 1190, 1191, 1191, 1191, 1192, 1192, 1192, 1192, 1193, 1193, 1193, 1194, 1194, 1194, 1195, 1195, 1195, 1195, 1196, 1196, 1196, 1197, 1197, 1197, 1198, 1198, 1198, 1198, 1199, 1199, 1201]
+      },
+      "expected": {
+        "test_samples": 500,
+        "within_threshold": 499,
+        "y_min": 499,
+        "pass_possible": true,
+        "verdict": "PASS",
+        "configuration_error": [],
+        "false_compliance": 0.0397547408323874,
+        "clopper_pearson_lower": 0.990547717791925,
+        "observed_percentile_ms": 1198,
+        "advisory_percentile_pass": true
+      }
+    },
+    {
+      "name": "p99_n500_fail_below_y_min",
+      "inputs": {
+        "percentile": 0.99,
+        "threshold_ms": 1200,
+        "alpha": 0.05,
+        "intent": "VERIFICATION",
+        "planned_samples": 500,
+        "latencies": [1050, 1050, 1051, 1051, 1051, 1051, 1052, 1052, 1052, 1053, 1053, 1053, 1054, 1054, 1054, 1054, 1055, 1055, 1055, 1056, 1056, 1056, 1057, 1057, 1057, 1057, 1058, 1058, 1058, 1059, 1059, 1059, 1060, 1060, 1060, 1060, 1061, 1061, 1061, 1062, 1062, 1062, 1063, 1063, 1063, 1063, 1064, 1064, 1064, 1065, 1065, 1065, 1066, 1066, 1066, 1066, 1067, 1067, 1067, 1068, 1068, 1068, 1069, 1069, 1069, 1069, 1070, 1070, 1070, 1071, 1071, 1071, 1072, 1072, 1072, 1072, 1073, 1073, 1073, 1074, 1074, 1074, 1075, 1075, 1075, 1075, 1076, 1076, 1076, 1077, 1077, 1077, 1078, 1078, 1078, 1078, 1079, 1079, 1079, 1080, 1080, 1080, 1081, 1081, 1081, 1081, 1082, 1082, 1082, 1083, 1083, 1083, 1084, 1084, 1084, 1084, 1085, 1085, 1085, 1086, 1086, 1086, 1087, 1087, 1087, 1087, 1088, 1088, 1088, 1089, 1089, 1089, 1090, 1090, 1090, 1090, 1091, 1091, 1091, 1092, 1092, 1092, 1093, 1093, 1093, 1093, 1094, 1094, 1094, 1095, 1095, 1095, 1096, 1096, 1096, 1096, 1097, 1097, 1097, 1098, 1098, 1098, 1099, 1099, 1099, 1099, 1100, 1100, 1100, 1101, 1101, 1101, 1102, 1102, 1102, 1102, 1103, 1103, 1103, 1104, 1104, 1104, 1105, 1105, 1105, 1105, 1106, 1106, 1106, 1107, 1107, 1107, 1108, 1108, 1108, 1108, 1109, 1109, 1109, 1110, 1110, 1110, 1111, 1111, 1111, 1111, 1112, 1112, 1112, 1113, 1113, 1113, 1114, 1114, 1114, 1114, 1115, 1115, 1115, 1116, 1116, 1116, 1117, 1117, 1117, 1117, 1118, 1118, 1118, 1119, 1119, 1119, 1120, 1120, 1120, 1120, 1121, 1121, 1121, 1122, 1122, 1122, 1123, 1123, 1123, 1123, 1124, 1124, 1124, 1125, 1125, 1125, 1126, 1126, 1126, 1126, 1127, 1127, 1127, 1128, 1128, 1128, 1129, 1129, 1129, 1129, 1130, 1130, 1130, 1131, 1131, 1131, 1132, 1132, 1132, 1132, 1133, 1133, 1133, 1134, 1134, 1134, 1135, 1135, 1135, 1135, 1136, 1136, 1136, 1137, 1137, 1137, 1138, 1138, 1138, 1138, 1139, 1139, 1139, 1140, 1140, 1140, 1141, 1141, 1141, 1141, 1142, 1142, 1142, 1143, 1143, 1143, 1144, 1144, 1144, 1144, 1145, 1145, 1145, 1146, 1146, 1146, 1147, 1147, 1147, 1147, 1148, 1148, 1148, 1149, 1149, 1149, 1150, 1150, 1150, 1150, 1151, 1151, 1151, 1152, 1152, 1152, 1153, 1153, 1153, 1153, 1154, 1154, 1154, 1155, 1155, 1155, 1156, 1156, 1156, 1156, 1157, 1157, 1157, 1158, 1158, 1158, 1159, 1159, 1159, 1159, 1160, 1160, 1160, 1161, 1161, 1161, 1162, 1162, 1162, 1162, 1163, 1163, 1163, 1164, 1164, 1164, 1165, 1165, 1165, 1165, 1166, 1166, 1166, 1167, 1167, 1167, 1168, 1168, 1168, 1168, 1169, 1169, 1169, 1170, 1170, 1170, 1171, 1171, 1171, 1171, 1172, 1172, 1172, 1173, 1173, 1173, 1174, 1174, 1174, 1174, 1175, 1175, 1175, 1176, 1176, 1176, 1177, 1177, 1177, 1177, 1178, 1178, 1178, 1179, 1179, 1179, 1180, 1180, 1180, 1180, 1181, 1181, 1181, 1182, 1182, 1182, 1183, 1183, 1183, 1183, 1184, 1184, 1184, 1185, 1185, 1185, 1186, 1186, 1186, 1186, 1187, 1187, 1187, 1188, 1188, 1188, 1189, 1189, 1189, 1189, 1190, 1190, 1190, 1191, 1191, 1191, 1192, 1192, 1192, 1192, 1193, 1193, 1193, 1194, 1194, 1194, 1195, 1195, 1195, 1195, 1196, 1196, 1196, 1197, 1197, 1197, 1198, 1198, 1198, 1198, 1199, 1199, 1201, 1600]
+      },
+      "expected": {
+        "test_samples": 500,
+        "within_threshold": 498,
+        "y_min": 499,
+        "pass_possible": true,
+        "verdict": "FAIL",
+        "configuration_error": [],
+        "false_compliance": 0.0397547408323874,
+        "clopper_pearson_lower": 0.987462394590327,
+        "observed_percentile_ms": 1198,
+        "advisory_percentile_pass": true
+      }
+    },
+    {
+      "name": "p90_n200_alpha001_pass_at_y_min",
+      "inputs": {
+        "percentile": 0.9,
+        "threshold_ms": 800,
+        "alpha": 0.01,
+        "intent": "VERIFICATION",
+        "planned_samples": 200,
+        "latencies": [650, 651, 652, 652, 653, 654, 655, 656, 656, 657, 658, 659, 659, 660, 661, 662, 663, 663, 664, 665, 666, 667, 667, 668, 669, 670, 670, 671, 672, 673, 674, 674, 675, 676, 677, 678, 678, 679, 680, 681, 682, 682, 683, 684, 685, 685, 686, 687, 688, 689, 689, 690, 691, 692, 693, 693, 694, 695, 696, 697, 697, 698, 699, 700, 700, 701, 702, 703, 704, 704, 705, 706, 707, 708, 708, 709, 710, 711, 711, 712, 713, 714, 715, 715, 716, 717, 718, 719, 719, 720, 721, 722, 723, 723, 724, 725, 726, 726, 727, 728, 729, 730, 730, 731, 732, 733, 734, 734, 735, 736, 737, 738, 738, 739, 740, 741, 741, 742, 743, 744, 745, 745, 746, 747, 748, 749, 749, 750, 751, 752, 752, 753, 754, 755, 756, 756, 757, 758, 759, 760, 760, 761, 762, 763, 764, 764, 765, 766, 767, 767, 768, 769, 770, 771, 771, 772, 773, 774, 775, 775, 776, 777, 778, 779, 779, 780, 781, 782, 782, 783, 784, 785, 786, 786, 787, 788, 789, 790, 790, 791, 792, 793, 793, 794, 795, 796, 797, 797, 798, 799, 801, 845, 890, 934, 978, 1023, 1067, 1111, 1156, 1200]
+      },
+      "expected": {
+        "test_samples": 200,
+        "within_threshold": 190,
+        "y_min": 190,
+        "pass_possible": true,
+        "verdict": "PASS",
+        "configuration_error": [],
+        "false_compliance": 0.00807124995510266,
+        "clopper_pearson_lower": 0.901818083396702,
+        "observed_percentile_ms": 791,
+        "advisory_percentile_pass": true
+      }
+    },
+    {
+      "name": "p90_n200_alpha001_fail_below_y_min",
+      "inputs": {
+        "percentile": 0.9,
+        "threshold_ms": 800,
+        "alpha": 0.01,
+        "intent": "VERIFICATION",
+        "planned_samples": 200,
+        "latencies": [650, 651, 652, 652, 653, 654, 655, 656, 656, 657, 658, 659, 660, 660, 661, 662, 663, 663, 664, 665, 666, 667, 667, 668, 669, 670, 671, 671, 672, 673, 674, 675, 675, 676, 677, 678, 679, 679, 680, 681, 682, 682, 683, 684, 685, 686, 686, 687, 688, 689, 690, 690, 691, 692, 693, 694, 694, 695, 696, 697, 698, 698, 699, 700, 701, 702, 702, 703, 704, 705, 705, 706, 707, 708, 709, 709, 710, 711, 712, 713, 713, 714, 715, 716, 717, 717, 718, 719, 720, 721, 721, 722, 723, 724, 724, 725, 726, 727, 728, 728, 729, 730, 731, 732, 732, 733, 734, 735, 736, 736, 737, 738, 739, 740, 740, 741, 742, 743, 744, 744, 745, 746, 747, 747, 748, 749, 750, 751, 751, 752, 753, 754, 755, 755, 756, 757, 758, 759, 759, 760, 761, 762, 763, 763, 764, 765, 766, 767, 767, 768, 769, 770, 770, 771, 772, 773, 774, 774, 775, 776, 777, 778, 778, 779, 780, 781, 782, 782, 783, 784, 785, 786, 786, 787, 788, 789, 789, 790, 791, 792, 793, 793, 794, 795, 796, 797, 797, 798, 799, 801, 841, 881, 921, 961, 1000, 1040, 1080, 1120, 1160, 1200]
+      },
+      "expected": {
+        "test_samples": 200,
+        "within_threshold": 189,
+        "y_min": 190,
+        "pass_possible": true,
+        "verdict": "FAIL",
+        "configuration_error": [],
+        "false_compliance": 0.00807124995510266,
+        "clopper_pearson_lower": 0.895355735762461,
+        "observed_percentile_ms": 792,
+        "advisory_percentile_pass": true
+      }
+    },
+    {
+      "name": "p50_n40_pass_at_y_min",
+      "inputs": {
+        "percentile": 0.5,
+        "threshold_ms": 300,
+        "alpha": 0.05,
+        "intent": "VERIFICATION",
+        "planned_samples": 40,
+        "latencies": [150, 156, 162, 168, 174, 180, 186, 192, 198, 204, 210, 216, 222, 227, 233, 239, 245, 251, 257, 263, 269, 275, 281, 287, 293, 299, 301, 332, 362, 393, 424, 454, 485, 516, 547, 577, 608, 639, 669, 700]
+      },
+      "expected": {
+        "test_samples": 40,
+        "within_threshold": 26,
+        "y_min": 26,
+        "pass_possible": true,
+        "verdict": "PASS",
+        "configuration_error": [],
+        "false_compliance": 0.0403452338759964,
+        "clopper_pearson_lower": 0.508054476553901,
+        "observed_percentile_ms": 263,
+        "advisory_percentile_pass": true
+      }
+    },
+    {
+      "name": "explicit_p50_n4_alpha010_pass",
+      "description": "P(Y >= 4) = 0.0625 <= 0.10: y_min = 4 and PASS is possible with 4 latencies, below the p50 non-degeneracy minimum of 5, which does not gate an explicit requirement.",
+      "inputs": {
+        "percentile": 0.5,
+        "threshold_ms": 300,
+        "alpha": 0.1,
+        "intent": "VERIFICATION",
+        "planned_samples": 4,
+        "latencies": [150, 200, 249, 299]
+      },
+      "expected": {
+        "test_samples": 4,
+        "within_threshold": 4,
+        "y_min": 4,
+        "pass_possible": true,
+        "verdict": "PASS",
+        "configuration_error": [],
+        "false_compliance": 0.0625,
+        "clopper_pearson_lower": 0.562341325190349,
+        "observed_percentile_ms": 200,
+        "advisory_percentile_pass": true
+      }
+    },
+    {
+      "name": "exact_boundary_p50_n5",
+      "description": "P(Y >= 5) = 1/32 = alpha exactly: the inclusive rule admits 5 of 5.",
+      "inputs": {
+        "percentile": 0.5,
+        "threshold_ms": 300,
+        "alpha": 0.03125,
+        "intent": "VERIFICATION",
+        "planned_samples": 5,
+        "latencies": [150, 187, 224, 262, 299]
+      },
+      "expected": {
+        "test_samples": 5,
+        "within_threshold": 5,
+        "y_min": 5,
+        "pass_possible": true,
+        "verdict": "PASS",
+        "configuration_error": [],
+        "false_compliance": 0.03125,
+        "clopper_pearson_lower": 0.5,
+        "observed_percentile_ms": 224,
+        "advisory_percentile_pass": true
+      }
+    }
+  ]
+}

@@ -3,9 +3,9 @@ source: src/reporting/verdict_xml.rs
 expression: xml
 ---
 <?xml version="1.0" encoding="UTF-8"?>
-<verdict-record xmlns="http://mavai.org/verdict/1.0" version="1.2" timestamp="2026-04-19T10:00:00Z" generator="feotest/0.2.0">
+<verdict-record xmlns="http://mavai.org/verdict/1.0" version="1.7" methodology-version="1.5.0" timestamp="2026-04-19T10:00:00Z" generator="feotest/0.2.0">
   <identity use-case-id="paced-service"/>
-  <execution planned-samples="100" samples-executed="100" successes="95" failures="5" elapsed-ms="500" intent="VERIFICATION"/>
+  <execution planned-samples="100" samples-executed="100" successes="95" failures="5" elapsed-ms="500" intent="VERIFICATION" confidence="0.95"/>
   <functional successes="95" failures="5" pass-rate="0.9500"/>
   <covariates aligned="true"/>
   <termination reason="COMPLETED"/>
@@ -15,5 +15,5 @@ expression: xml
     <criterion id="result" verdict="PASS" pass="95" fail="5" inconclusive="0" total="100" observed-rate="0.9500"/>
     <composite value="PASS"/>
   </per-criterion>
-  <verdict value="PASS" reason="0.9500 &gt;= 0.0000"/>
+  <verdict value="PASS" reason="95 of 100 observed"/>
 </verdict-record>

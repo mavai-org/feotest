@@ -132,6 +132,7 @@ pub struct Constrained;
 pub struct CriterionBuild<O, S = Open> {
     target: CriterionTarget,
     name: Option<String>,
+    confidence: Option<f64>,
     postconditions: Vec<NamedCheck<O>>,
     _state: PhantomData<S>,
 }
@@ -141,6 +142,7 @@ impl<O: 'static> CriterionBuild<O, Open> {
         Self {
             target,
             name: None,
+            confidence: None,
             postconditions: Vec::new(),
             _state: PhantomData,
         }
@@ -167,6 +169,7 @@ impl<O: 'static> CriterionBuild<O, Open> {
         MatchingBuild {
             target: self.target,
             name: self.name,
+            confidence: self.confidence,
             matcher: Box::new(matcher),
         }
     }
@@ -201,6 +204,24 @@ impl<O: 'static, S> CriterionBuild<O, S> {
         self
     }
 
+    /// Sets the confidence level (`1 − alpha`) this criterion is decided at,
+    /// overriding the test's for this criterion alone — as when a
+    /// requirement and a baseline over the same postconditions are judged
+    /// at different levels.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `confidence` is not in the open interval `(0, 1)`.
+    #[must_use]
+    pub fn confidence(mut self, confidence: f64) -> Self {
+        assert!(
+            confidence > 0.0 && confidence < 1.0,
+            "criterion confidence must be in (0, 1), got {confidence}"
+        );
+        self.confidence = Some(confidence);
+        self
+    }
+
     /// Adds a named postcondition judging the output `O`.
     ///
     /// The first `satisfies` moves the builder into the [`Constrained`] state,
@@ -216,6 +237,7 @@ impl<O: 'static, S> CriterionBuild<O, S> {
         CriterionBuild {
             target: self.target,
             name: self.name,
+            confidence: self.confidence,
             postconditions,
             _state: PhantomData,
         }
@@ -236,6 +258,7 @@ impl<O: 'static, S> CriterionBuild<O, S> {
         TransformingBuild {
             target: self.target,
             name: self.name,
+            confidence: self.confidence,
             pre: self.postconditions,
             transform: Box::new(transform),
             postconditions: Vec::new(),
@@ -256,7 +279,7 @@ impl<O: 'static, S> CriterionBuild<O, S> {
         let evaluate = Box::new(move |output: &O, _expected: Option<&O>| {
             run_checks(&report_name, output, &checks).unwrap_or_else(|| pass(&report_name))
         });
-        Criterion::new(name, self.target, post_names, evaluate)
+        Criterion::new(name, self.target, self.confidence, post_names, evaluate)
     }
 }
 
@@ -265,6 +288,7 @@ impl<O: 'static, S> CriterionBuild<O, S> {
 pub struct TransformingBuild<O, T> {
     target: CriterionTarget,
     name: Option<String>,
+    confidence: Option<f64>,
     pre: Vec<NamedCheck<O>>,
     transform: Transform<O, T>,
     postconditions: Vec<NamedCheck<T>>,
@@ -275,6 +299,24 @@ impl<O: 'static, T: 'static> TransformingBuild<O, T> {
     #[must_use]
     pub fn name(mut self, name: impl Into<String>) -> Self {
         self.name = Some(name.into());
+        self
+    }
+
+    /// Sets the confidence level (`1 − alpha`) this criterion is decided at,
+    /// overriding the test's for this criterion alone — as when a
+    /// requirement and a baseline over the same postconditions are judged
+    /// at different levels.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `confidence` is not in the open interval `(0, 1)`.
+    #[must_use]
+    pub fn confidence(mut self, confidence: f64) -> Self {
+        assert!(
+            confidence > 0.0 && confidence < 1.0,
+            "criterion confidence must be in (0, 1), got {confidence}"
+        );
+        self.confidence = Some(confidence);
         self
     }
 
@@ -316,7 +358,7 @@ impl<O: 'static, T: 'static> TransformingBuild<O, T> {
                     .unwrap_or_else(|| pass(&report_name)),
             }
         });
-        Criterion::new(name, self.target, post_names, evaluate)
+        Criterion::new(name, self.target, self.confidence, post_names, evaluate)
     }
 }
 
@@ -331,6 +373,7 @@ impl<O: 'static, T: 'static> TransformingBuild<O, T> {
 pub struct MatchingBuild<O> {
     target: CriterionTarget,
     name: Option<String>,
+    confidence: Option<f64>,
     matcher: Matcher<O>,
 }
 
@@ -339,6 +382,24 @@ impl<O: 'static> MatchingBuild<O> {
     #[must_use]
     pub fn name(mut self, name: impl Into<String>) -> Self {
         self.name = Some(name.into());
+        self
+    }
+
+    /// Sets the confidence level (`1 − alpha`) this criterion is decided at,
+    /// overriding the test's for this criterion alone — as when a
+    /// requirement and a baseline over the same postconditions are judged
+    /// at different levels.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `confidence` is not in the open interval `(0, 1)`.
+    #[must_use]
+    pub fn confidence(mut self, confidence: f64) -> Self {
+        assert!(
+            confidence > 0.0 && confidence < 1.0,
+            "criterion confidence must be in (0, 1), got {confidence}"
+        );
+        self.confidence = Some(confidence);
         self
     }
 
@@ -364,7 +425,7 @@ impl<O: 'static> MatchingBuild<O> {
                 Err(violation) => CriterionSampleResult::fail(&report_name, violation),
             }
         });
-        Criterion::new(name, self.target, post_names, evaluate)
+        Criterion::new(name, self.target, self.confidence, post_names, evaluate)
     }
 }
 

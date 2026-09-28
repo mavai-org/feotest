@@ -6,9 +6,8 @@
 
 use std::fmt;
 
-use crate::latency::dimension::EvaluationStatus;
 use crate::model::TerminationReason;
-use crate::verdict::{Verdict, VerdictRecord};
+use crate::verdict::{CriterionRow, RuleEvidence, Verdict, VerdictRecord};
 
 /// Fixed label width for body section alignment.
 const LABEL_WIDTH: usize = 20;
@@ -67,25 +66,21 @@ impl ConsoleRenderer {
         writer: &mut dyn fmt::Write,
     ) -> fmt::Result {
         let total = records.len();
-        let pass = records
-            .iter()
-            .filter(|r| r.verdict() == Verdict::Pass)
-            .count();
-        let fail = records
-            .iter()
-            .filter(|r| r.verdict() == Verdict::Fail)
-            .count();
-        let inconclusive = total - pass - fail;
+        let count =
+            |verdict: Option<Verdict>| records.iter().filter(|r| r.verdict() == verdict).count();
+        let pass = count(Some(Verdict::Pass));
+        let fail = count(Some(Verdict::Fail));
+        let refused = count(None);
+        let inconclusive = total - pass - fail - refused;
 
-        writeln!(
+        write!(
             writer,
-            "feotest: {} tests \u{2014} {} passed, {} failed, {} inconclusive ({:.1}s)",
-            total,
-            pass,
-            fail,
-            inconclusive,
-            duration.as_secs_f64()
-        )
+            "feotest: {total} tests \u{2014} {pass} passed, {fail} failed, {inconclusive} inconclusive",
+        )?;
+        if refused > 0 {
+            write!(writer, ", {refused} refused")?;
+        }
+        writeln!(writer, " ({:.1}s)", duration.as_secs_f64())
     }
 
     /// Convenience: renders a verdict to a `String`.
@@ -113,9 +108,10 @@ impl ConsoleRenderer {
 
     fn render_header(&self, record: &VerdictRecord, writer: &mut dyn fmt::Write) -> fmt::Result {
         let verdict_label = match record.verdict() {
-            Verdict::Pass => "PASS",
-            Verdict::Fail => "FAIL",
-            Verdict::Inconclusive => "INCONCLUSIVE",
+            Some(Verdict::Pass) => "PASS",
+            Some(Verdict::Fail) => "FAIL",
+            Some(Verdict::Inconclusive) => "INCONCLUSIVE",
+            None => "REFUSED",
         };
 
         let title = format!(
@@ -126,9 +122,9 @@ impl ConsoleRenderer {
 
         if self.colour {
             let colour = match record.verdict() {
-                Verdict::Pass => "\x1b[32m",
-                Verdict::Fail => "\x1b[31m",
-                Verdict::Inconclusive => "\x1b[33m",
+                Some(Verdict::Pass) => "\x1b[32m",
+                Some(Verdict::Fail) | None => "\x1b[31m",
+                Some(Verdict::Inconclusive) => "\x1b[33m",
             };
             writeln!(writer, "{colour}{title}\x1b[0m")
         } else {
@@ -164,8 +160,18 @@ fn render_test_name(record: &VerdictRecord, writer: &mut dyn fmt::Write) -> fmt:
 }
 
 fn render_pass_rate(record: &VerdictRecord, writer: &mut dyn fmt::Write) -> fmt::Result {
-    let func = record.functional_summary();
-    let total = func.pass() + func.fail();
+    label_value(writer, "Methodology:", record.methodology_version())?;
+    if record.is_refused() {
+        let codes: Vec<&str> = record
+            .configuration_errors()
+            .iter()
+            .map(|e| e.code())
+            .collect();
+        return label_value(writer, "Refused:", &codes.join(" "));
+    }
+    let Some(func) = record.functional_summary() else {
+        return Ok(());
+    };
     label_value(
         writer,
         "Pass rate:",
@@ -173,11 +179,12 @@ fn render_pass_rate(record: &VerdictRecord, writer: &mut dyn fmt::Write) -> fmt:
             "{:.4} ({}/{} samples)",
             func.pass_rate(),
             func.pass(),
-            total,
+            func.total(),
         ),
     )?;
 
     if let Some(analysis) = record.statistical_analysis() {
+        label_value(writer, "Rule:", &decision_summary(func))?;
         label_value(
             writer,
             "Threshold:",
@@ -191,10 +198,47 @@ fn render_pass_rate(record: &VerdictRecord, writer: &mut dyn fmt::Write) -> fmt:
         label_value(
             writer,
             "Wilson lower:",
-            &format!("{:.4}", analysis.wilson_lower()),
+            &format!("{:.4} (descriptive)", analysis.wilson_lower()),
         )?;
     }
+    render_further_criteria(record, writer)
+}
 
+/// The rule that decided a criterion row and the bar it compared against.
+fn decision_summary(row: &CriterionRow) -> String {
+    let Some(analysis) = row.statistical_analysis() else {
+        return "observational (no rule)".to_owned();
+    };
+    let bar = match analysis.evidence() {
+        RuleEvidence::Compliance(evidence) => evidence
+            .minimum_passing_count
+            .map_or_else(|| "no count can pass".to_owned(), |k| format!("k_min {k}")),
+        RuleEvidence::Regression(evidence) => format!("cutoff {}", evidence.cutoff),
+    };
+    format!("{} ({bar})", analysis.decision_rule())
+}
+
+/// The criteria after the first, one line each, when there are several.
+fn render_further_criteria(record: &VerdictRecord, writer: &mut dyn fmt::Write) -> fmt::Result {
+    let rows = record.functional_assessment().criteria();
+    if rows.len() < 2 {
+        return Ok(());
+    }
+    writeln!(writer)?;
+    writeln!(writer, "Criteria:")?;
+    for row in rows {
+        label_value(
+            writer,
+            &format!("  {}:", row.name()),
+            &format!(
+                "{}/{} {} [{}]",
+                row.pass(),
+                row.total(),
+                decision_summary(row),
+                row.verdict()
+            ),
+        )?;
+    }
     Ok(())
 }
 
@@ -242,9 +286,12 @@ fn render_latency_summary(record: &VerdictRecord, writer: &mut dyn fmt::Write) -
     };
 
     writeln!(writer)?;
+    let verdict = latency
+        .verdict()
+        .map_or_else(|| "advisory only".to_owned(), |v| v.to_string());
     writeln!(
         writer,
-        "Latency ({} samples):",
+        "Latency ({} successful samples; {verdict}):",
         latency.successful_samples()
     )?;
     for ev in latency.evaluations() {
@@ -252,17 +299,17 @@ fn render_latency_summary(record: &VerdictRecord, writer: &mut dyn fmt::Write) -
             || "\u{2014}".to_string(),
             |d| format!("{}ms", d.as_millis()),
         );
-        let thr = format!("{}ms", ev.threshold().as_millis());
-        let status = match ev.status() {
-            EvaluationStatus::Pass => "PASS",
-            EvaluationStatus::StrictFail => "FAIL",
-            EvaluationStatus::AdvisoryWarn => "WARN",
-            EvaluationStatus::Infeasible => "INFEASIBLE",
-        };
+        let thr = ev.threshold().map_or_else(
+            || "no threshold".to_string(),
+            |d| format!("{}ms", d.as_millis()),
+        );
+        let rule = ev
+            .decision_rule()
+            .map_or_else(|| "raw percentile comparison".to_owned(), |r| r.to_string());
         label_value(
             writer,
             &format!("  {}:", ev.percentile()),
-            &format!("{obs} / {thr} [{status}]"),
+            &format!("{obs} / {thr} [{}; {rule}]", ev.status().name()),
         )?;
     }
 
@@ -282,8 +329,9 @@ fn render_baseline_provenance(record: &VerdictRecord, writer: &mut dyn fmt::Writ
             writer,
             "",
             &format!(
-                "(measured {date}, {} samples, minPassRate={:.4})",
+                "(measured {date}, {} samples, rate {:.4}, derived threshold {:.4})",
                 bp.baseline_samples(),
+                bp.baseline_rate(),
                 bp.derived_threshold()
             ),
         )?;
@@ -390,9 +438,10 @@ mod tests {
         CostSummary, ExecutionSummary, TerminationInfo, TerminationReason, TestIdentity,
         TestIntent, ThresholdOrigin, Warning,
     };
+    use crate::oracle_examples::{analysis_of, regression_row};
     use crate::verdict::{
         BaselineProvenance, CovariateStatus, CriterionRow, FunctionalAssessment, Misalignment,
-        SpecProvenance, StatisticalAnalysis,
+        SpecProvenance,
     };
     use insta::assert_snapshot;
     use std::time::Duration;
@@ -417,26 +466,27 @@ mod tests {
         )
     }
 
+    /// Oracle case `worked_example_pass_above_cutoff`: 97 of 100 against a
+    /// baseline of 951 of 1000, cutoff 91.
     fn pass_record() -> VerdictRecord {
-        let analysis =
-            StatisticalAnalysis::new(0.95, 0.022, 0.907, 0.900, ThresholdOrigin::Empirical)
-                .with_test_results(2.294, 0.011);
+        let row = regression_row("worked_example_pass_above_cutoff", "result");
+        let analysis = analysis_of(&row);
         let provenance =
             SpecProvenance::new(ThresholdOrigin::Empirical).with_spec_filename("my-service.yaml");
         let baseline_prov = BaselineProvenance::new(
             "my-service.yaml",
             "2026-03-27T10:00:00Z",
-            200,
-            0.9500,
-            0.9000,
+            1000,
+            0.951,
+            analysis.threshold(),
         );
 
         VerdictRecord::builder(
             TestIdentity::new("my-service"),
             Verdict::Pass,
             TestIntent::Verification,
-            sample_execution(100, 100, 96, 4),
-            FunctionalAssessment::single(CriterionRow::result(96, 4, vec![], Verdict::Pass)),
+            sample_execution(100, 100, row.pass(), row.fail()),
+            FunctionalAssessment::single(row),
         )
         .statistical_analysis(analysis)
         .spec_provenance(provenance)
@@ -444,10 +494,11 @@ mod tests {
         .build()
     }
 
+    /// Oracle case `worked_example_fail_deep_degradation`: 80 of 100 against
+    /// a baseline of 951 of 1000, cutoff 91.
     fn fail_record() -> VerdictRecord {
-        let analysis =
-            StatisticalAnalysis::new(0.95, 0.040, 0.722, 0.900, ThresholdOrigin::Empirical)
-                .with_test_results(-1.500, 0.933);
+        let row = regression_row("worked_example_fail_deep_degradation", "result");
+        let analysis = analysis_of(&row);
         let provenance =
             SpecProvenance::new(ThresholdOrigin::Empirical).with_spec_filename("my-service.yaml");
 
@@ -455,13 +506,8 @@ mod tests {
             TestIdentity::new("my-service"),
             Verdict::Fail,
             TestIntent::Verification,
-            sample_execution(100, 100, 80, 20),
-            FunctionalAssessment::single(CriterionRow::result(
-                80,
-                20,
-                vec![("parse".to_string(), 12), ("content".to_string(), 8)],
-                Verdict::Fail,
-            )),
+            sample_execution(100, 100, row.pass(), row.fail()),
+            FunctionalAssessment::single(row),
         )
         .statistical_analysis(analysis)
         .spec_provenance(provenance)
@@ -583,26 +629,27 @@ mod tests {
         assert_snapshot!(buf);
     }
 
+    /// Oracle case `small_test_fail_below_cutoff`, stopped early: 17 of 25
+    /// executed (100 planned) against a baseline of 27 of 30, cutoff 18.
     #[test]
     fn early_termination() {
+        let row = regression_row("small_test_fail_below_cutoff", "result");
+        let analysis = analysis_of(&row);
         let record = VerdictRecord::builder(
             TestIdentity::new("degraded-service"),
             Verdict::Fail,
             TestIntent::Verification,
             ExecutionSummary::new(
                 100,
-                42,
-                20,
-                22,
+                row.total(),
+                row.pass(),
+                row.fail(),
                 TerminationInfo::new(TerminationReason::FailureInevitable),
-                CostSummary::new(Duration::from_millis(200), 500, 42),
+                CostSummary::new(Duration::from_millis(200), 500, row.total()),
             ),
-            FunctionalAssessment::single(CriterionRow::result(20, 22, vec![], Verdict::Fail)),
+            FunctionalAssessment::single(row),
         )
-        .statistical_analysis(
-            StatisticalAnalysis::new(0.95, 0.077, 0.342, 0.900, ThresholdOrigin::Empirical)
-                .with_test_results(-5.195, 1.000),
-        )
+        .statistical_analysis(analysis)
         .spec_provenance(SpecProvenance::new(ThresholdOrigin::Empirical))
         .build();
 
@@ -631,13 +678,19 @@ mod tests {
     #[test]
     fn verdict_reason_pass() {
         let record = pass_record();
-        assert_eq!(record.verdict_reason(), "0.9600 >= 0.9000");
+        assert_eq!(
+            record.verdict_reason(),
+            "97 of 100 >= cutoff 91 (regression/fisher)"
+        );
     }
 
     #[test]
     fn verdict_reason_fail() {
         let record = fail_record();
-        assert_eq!(record.verdict_reason(), "0.8000 < 0.9000");
+        assert_eq!(
+            record.verdict_reason(),
+            "80 of 100 < cutoff 91 (regression/fisher)"
+        );
     }
 
     #[test]

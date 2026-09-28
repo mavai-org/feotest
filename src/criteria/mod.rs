@@ -117,6 +117,17 @@ impl<O: 'static> Criteria<O> {
             .map(|c| (c.name(), c.target()))
             .collect()
     }
+
+    /// The confidence level a criterion declared for its own decision, if
+    /// any; `None` for a criterion that takes the test's confidence (or a
+    /// name no criterion carries).
+    #[must_use]
+    pub fn confidence_of(&self, name: &str) -> Option<f64> {
+        self.criteria
+            .iter()
+            .find(|c| c.name() == name)
+            .and_then(Criterion::confidence)
+    }
 }
 
 impl<O> std::fmt::Debug for Criteria<O> {

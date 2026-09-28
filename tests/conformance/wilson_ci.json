@@ -1,5 +1,8 @@
 {
   "suite": "wilson_ci",
+  "methodologyVersion": "1.5.0",
+  "fixtureSchemaVersion": 2,
+  "decisionRules": [],
   "description": "Wilson score confidence intervals (two-sided)",
   "method": "qnorm-based Wilson score interval",
   "tolerance": 1e-10,

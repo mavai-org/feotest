@@ -2,16 +2,18 @@
 source: src/reporting/console.rs
 expression: output
 ---
-═ VERDICT: PASS (0.9600 >= 0.9000) ═
+═ VERDICT: PASS (97 of 100 >= cutoff 91 (regression/fisher)) ═
 Test:                my-service
 
-Pass rate:           0.9600 (96/100 samples)
-Threshold:           0.9000
+Methodology:         1.5.0
+Pass rate:           0.9700 (97/100 samples)
+Rule:                regression/fisher (cutoff 91)
+Threshold:           0.9100
 Confidence:          0.9500
-Wilson lower:        0.9070
+Wilson lower:        0.9273 (descriptive)
 
 Baseline:            my-service.yaml
-                     (measured 2026-03-27, 200 samples, minPassRate=0.9000)
+                     (measured 2026-03-27, 1000 samples, rate 0.9510, derived threshold 0.9100)
 Spec:                my-service.yaml
 Origin:              EMPIRICAL
 Elapsed:             0.5s

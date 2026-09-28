@@ -1,98 +1,236 @@
 {
   "suite": "feasibility",
-  "description": "Verification feasibility checking — is the sample size sufficient?",
-  "method": "Wilson score criterion: n / (n + z^2) >= target; n_min = ceil(target * z^2 / (1 - target))",
+  "methodologyVersion": "1.5.0",
+  "fixtureSchemaVersion": 2,
+  "decisionRules": [
+    {
+      "id": "compliance/exact-binomial",
+      "version": 1
+    }
+  ],
+  "description": "Verification feasibility under compliance/exact-binomial: can a normative test of this size PASS at all? Feasible iff n >= ceiling(log(alpha) / log(p_req)). Under VERIFICATION intent an infeasible design is refused as COMPLIANCE_INFEASIBLE (see compliance_decision); under SMOKE it runs and reports that PASS is not possible at this size.",
+  "method": "PASS is possible iff P_{p_req}(K >= n) = p_req^n <= alpha; minimum_samples = ceiling(log(alpha) / log(p_req)), confirmed against that definition.",
   "tolerance": 0,
   "cases": [
     {
-      "name": "fair_coin_n5_95pct",
+      "name": "fair_coin_n5_a05",
       "inputs": {
         "target_proportion": 0.5,
         "sample_size": 5,
-        "confidence": 0.95
+        "alpha": 0.05
       },
       "expected": {
         "feasible": true,
-        "minimum_samples": 3,
-        "criterion": "wilson_score_one_sided_lower_bound"
+        "minimum_samples": 5,
+        "criterion": "exact_binomial_pass_possible"
       }
     },
     {
-      "name": "high_rate_n30_95pct",
+      "name": "fair_coin_n4_a05_undersized",
+      "inputs": {
+        "target_proportion": 0.5,
+        "sample_size": 4,
+        "alpha": 0.05
+      },
+      "expected": {
+        "feasible": false,
+        "minimum_samples": 5,
+        "criterion": "exact_binomial_pass_possible"
+      }
+    },
+    {
+      "name": "high_rate_n30_a05",
       "inputs": {
         "target_proportion": 0.9,
         "sample_size": 30,
-        "confidence": 0.95
+        "alpha": 0.05
       },
       "expected": {
         "feasible": true,
-        "minimum_samples": 25,
-        "criterion": "wilson_score_one_sided_lower_bound"
+        "minimum_samples": 29,
+        "criterion": "exact_binomial_pass_possible"
       }
     },
     {
-      "name": "high_rate_n20_95pct_undersized",
+      "name": "high_rate_n20_a05_undersized",
       "inputs": {
         "target_proportion": 0.9,
         "sample_size": 20,
-        "confidence": 0.95
+        "alpha": 0.05
       },
       "expected": {
         "feasible": false,
-        "minimum_samples": 25,
-        "criterion": "wilson_score_one_sided_lower_bound"
+        "minimum_samples": 29,
+        "criterion": "exact_binomial_pass_possible"
       }
     },
     {
-      "name": "very_high_rate_n55_95pct",
+      "name": "very_high_rate_n55_a05_undersized",
       "inputs": {
         "target_proportion": 0.95,
         "sample_size": 55,
-        "confidence": 0.95
-      },
-      "expected": {
-        "feasible": true,
-        "minimum_samples": 52,
-        "criterion": "wilson_score_one_sided_lower_bound"
-      }
-    },
-    {
-      "name": "near_perfect_n100_95pct_undersized",
-      "inputs": {
-        "target_proportion": 0.9999,
-        "sample_size": 100,
-        "confidence": 0.95
+        "alpha": 0.05
       },
       "expected": {
         "feasible": false,
-        "minimum_samples": 27053,
-        "criterion": "wilson_score_one_sided_lower_bound"
+        "minimum_samples": 59,
+        "criterion": "exact_binomial_pass_possible"
       }
     },
     {
-      "name": "high_rate_n30_99pct",
+      "name": "very_high_rate_n150_a05",
+      "inputs": {
+        "target_proportion": 0.95,
+        "sample_size": 150,
+        "alpha": 0.05
+      },
+      "expected": {
+        "feasible": true,
+        "minimum_samples": 59,
+        "criterion": "exact_binomial_pass_possible"
+      }
+    },
+    {
+      "name": "high_rate_n30_a01_undersized",
       "inputs": {
         "target_proportion": 0.9,
         "sample_size": 30,
-        "confidence": 0.99
+        "alpha": 0.01
       },
       "expected": {
         "feasible": false,
-        "minimum_samples": 49,
-        "criterion": "wilson_score_one_sided_lower_bound"
+        "minimum_samples": 44,
+        "criterion": "exact_binomial_pass_possible"
       }
     },
     {
-      "name": "high_rate_n60_99pct",
+      "name": "high_rate_n60_a01",
       "inputs": {
         "target_proportion": 0.9,
         "sample_size": 60,
-        "confidence": 0.99
+        "alpha": 0.01
       },
       "expected": {
         "feasible": true,
-        "minimum_samples": 49,
-        "criterion": "wilson_score_one_sided_lower_bound"
+        "minimum_samples": 44,
+        "criterion": "exact_binomial_pass_possible"
+      }
+    },
+    {
+      "name": "two_nines_n793_a05",
+      "inputs": {
+        "target_proportion": 0.99,
+        "sample_size": 793,
+        "alpha": 0.05
+      },
+      "expected": {
+        "feasible": true,
+        "minimum_samples": 299,
+        "criterion": "exact_binomial_pass_possible"
+      }
+    },
+    {
+      "name": "headline_995_n477_a05_undersized",
+      "inputs": {
+        "target_proportion": 0.995,
+        "sample_size": 477,
+        "alpha": 0.05
+      },
+      "expected": {
+        "feasible": false,
+        "minimum_samples": 598,
+        "criterion": "exact_binomial_pass_possible"
+      }
+    },
+    {
+      "name": "headline_995_n598_a05_at_minimum",
+      "inputs": {
+        "target_proportion": 0.995,
+        "sample_size": 598,
+        "alpha": 0.05
+      },
+      "expected": {
+        "feasible": true,
+        "minimum_samples": 598,
+        "criterion": "exact_binomial_pass_possible"
+      }
+    },
+    {
+      "name": "three_nines_n2995_a05_at_minimum",
+      "inputs": {
+        "target_proportion": 0.999,
+        "sample_size": 2995,
+        "alpha": 0.05
+      },
+      "expected": {
+        "feasible": true,
+        "minimum_samples": 2995,
+        "criterion": "exact_binomial_pass_possible"
+      }
+    },
+    {
+      "name": "three_nines_n2994_a05_undersized",
+      "inputs": {
+        "target_proportion": 0.999,
+        "sample_size": 2994,
+        "alpha": 0.05
+      },
+      "expected": {
+        "feasible": false,
+        "minimum_samples": 2995,
+        "criterion": "exact_binomial_pass_possible"
+      }
+    },
+    {
+      "name": "near_perfect_n100_a05_undersized",
+      "inputs": {
+        "target_proportion": 0.9999,
+        "sample_size": 100,
+        "alpha": 0.05
+      },
+      "expected": {
+        "feasible": false,
+        "minimum_samples": 29956,
+        "criterion": "exact_binomial_pass_possible"
+      }
+    },
+    {
+      "name": "high_rate_n22_a10",
+      "inputs": {
+        "target_proportion": 0.9,
+        "sample_size": 22,
+        "alpha": 0.1
+      },
+      "expected": {
+        "feasible": true,
+        "minimum_samples": 22,
+        "criterion": "exact_binomial_pass_possible"
+      }
+    },
+    {
+      "name": "high_rate_n66_a001",
+      "inputs": {
+        "target_proportion": 0.9,
+        "sample_size": 66,
+        "alpha": 0.001
+      },
+      "expected": {
+        "feasible": true,
+        "minimum_samples": 66,
+        "criterion": "exact_binomial_pass_possible"
+      }
+    },
+    {
+      "name": "exact_boundary_p50_n5_a003125",
+      "inputs": {
+        "target_proportion": 0.5,
+        "sample_size": 5,
+        "alpha": 0.03125
+      },
+      "expected": {
+        "feasible": true,
+        "minimum_samples": 5,
+        "criterion": "exact_binomial_pass_possible"
       }
     }
   ]

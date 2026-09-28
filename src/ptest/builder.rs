@@ -8,51 +8,52 @@ use std::path::{Path, PathBuf};
 
 use crate::spec::SpecResolver;
 
-/// Configures the threshold derivation approach.
+/// Configures the sampling plan and how the regression cutoff is derived.
 ///
-/// Exactly one approach applies to a test. Sample size, confidence, and
-/// threshold are mathematically linked: the caller fixes some, the framework
-/// derives the rest.
+/// Exactly one approach applies to a test. Sample size, confidence, and the
+/// detectable degradation are linked: the caller fixes some, the framework
+/// derives the rest. Every baseline-derived criterion is decided by
+/// `regression/fisher` at the test's own size, and every declared
+/// requirement by `compliance/exact-binomial` (Statistical Companion 1.5.0).
 #[derive(Debug, Clone)]
 // mavai-ref: JVI-0FVFYBM — do not remove (resolves in mavai-orchestrator)
 // mavai-ref: JVI-5YJVXGF — do not remove (resolves in mavai-orchestrator)
 // mavai-ref: JVI-6789AKT — do not remove (resolves in mavai-orchestrator)
 pub enum ThresholdApproach {
-    /// Fix samples and confidence; derive threshold from baseline spec.
-    ///
-    /// The threshold is the Wilson lower bound at the given confidence
-    /// level.
+    /// Fix samples and confidence; the cutoff of each baseline-derived
+    /// criterion is the one-sided Fisher cutoff at that size and level.
     SampleSizeFirst {
         /// Number of test samples.
         samples: u32,
-        /// Confidence level for threshold derivation.
+        /// Confidence level (`1 − alpha`) of the decisions.
         confidence: f64,
     },
 
-    /// Fix confidence, effect size, and power; derive required sample
-    /// count.
+    /// Fix confidence, the smallest degradation worth detecting, and power;
+    /// derive the sample count.
     ///
-    /// The framework computes the minimum sample size needed to detect
-    /// a degradation of `min_detectable_effect` with the given power,
-    /// using the fixed-threshold closed form. For a baseline-derived
-    /// threshold that closed form is a *seed* — the acceptance floor
-    /// moves with the sample size, and the count computed here
-    /// understates the requirement. Prefer
-    /// [`RiskDriven`](Self::RiskDriven), the same approach priced
-    /// self-consistently, when the threshold comes from a measured
-    /// baseline.
+    /// Each baseline-derived criterion is sized by resolved sizing against
+    /// its observed baseline, at the design alternative rate
+    /// `baseline rate − min_detectable_effect`; the largest requirement
+    /// governs the run. [`RiskDriven`](Self::RiskDriven) is the same sizing
+    /// with the design alternative rate stated absolutely.
     ConfidenceFirst {
-        /// Required confidence level.
+        /// Confidence level (`1 − alpha`) of the decisions.
         confidence: f64,
         /// Smallest degradation worth detecting (absolute drop in pass
         /// rate).
         min_detectable_effect: f64,
-        /// Probability of detecting a real degradation.
+        /// Probability of detecting a degradation of that size.
         power: f64,
     },
 
-    /// Fix samples and an explicit threshold; framework derives implied
-    /// confidence.
+    /// Fix samples and a minimum pass rate.
+    ///
+    /// The rate is the run's early-termination floor; each criterion is
+    /// still decided by its own rule. Against a baseline, the report
+    /// discloses the threshold-first inversion: the implied alpha of the
+    /// cutoff `⌈min_pass_rate · samples⌉` under `regression/fisher`
+    /// (Statistical Companion §6.3), flagged unsound above 0.20.
     ThresholdFirst {
         /// Number of test samples.
         samples: u32,
@@ -60,45 +61,36 @@ pub enum ThresholdApproach {
         min_pass_rate: f64,
     },
 
-    /// Declare a risk appetite; derive the sample count and the threshold.
+    /// Declare a risk appetite; derive the sample count.
     ///
-    /// This is the **confidence-first** operational approach — the same
-    /// approach [`ConfidenceFirst`](Self::ConfidenceFirst) expresses — in
-    /// its risk-driven form: the tolerated degradation is stated as an
-    /// absolute worst acceptable rate rather than a relative effect size,
-    /// and the sizing is priced *self-consistently* against the acceptance
-    /// floor the test will actually apply at its own size, rather than by
-    /// the fixed-threshold closed form. It is not a different approach;
-    /// it fixes the same parameters (confidence, target power, a tolerated
-    /// degradation) and derives the sample count from them. Prefer this
-    /// form when the threshold comes from a measured baseline: the closed
-    /// form understates the sample count there, because the acceptance
-    /// floor falls as the sample count shrinks.
-    ///
-    /// The caller states the worst true success rate they are willing to
-    /// tolerate, how confident the test must be, and how often a genuine
-    /// breach of that tolerance must be caught. The framework computes the
-    /// smallest sample count meeting that promise against the resolved
-    /// baseline, and then proceeds exactly as
-    /// [`SampleSizeFirst`](Self::SampleSizeFirst) does at that count.
+    /// This is the **confidence-first** operational approach in its
+    /// risk-driven form: the caller states the **design alternative rate** —
+    /// the true success rate at which the test must reach its target power —
+    /// and the framework sizes the test by resolved sizing against the
+    /// observed baseline (Statistical Companion §5.4.1): the smallest sample
+    /// count from which the resolved power stays at or above the target for
+    /// every larger test up to the baseline's size. The design alternative
+    /// rate is a declared design input, not a tolerance: the test still flags
+    /// any degradation from the baseline, including one to a rate above it.
     ///
     /// With several baseline-derived criteria, each criterion is sized
-    /// against its own baseline rate and the largest requirement governs
+    /// against its own baseline tally and the largest requirement governs
     /// the run.
     ///
-    /// Resolving this approach panics if no baseline is available, or if
-    /// `minimum_acceptable_rate` does not sit strictly below the governing
-    /// baseline rate — the tolerance declares how far below the measured
-    /// baseline a true rate may drop, so to demand more than the baseline
-    /// delivered, re-measure the baseline rather than raising the tolerance.
+    /// Resolving this approach panics if no baseline is available, if the
+    /// governing baseline observed no successes, if `design_alternative_rate`
+    /// does not sit strictly below a criterion's baseline rate — to demand
+    /// more than the baseline delivered, re-measure the baseline rather than
+    /// raising the rate — or if no test up to the baseline's size reaches and
+    /// holds the target power (a larger baseline is needed).
     RiskDriven {
-        /// The worst true success rate the caller tolerates — a declared
-        /// bound, not a measured estimate. Must sit strictly below the
-        /// baseline rate.
-        minimum_acceptable_rate: f64,
-        /// Confidence level for threshold derivation.
+        /// The true rate at which the test must reach its target power — a
+        /// declared design input, not a measured estimate. Must sit strictly
+        /// below the baseline rate.
+        design_alternative_rate: f64,
+        /// Confidence level (`1 − alpha`) of the decisions.
         confidence: f64,
-        /// Probability that a service truly at the minimum acceptable rate
+        /// Probability that a service truly at the design alternative rate
         /// fails the test (0.80 is a conventional choice).
         target_power: f64,
     },

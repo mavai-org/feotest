@@ -127,7 +127,7 @@ fn ptest_with_expired_baseline_warns_by_default_and_still_passes() {
         .run();
 
     let record = result.verdict_record();
-    assert_eq!(record.verdict(), Verdict::Pass);
+    assert_eq!(record.verdict(), Some(Verdict::Pass));
     assert!(
         record
             .warnings()
@@ -175,7 +175,7 @@ fn ptest_with_fail_on_expired_produces_fail_verdict() {
         .run();
 
     let record = result.verdict_record();
-    assert_eq!(record.verdict(), Verdict::Fail);
+    assert_eq!(record.verdict(), Some(Verdict::Fail));
     assert!(
         record
             .warnings()

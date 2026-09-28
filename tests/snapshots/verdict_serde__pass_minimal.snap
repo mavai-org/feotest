@@ -1,6 +1,5 @@
 ---
 source: tests/verdict_serde.rs
-assertion_line: 42
 expression: "serde_json::to_value(&record).unwrap()"
 ---
 {
@@ -37,6 +36,7 @@ expression: "serde_json::to_value(&record).unwrap()"
     "useCaseId": "basket.translates"
   },
   "intent": "VERIFICATION",
+  "methodologyVersion": "1.5.0",
   "verdict": "PASS",
-  "verdictReason": "0.9500 >= 0.0000"
+  "verdictReason": "95 of 100 observed"
 }

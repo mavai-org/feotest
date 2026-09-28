@@ -1,40 +1,43 @@
 ---
 source: src/reporting/transparent.rs
-expression: buf
+expression: "render_with(&record, &threshold_first(477, 0.0))"
 ---
 ║═════════════════════════════════════════════════════════════║
 ║ TRANSPARENT STATISTICS                                      ║
 ║                                                             ║
-║ Test:       tiny-test                                       ║
-║ Approach:   threshold-first                                 ║
-║ Intent:     VERIFICATION                                    ║
-║ Origin:     SLA                                             ║
+║ Test:        tiny-test                                      ║
+║ Approach:    threshold-first                                ║
+║ Intent:      SMOKE                                          ║
+║ Methodology: 1.5.0                                          ║
+║ Origin:      SLA                                            ║
 ║─────────────────────────────────────────────────────────────║
 ║ WARNING                                                     ║
 ║                                                             ║
-║ Sample size 10 is insufficient for verification-grade       ║
-║ evidence at threshold 0.9500                                ║
+║ no count of 477 can demonstrate 0.995 at alpha 0.05         ║
+║ (feasibility minimum 598)                                   ║
 ║─────────────────────────────────────────────────────────────║
 ║ HYPOTHESES                                                  ║
 ║                                                             ║
-║ H0: p >= 0.950  (service meets threshold)                   ║
-║ H1: p <  0.950  (service is degraded)                       ║
+║ H0: p <= 0.995  (compliance not demonstrated)               ║
+║ H1: p >  0.995  (the requirement is met)                    ║
 ║─────────────────────────────────────────────────────────────║
 ║ OBSERVED DATA AND INFERENCE                                 ║
 ║                                                             ║
-║ Successes / Total:    10 / 10                               ║
+║ Successes / Total:    477 / 477                             ║
 ║ Observed pass rate:   1.000                                 ║
-║ Threshold:            0.950                                 ║
-║   (implied confidence: 0.950)                               ║
-║ z-statistic:          0.667                                 ║
-║ p-value:              0.252                                 ║
-║ Wilson lower [95%]: 0.753                                   ║
-║ Standard error:       0.075                                 ║
+║ Decision rule:        compliance/exact-binomial v1          ║
+║ Threshold:            0.995                                 ║
+║   (declared floor; each criterion decided by its rule)      ║
+║ Smallest passing:     none (no count can pass)              ║
+║ False compliance:     0.0000                                ║
+║ Clopper-Pearson lower: 0.994 (descriptive)                  ║
+║ Wilson lower [95%]: 0.994 (descriptive)                     ║
+║ Standard error:       0.000                                 ║
 ║─────────────────────────────────────────────────────────────║
 ║ VERDICT                                                     ║
 ║                                                             ║
-║ PASS                                                        ║
+║ FAIL (non-evidential — Smoke intent)                        ║
 ║                                                             ║
-║ The observed success rate of 1.000 is consistent with the   ║
-║ baseline expectation. No evidence of degradation.           ║
+║ The test failed: 477 of 477: no count of 477 can pass       ║
+║ (compliance/exact-binomial).                                ║
 ║═════════════════════════════════════════════════════════════║
