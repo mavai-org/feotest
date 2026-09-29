@@ -1,0 +1,24 @@
+---
+source: src/reporting/transparent.rs
+expression: buf
+---
+║═════════════════════════════════════════════════════════════║
+║ TRANSPARENT STATISTICS                                      ║
+║                                                             ║
+║ Test:        offer-extraction                               ║
+║ Approach:    threshold-first                                ║
+║ Intent:      VERIFICATION                                   ║
+║ Methodology: 1.5.0                                          ║
+║─────────────────────────────────────────────────────────────║
+║ CONFIGURATION REFUSED                                       ║
+║                                                             ║
+║ TEST_LARGER_THAN_BASELINE                                   ║
+║ COMPLIANCE_INFEASIBLE                                       ║
+║                                                             ║
+║ regression: the test (200 samples) is larger than its       ║
+║ baseline (100 trials); compliance: no count of 200 can      ║
+║ demonstrate 0.999 at alpha 0.05 (feasibility minimum 2995)  ║
+║                                                             ║
+║ No sample ran and there is no verdict: the configuration    ║
+║ was refused whole before the run.                           ║
+║═════════════════════════════════════════════════════════════║

@@ -41,6 +41,7 @@ pub enum CriterionTarget {
 pub struct Criterion<O> {
     name: String,
     target: CriterionTarget,
+    confidence: Option<f64>,
     postconditions: Vec<String>,
     evaluate: Evaluate<O>,
 }
@@ -49,15 +50,25 @@ impl<O> Criterion<O> {
     pub(crate) fn new(
         name: String,
         target: CriterionTarget,
+        confidence: Option<f64>,
         postconditions: Vec<String>,
         evaluate: Evaluate<O>,
     ) -> Self {
         Self {
             name,
             target,
+            confidence,
             postconditions,
             evaluate,
         }
+    }
+
+    /// The confidence level (`1 − alpha`) this criterion's own decision is
+    /// taken at, when it declared one; otherwise the test's confidence
+    /// applies.
+    #[must_use]
+    pub const fn confidence(&self) -> Option<f64> {
+        self.confidence
     }
 
     /// The criterion's name (unique within a contract's criteria).
@@ -104,6 +115,7 @@ impl<O> std::fmt::Debug for Criterion<O> {
         f.debug_struct("Criterion")
             .field("name", &self.name)
             .field("target", &self.target)
+            .field("confidence", &self.confidence)
             .field("postconditions", &self.postconditions)
             .finish_non_exhaustive()
     }

@@ -8,6 +8,7 @@
 use serde::Serialize;
 use serde::ser::SerializeMap;
 
+use crate::statistics::decision::structural_composite;
 use crate::verdict::StatisticalAnalysis;
 use crate::verdict::Verdict;
 
@@ -139,21 +140,35 @@ impl CriterionRow {
 /// The composite functional assessment: the per-criterion rows and the
 /// composite verdict over them.
 ///
-/// The composite is the authoritative functional verdict. With one criterion
-/// it equals that criterion's verdict; with several it is their conjunction,
-/// becoming `Inconclusive` if any contributing row is.
+/// The composite is the functional dimension's verdict `V_rate`, by the
+/// structural rule of Statistical Companion §1.4.6: PASS if every criterion
+/// passes, FAIL if any fails, INCONCLUSIVE otherwise. With one criterion it
+/// equals that criterion's verdict. A refused configuration judged nothing
+/// and has no rows and no composite.
 // mavai-ref: JVI-60WEAWK — do not remove (resolves in mavai-orchestrator)
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FunctionalAssessment {
-    composite: Verdict,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    composite: Option<Verdict>,
     criteria: Vec<CriterionRow>,
 }
 
 impl FunctionalAssessment {
-    /// Builds an assessment from an explicit composite verdict and its rows.
+    /// Builds an assessment from its rows; the composite is their structural
+    /// composite.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `criteria` is empty — a decided test judges at least one
+    /// criterion.
     #[must_use]
-    pub const fn new(composite: Verdict, criteria: Vec<CriterionRow>) -> Self {
+    pub fn new(criteria: Vec<CriterionRow>) -> Self {
+        let composite = structural_composite(criteria.iter().map(CriterionRow::verdict));
+        assert!(
+            composite.is_some(),
+            "a functional assessment needs at least one criterion row"
+        );
         Self {
             composite,
             criteria,
@@ -164,16 +179,29 @@ impl FunctionalAssessment {
     /// verdict (composite-over-one).
     #[must_use]
     pub fn single(row: CriterionRow) -> Self {
+        Self::new(vec![row])
+    }
+
+    /// The assessment of a refused configuration: no rows, no composite.
+    #[must_use]
+    pub(crate) const fn refused() -> Self {
         Self {
-            composite: row.verdict(),
-            criteria: vec![row],
+            composite: None,
+            criteria: Vec::new(),
         }
     }
 
-    /// The composite verdict over the criteria.
+    /// The composite verdict over the criteria, `V_rate`.
+    ///
+    /// # Panics
+    ///
+    /// Panics on the assessment of a refused configuration, which judged
+    /// nothing — check [`VerdictRecord::is_refused`](crate::verdict::VerdictRecord::is_refused)
+    /// first.
     #[must_use]
     pub const fn composite(&self) -> Verdict {
         self.composite
+            .expect("a refused configuration has no functional composite")
     }
 
     /// The per-criterion rows, in declaration order.
@@ -218,15 +246,22 @@ mod tests {
     }
 
     #[test]
-    fn new_keeps_the_explicit_composite() {
-        let assessment = FunctionalAssessment::new(
-            Verdict::Inconclusive,
-            vec![
-                CriterionRow::new("a", 10, 0, vec![], None, Verdict::Pass),
-                CriterionRow::new("b", 0, 0, vec![], None, Verdict::Inconclusive),
-            ],
-        );
-        assert_eq!(assessment.composite(), Verdict::Inconclusive);
-        assert_eq!(assessment.criteria().len(), 2);
+    fn composite_is_the_structural_composite_of_the_rows() {
+        let inconclusive = FunctionalAssessment::new(vec![
+            CriterionRow::new("a", 10, 0, vec![], None, Verdict::Pass),
+            CriterionRow::new("b", 0, 0, vec![], None, Verdict::Inconclusive),
+        ]);
+        assert_eq!(inconclusive.composite(), Verdict::Inconclusive);
+        assert_eq!(inconclusive.criteria().len(), 2);
+        let failed = FunctionalAssessment::new(vec![
+            CriterionRow::new("a", 5, 5, vec![], None, Verdict::Fail),
+            CriterionRow::new("b", 0, 0, vec![], None, Verdict::Inconclusive),
+        ]);
+        assert_eq!(failed.composite(), Verdict::Fail);
+    }
+
+    #[test]
+    fn a_refused_assessment_has_no_rows() {
+        assert!(FunctionalAssessment::refused().criteria().is_empty());
     }
 }

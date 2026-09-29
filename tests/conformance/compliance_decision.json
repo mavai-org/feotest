@@ -1,0 +1,352 @@
+{
+  "suite": "compliance_decision",
+  "methodologyVersion": "1.5.0",
+  "fixtureSchemaVersion": 2,
+  "decisionRules": [
+    {
+      "id": "compliance/exact-binomial",
+      "version": 1
+    }
+  ],
+  "description": "Verdicts of normative compliance under compliance/exact-binomial (companion §3.6, §5.7): H0: p <= p_req against H1: p > p_req; PASS iff K >= k_min. PASS means the evidence supports compliance at the configured level; FAIL means compliance was not demonstrated. Under VERIFICATION intent a design too small to PASS is refused as COMPLIANCE_INFEASIBLE; under SMOKE it runs and reports pass_possible = false. Binding: k_min, pass_possible, verdict, configuration_error. Informational: false_compliance, clopper_pearson_lower. Frameworks MUST evaluate these cases through their production verdict path.",
+  "method": "compliance/exact-binomial v1: k_min = min{k : P_{p_req}(K >= k) <= alpha}, K ~ Bin(n, p_req) (null when no k <= n qualifies); PASS iff K >= k_min. COMPLIANCE_INFEASIBLE iff intent is VERIFICATION and n < ceiling(log(alpha) / log(p_req)). false_compliance = P_{p_req}(K >= k_min); clopper_pearson_lower = qbeta(alpha, K, n - K + 1) (0 at K = 0).",
+  "tolerance": 1e-10,
+  "cases": [
+    {
+      "name": "headline_995_n477_verification_refused",
+      "description": "Below the feasibility minimum of 598: refused before any sample runs.",
+      "inputs": {
+        "threshold": 0.995,
+        "test_samples": 477,
+        "alpha": 0.05,
+        "intent": "VERIFICATION",
+        "observed_successes": 477
+      },
+      "expected": {
+        "k_min": null,
+        "pass_possible": null,
+        "verdict": null,
+        "configuration_error": [
+          "COMPLIANCE_INFEASIBLE"
+        ],
+        "false_compliance": null,
+        "clopper_pearson_lower": null
+      }
+    },
+    {
+      "name": "headline_995_n477_smoke_pass_not_possible",
+      "description": "SMOKE runs the undersized design; even 477 of 477 cannot PASS.",
+      "inputs": {
+        "threshold": 0.995,
+        "test_samples": 477,
+        "alpha": 0.05,
+        "intent": "SMOKE",
+        "observed_successes": 477
+      },
+      "expected": {
+        "k_min": null,
+        "pass_possible": false,
+        "verdict": "FAIL",
+        "configuration_error": [],
+        "false_compliance": 0,
+        "clopper_pearson_lower": 0.993739319086423
+      }
+    },
+    {
+      "name": "p95_n150_pass_at_k_min",
+      "inputs": {
+        "threshold": 0.95,
+        "test_samples": 150,
+        "alpha": 0.05,
+        "intent": "VERIFICATION",
+        "observed_successes": 148
+      },
+      "expected": {
+        "k_min": 148,
+        "pass_possible": true,
+        "verdict": "PASS",
+        "configuration_error": [],
+        "false_compliance": 0.0181540550219443,
+        "clopper_pearson_lower": 0.958625030106423
+      }
+    },
+    {
+      "name": "p95_n150_fail_below_k_min",
+      "inputs": {
+        "threshold": 0.95,
+        "test_samples": 150,
+        "alpha": 0.05,
+        "intent": "VERIFICATION",
+        "observed_successes": 147
+      },
+      "expected": {
+        "k_min": 148,
+        "pass_possible": true,
+        "verdict": "FAIL",
+        "configuration_error": [],
+        "false_compliance": 0.0181540550219443,
+        "clopper_pearson_lower": 0.949122932021476
+      }
+    },
+    {
+      "name": "p95_n150_smoke_pass_at_k_min",
+      "description": "Above the feasibility minimum SMOKE and VERIFICATION decide alike.",
+      "inputs": {
+        "threshold": 0.95,
+        "test_samples": 150,
+        "alpha": 0.05,
+        "intent": "SMOKE",
+        "observed_successes": 148
+      },
+      "expected": {
+        "k_min": 148,
+        "pass_possible": true,
+        "verdict": "PASS",
+        "configuration_error": [],
+        "false_compliance": 0.0181540550219443,
+        "clopper_pearson_lower": 0.958625030106423
+      }
+    },
+    {
+      "name": "p99_n793_pass_at_k_min",
+      "inputs": {
+        "threshold": 0.99,
+        "test_samples": 793,
+        "alpha": 0.05,
+        "intent": "VERIFICATION",
+        "observed_successes": 790
+      },
+      "expected": {
+        "k_min": 790,
+        "pass_possible": true,
+        "verdict": "PASS",
+        "configuration_error": [],
+        "false_compliance": 0.0436918455235539,
+        "clopper_pearson_lower": 0.990251646536255
+      }
+    },
+    {
+      "name": "p99_n793_fail_below_k_min",
+      "inputs": {
+        "threshold": 0.99,
+        "test_samples": 793,
+        "alpha": 0.05,
+        "intent": "VERIFICATION",
+        "observed_successes": 789
+      },
+      "expected": {
+        "k_min": 790,
+        "pass_possible": true,
+        "verdict": "FAIL",
+        "configuration_error": [],
+        "false_compliance": 0.0436918455235539,
+        "clopper_pearson_lower": 0.988494568131714
+      }
+    },
+    {
+      "name": "p999_n2995_zero_failures_pass",
+      "description": "The zero-failure minimum: k_min = n.",
+      "inputs": {
+        "threshold": 0.999,
+        "test_samples": 2995,
+        "alpha": 0.05,
+        "intent": "VERIFICATION",
+        "observed_successes": 2995
+      },
+      "expected": {
+        "k_min": 2995,
+        "pass_possible": true,
+        "verdict": "PASS",
+        "configuration_error": [],
+        "false_compliance": 0.0499617033973562,
+        "clopper_pearson_lower": 0.999000255579099
+      }
+    },
+    {
+      "name": "p999_n2995_one_failure_fail",
+      "inputs": {
+        "threshold": 0.999,
+        "test_samples": 2995,
+        "alpha": 0.05,
+        "intent": "VERIFICATION",
+        "observed_successes": 2994
+      },
+      "expected": {
+        "k_min": 2995,
+        "pass_possible": true,
+        "verdict": "FAIL",
+        "configuration_error": [],
+        "false_compliance": 0.0499617033973562,
+        "clopper_pearson_lower": 0.998417061587935
+      }
+    },
+    {
+      "name": "p999_n2994_verification_refused",
+      "description": "One below the zero-failure minimum.",
+      "inputs": {
+        "threshold": 0.999,
+        "test_samples": 2994,
+        "alpha": 0.05,
+        "intent": "VERIFICATION",
+        "observed_successes": 2994
+      },
+      "expected": {
+        "k_min": null,
+        "pass_possible": null,
+        "verdict": null,
+        "configuration_error": [
+          "COMPLIANCE_INFEASIBLE"
+        ],
+        "false_compliance": null,
+        "clopper_pearson_lower": null
+      }
+    },
+    {
+      "name": "compliance_pass_clear_margin",
+      "inputs": {
+        "threshold": 0.8,
+        "test_samples": 100,
+        "alpha": 0.05,
+        "intent": "VERIFICATION",
+        "observed_successes": 95
+      },
+      "expected": {
+        "k_min": 87,
+        "pass_possible": true,
+        "verdict": "PASS",
+        "configuration_error": [],
+        "false_compliance": 0.046912237160786,
+        "clopper_pearson_lower": 0.897746622356726
+      }
+    },
+    {
+      "name": "compliance_fail_not_demonstrated",
+      "description": "The observed rate exceeds the requirement, yet compliance is not demonstrated.",
+      "inputs": {
+        "threshold": 0.9,
+        "test_samples": 100,
+        "alpha": 0.05,
+        "intent": "VERIFICATION",
+        "observed_successes": 92
+      },
+      "expected": {
+        "k_min": 96,
+        "pass_possible": true,
+        "verdict": "FAIL",
+        "configuration_error": [],
+        "false_compliance": 0.0237110826634767,
+        "clopper_pearson_lower": 0.860282880786954
+      }
+    },
+    {
+      "name": "alpha001_p90_n60_pass_at_k_min",
+      "inputs": {
+        "threshold": 0.9,
+        "test_samples": 60,
+        "alpha": 0.01,
+        "intent": "VERIFICATION",
+        "observed_successes": 60
+      },
+      "expected": {
+        "k_min": 60,
+        "pass_possible": true,
+        "verdict": "PASS",
+        "configuration_error": [],
+        "false_compliance": 0.00179701029991443,
+        "clopper_pearson_lower": 0.926118728128793
+      }
+    },
+    {
+      "name": "alpha001_p90_n60_fail_below_k_min",
+      "inputs": {
+        "threshold": 0.9,
+        "test_samples": 60,
+        "alpha": 0.01,
+        "intent": "VERIFICATION",
+        "observed_successes": 59
+      },
+      "expected": {
+        "k_min": 60,
+        "pass_possible": true,
+        "verdict": "FAIL",
+        "configuration_error": [],
+        "false_compliance": 0.00179701029991443,
+        "clopper_pearson_lower": 0.894418404595422
+      }
+    },
+    {
+      "name": "alpha0001_p98_n800_fail",
+      "inputs": {
+        "threshold": 0.98,
+        "test_samples": 800,
+        "alpha": 0.001,
+        "intent": "VERIFICATION",
+        "observed_successes": 788
+      },
+      "expected": {
+        "k_min": 796,
+        "pass_possible": true,
+        "verdict": "FAIL",
+        "configuration_error": [],
+        "false_compliance": 0.000364706287636343,
+        "clopper_pearson_lower": 0.966533937381507
+      }
+    },
+    {
+      "name": "exact_boundary_p50_n5",
+      "description": "P(K >= 5) = 1/32 = alpha exactly: the design is feasible and 5 of 5 PASSes.",
+      "inputs": {
+        "threshold": 0.5,
+        "test_samples": 5,
+        "alpha": 0.03125,
+        "intent": "VERIFICATION",
+        "observed_successes": 5
+      },
+      "expected": {
+        "k_min": 5,
+        "pass_possible": true,
+        "verdict": "PASS",
+        "configuration_error": [],
+        "false_compliance": 0.03125,
+        "clopper_pearson_lower": 0.5
+      }
+    },
+    {
+      "name": "exact_boundary_p60_n10",
+      "description": "P(K >= 9) = 0.0463574016 = alpha exactly: k_min = 9.",
+      "inputs": {
+        "threshold": 0.6,
+        "test_samples": 10,
+        "alpha": 0.0463574016,
+        "intent": "VERIFICATION",
+        "observed_successes": 9
+      },
+      "expected": {
+        "k_min": 9,
+        "pass_possible": true,
+        "verdict": "PASS",
+        "configuration_error": [],
+        "false_compliance": 0.0463574016,
+        "clopper_pearson_lower": 0.6
+      }
+    },
+    {
+      "name": "conflation_detector_compliance_fail",
+      "inputs": {
+        "threshold": 0.91,
+        "test_samples": 100,
+        "alpha": 0.05,
+        "intent": "VERIFICATION",
+        "observed_successes": 91
+      },
+      "expected": {
+        "k_min": 96,
+        "pass_possible": true,
+        "verdict": "FAIL",
+        "configuration_error": [],
+        "false_compliance": 0.0473866792465057,
+        "clopper_pearson_lower": 0.848204571386406
+      }
+    }
+  ]
+}

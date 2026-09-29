@@ -159,7 +159,7 @@ impl SentinelRunner {
             for content in content_for(any_ref.type_id()) {
                 if let ContentInvoker::Test(invoke) = &content.invoker {
                     let record = invoke(any_ref);
-                    if !matches!(record.verdict(), Verdict::Pass) {
+                    if record.verdict() != Some(Verdict::Pass) {
                         outcome = SentinelOutcome::Fail;
                     }
                     let _ = composite.accept(&record);

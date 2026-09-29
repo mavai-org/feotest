@@ -22,11 +22,11 @@ impl JunitXmlWriter {
         let tests = verdicts.len();
         let failures = verdicts
             .iter()
-            .filter(|v| v.verdict() == Verdict::Fail)
+            .filter(|v| v.verdict() == Some(Verdict::Fail))
             .count();
         let errors = verdicts
             .iter()
-            .filter(|v| v.verdict() == Verdict::Inconclusive)
+            .filter(|v| matches!(v.verdict(), Some(Verdict::Inconclusive) | None))
             .count();
 
         let total_time_secs: f64 = verdicts
@@ -77,12 +77,19 @@ impl JunitXmlWriter {
         )?;
 
         match verdict.verdict() {
-            Verdict::Pass => {}
-            Verdict::Fail => {
-                let message = format!(
-                    "Observed pass rate {:.4} below threshold",
-                    verdict.functional_summary().pass_rate()
-                );
+            Some(Verdict::Pass) => {}
+            None => {
+                let message = verdict.verdict_reason();
+                let detail = Self::build_detail(verdict);
+                writeln!(
+                    writer,
+                    "    <error message=\"{}\">{}</error>",
+                    xml_escape(message),
+                    xml_escape(&detail)
+                )?;
+            }
+            Some(Verdict::Fail) => {
+                let message = format!("Test failed: {}", verdict.verdict_reason());
                 let detail = Self::build_detail(verdict);
                 writeln!(
                     writer,
@@ -91,8 +98,8 @@ impl JunitXmlWriter {
                     xml_escape(&detail)
                 )?;
             }
-            Verdict::Inconclusive => {
-                let message = "Test inconclusive — statistical analysis unreliable";
+            Some(Verdict::Inconclusive) => {
+                let message = "Test inconclusive — the data cannot decide";
                 let detail = Self::build_detail(verdict);
                 writeln!(
                     writer,
@@ -119,32 +126,36 @@ impl JunitXmlWriter {
     fn build_detail(verdict: &VerdictRecord) -> String {
         let mut lines = Vec::new();
         let exec = verdict.execution();
-        let func = verdict.functional_summary();
-
-        lines.push(format!("Verdict: {}", verdict.verdict()));
+        lines.push(format!(
+            "Verdict: {}",
+            verdict
+                .verdict()
+                .map_or_else(|| "REFUSED".to_owned(), |v| v.to_string())
+        ));
+        lines.push(format!("Methodology: {}", verdict.methodology_version()));
         lines.push(format!("Intent: {}", verdict.intent()));
         lines.push(format!(
             "Samples: {} / {} planned",
             exec.samples_executed(),
             exec.samples_planned()
         ));
-        lines.push(format!(
-            "Pass rate: {:.4} ({}/{})",
-            func.pass_rate(),
-            func.pass(),
-            func.pass() + func.fail()
-        ));
+        if let Some(func) = verdict.functional_summary() {
+            lines.push(format!(
+                "Pass rate: {:.4} ({}/{})",
+                func.pass_rate(),
+                func.pass(),
+                func.total()
+            ));
+        }
 
         if let Some(stats) = verdict.statistical_analysis() {
+            lines.push(format!("Rule: {}", stats.decision_rule()));
             lines.push(format!("Threshold: {:.4}", stats.threshold()));
             lines.push(format!(
-                "Wilson lower [{:.0}%]: {:.4}",
+                "Wilson lower [{:.0}%]: {:.4} (descriptive)",
                 stats.confidence_level() * 100.0,
                 stats.wilson_lower()
             ));
-            if let Some(p) = stats.p_value() {
-                lines.push(format!("p-value: {p:.4}"));
-            }
         }
 
         for warning in verdict.warnings() {
@@ -169,12 +180,7 @@ impl JunitXmlWriter {
                 stats.threshold(),
                 stats.threshold_origin()
             ));
-            if let Some(z) = stats.test_statistic() {
-                lines.push(format!("z: {z:.4}"));
-            }
-            if let Some(p) = stats.p_value() {
-                lines.push(format!("p: {p:.4}"));
-            }
+            lines.push(format!("Rule: {}", stats.decision_rule()));
         }
 
         if let Some(prov) = verdict.spec_provenance() {
@@ -206,7 +212,9 @@ mod tests {
         CostSummary, ExecutionSummary, TerminationInfo, TerminationReason, TestIdentity,
         TestIntent, ThresholdOrigin,
     };
-    use crate::verdict::{CriterionRow, FunctionalAssessment, StatisticalAnalysis, VerdictRecord};
+    use crate::oracle_examples::{analysis_of, compliance_row, regression_row};
+    use crate::statistics::rules::ConfigurationError;
+    use crate::verdict::{CriterionRow, FunctionalAssessment, VerdictRecord};
     use std::time::Duration;
 
     fn pass_verdict() -> VerdictRecord {
@@ -235,20 +243,20 @@ mod tests {
             ExecutionSummary::new(
                 100,
                 100,
-                70,
-                30,
+                80,
+                20,
                 TerminationInfo::new(TerminationReason::Completed),
                 CostSummary::new(Duration::from_millis(500), 1000, 100),
             ),
-            FunctionalAssessment::single(CriterionRow::result(70, 30, vec![], Verdict::Fail)),
+            FunctionalAssessment::single(regression_row(
+                "worked_example_fail_deep_degradation",
+                "result",
+            )),
         )
-        .statistical_analysis(StatisticalAnalysis::new(
-            0.95,
-            0.0458,
-            0.6071,
-            0.80,
-            ThresholdOrigin::Empirical,
-        ))
+        .statistical_analysis(analysis_of(&regression_row(
+            "worked_example_fail_deep_degradation",
+            "result",
+        )))
         .build()
     }
 
@@ -274,7 +282,37 @@ mod tests {
 
         assert!(xml.contains("failures=\"1\""));
         assert!(xml.contains("<failure"));
-        assert!(xml.contains("Observed pass rate"));
+        assert!(xml.contains("Test failed"));
+        assert!(xml.contains("Rule: regression/fisher"));
+    }
+
+    #[test]
+    fn a_refused_configuration_is_an_error_naming_its_codes() {
+        let record = VerdictRecord::refused(
+            TestIdentity::new("refused-service"),
+            TestIntent::Verification,
+            ExecutionSummary::new(
+                200,
+                0,
+                0,
+                0,
+                TerminationInfo::new(TerminationReason::ConfigurationRefused),
+                CostSummary::new(Duration::ZERO, 0, 0),
+            ),
+            vec![
+                ConfigurationError::ComplianceInfeasible,
+                ConfigurationError::TestLargerThanBaseline,
+            ],
+        )
+        .build();
+        let mut buf = Vec::new();
+        JunitXmlWriter::write_to(&mut buf, &[record]).unwrap();
+        let xml = String::from_utf8(buf).unwrap();
+        assert!(xml.contains("errors=\"1\""));
+        assert!(
+            xml.contains("configuration refused: TEST_LARGER_THAN_BASELINE COMPLIANCE_INFEASIBLE")
+        );
+        assert!(xml.contains("Verdict: REFUSED"));
     }
 
     #[test]
@@ -343,9 +381,8 @@ mod tests {
 
     #[test]
     fn system_out_includes_statistical_details() {
-        let analysis =
-            StatisticalAnalysis::new(0.95, 0.0458, 0.6071, 0.80, ThresholdOrigin::Empirical)
-                .with_test_results(-2.18, 0.985);
+        let row = compliance_row("p95_n150_pass_at_k_min", "result", ThresholdOrigin::Sla);
+        let analysis = analysis_of(&row);
 
         let provenance = crate::verdict::SpecProvenance::new(ThresholdOrigin::Empirical)
             .with_spec_filename("my-service.yaml")
@@ -356,14 +393,14 @@ mod tests {
             Verdict::Pass,
             TestIntent::Verification,
             ExecutionSummary::new(
-                100,
-                100,
-                70,
-                30,
+                150,
+                150,
+                row.pass(),
+                row.fail(),
                 TerminationInfo::new(TerminationReason::Completed),
-                CostSummary::new(Duration::from_millis(500), 1000, 100),
+                CostSummary::new(Duration::from_millis(500), 1000, 150),
             ),
-            FunctionalAssessment::single(CriterionRow::result(70, 30, vec![], Verdict::Pass)),
+            FunctionalAssessment::single(row),
         )
         .statistical_analysis(analysis)
         .spec_provenance(provenance)
@@ -377,8 +414,7 @@ mod tests {
         assert!(xml.contains("Confidence:"));
         assert!(xml.contains("Baseline: my-service.yaml"));
         assert!(xml.contains("Contract: SLA v2.0"));
-        assert!(xml.contains("z:"));
-        assert!(xml.contains("p:"));
+        assert!(xml.contains("Rule: compliance/exact-binomial"));
     }
 
     #[test]
@@ -412,13 +448,6 @@ mod tests {
             ),
             FunctionalAssessment::single(CriterionRow::result(5, 5, vec![], Verdict::Fail)),
         )
-        .statistical_analysis(StatisticalAnalysis::new(
-            0.95,
-            0.158,
-            0.204,
-            0.80,
-            ThresholdOrigin::Sla,
-        ))
         .warning(crate::model::Warning::new("UNDERSIZED", "too small"))
         .build();
 

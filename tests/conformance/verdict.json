@@ -1,103 +1,822 @@
 {
   "suite": "verdict",
-  "description": "Verdict evaluation — pass/fail determination with z-test statistics",
-  "method": "One-sided z-test: z = (p_hat - threshold) / SE; SE = sqrt(threshold * (1 - threshold) / n)",
+  "methodologyVersion": "1.5.0",
+  "fixtureSchemaVersion": 2,
+  "decisionRules": [
+    {
+      "id": "compliance/exact-binomial",
+      "version": 1
+    },
+    {
+      "id": "regression/fisher",
+      "version": 1
+    },
+    {
+      "id": "latency/precedence",
+      "version": 1
+    },
+    {
+      "id": "latency/compliance-exact-binomial",
+      "version": 1
+    }
+  ],
+  "description": "Verdict evaluation under the two ruled rules: regression/fisher for a baseline-derived threshold and compliance/exact-binomial for a given one; each case names its rule in decisionRule. A test carrying a requirement and a baseline on the same postconditions (approach two_criteria) carries two criteria over the same observations, a compliance criterion and a regression criterion, each with one rule and one alpha (compliance_alpha, regression_alpha) and one verdict, reported in criteria; the test's verdict is their structural composite (PASS if both pass, FAIL if either fails, INCONCLUSIVE otherwise), triggering_criteria names the criteria that decided it, and the error envelopes are split by direction. The test is refused whole when any part is invalid, reporting every applicable code. The v1.4.1 point-estimate rule (PASS iff p_hat >= threshold) and its Wald z statistic are withdrawn. Binding: verdict, configuration_error, criteria, triggering_criteria. Informational: observed_rate, false_compliance_envelope, false_degradation_signal_envelope. Cases with approach test_verdict give the overall test verdict: the functional dimension's verdict (rate_verdict, the structural composite of the criteria), the latency dimension's (latency_verdict, the same composite over the enforced latency constraints; advisory constraints never participate) and test_verdict, their composite (PASS if both pass, FAIL if either fails, INCONCLUSIVE otherwise; a dimension that is absent is left out), with triggering naming the criteria and enforced constraints that decided it. Latencies are those of the samples that passed every functional criterion. Binding: rate_verdict, latency_verdict, test_verdict, triggering, each constraint's verdict.",
+  "method": "regression/fisher: PASS iff K_t >= c(K_b, n_b, n_t, alpha) (see regression_decision). compliance/exact-binomial: PASS iff K >= k_min(p_req, n, alpha) (see compliance_decision). Configuration errors are checked first, for every part of the configuration; configuration_error is the list of every applicable code in the fixed order TEST_LARGER_THAN_BASELINE, COMPLIANCE_INFEASIBLE (empty when valid).",
   "tolerance": 1e-10,
   "cases": [
     {
-      "name": "clear_pass_48_of_50_threshold_90",
+      "name": "compliance_fail_48_of_50_threshold_90",
+      "description": "96% observed against a 90% requirement does not demonstrate compliance at n = 50.",
+      "decisionRule": "compliance/exact-binomial",
       "inputs": {
         "successes": 48,
         "trials": 50,
         "threshold": 0.9,
-        "confidence": 0.95
+        "alpha": 0.05,
+        "intent": "VERIFICATION"
       },
       "expected": {
-        "passed": true,
-        "observed_rate": 0.96,
-        "test_statistic": 1.41421356237309,
-        "p_value": 0.921350396474857,
-        "false_positive_probability": 0.05
+        "verdict": "FAIL",
+        "configuration_error": [],
+        "observed_rate": 0.96
       }
     },
     {
-      "name": "clear_fail_40_of_50_threshold_90",
+      "name": "compliance_pass_49_of_50_threshold_90",
+      "decisionRule": "compliance/exact-binomial",
+      "inputs": {
+        "successes": 49,
+        "trials": 50,
+        "threshold": 0.9,
+        "alpha": 0.05,
+        "intent": "VERIFICATION"
+      },
+      "expected": {
+        "verdict": "PASS",
+        "configuration_error": [],
+        "observed_rate": 0.98
+      }
+    },
+    {
+      "name": "compliance_fail_40_of_50_threshold_90",
+      "decisionRule": "compliance/exact-binomial",
       "inputs": {
         "successes": 40,
         "trials": 50,
         "threshold": 0.9,
-        "confidence": 0.95
+        "alpha": 0.05,
+        "intent": "VERIFICATION"
       },
       "expected": {
-        "passed": false,
-        "observed_rate": 0.8,
-        "test_statistic": -2.35702260395516,
-        "p_value": 0.00921106272704952,
-        "false_positive_probability": 0.05
+        "verdict": "FAIL",
+        "configuration_error": [],
+        "observed_rate": 0.8
       }
     },
     {
-      "name": "borderline_pass_45_of_50_threshold_90",
+      "name": "compliance_fail_45_of_50_threshold_90",
+      "decisionRule": "compliance/exact-binomial",
       "inputs": {
         "successes": 45,
         "trials": 50,
         "threshold": 0.9,
-        "confidence": 0.95
+        "alpha": 0.05,
+        "intent": "VERIFICATION"
       },
       "expected": {
-        "passed": true,
-        "observed_rate": 0.9,
-        "test_statistic": 0,
-        "p_value": 0.5,
-        "false_positive_probability": 0.05
+        "verdict": "FAIL",
+        "configuration_error": [],
+        "observed_rate": 0.9
       }
     },
     {
-      "name": "perfect_score_50_of_50_threshold_95",
-      "inputs": {
-        "successes": 50,
-        "trials": 50,
-        "threshold": 0.95,
-        "confidence": 0.95
-      },
-      "expected": {
-        "passed": true,
-        "observed_rate": 1,
-        "test_statistic": 1.62221421130763,
-        "p_value": 0.947621255075135,
-        "false_positive_probability": 0.05
-      }
-    },
-    {
-      "name": "zero_successes_0_of_50_threshold_90",
+      "name": "compliance_fail_0_of_50_threshold_90",
+      "decisionRule": "compliance/exact-binomial",
       "inputs": {
         "successes": 0,
         "trials": 50,
         "threshold": 0.9,
-        "confidence": 0.95
+        "alpha": 0.05,
+        "intent": "VERIFICATION"
       },
       "expected": {
-        "passed": false,
-        "observed_rate": 0,
-        "test_statistic": -21.2132034355964,
-        "p_value": 3.60649708622527e-100,
-        "false_positive_probability": 0.05
+        "verdict": "FAIL",
+        "configuration_error": [],
+        "observed_rate": 0
       }
     },
     {
-      "name": "large_sample_pass_920_of_1000_threshold_90",
+      "name": "compliance_pass_920_of_1000_threshold_90",
+      "decisionRule": "compliance/exact-binomial",
       "inputs": {
         "successes": 920,
         "trials": 1000,
         "threshold": 0.9,
-        "confidence": 0.95
+        "alpha": 0.05,
+        "intent": "VERIFICATION"
       },
       "expected": {
-        "passed": true,
-        "observed_rate": 0.92,
-        "test_statistic": 2.10818510677892,
-        "p_value": 0.982492509490169,
-        "false_positive_probability": 0.05
+        "verdict": "PASS",
+        "configuration_error": [],
+        "observed_rate": 0.92
+      }
+    },
+    {
+      "name": "compliance_refused_50_of_50_threshold_95",
+      "description": "n = 50 is below the feasibility minimum of 59: refused under VERIFICATION.",
+      "decisionRule": "compliance/exact-binomial",
+      "inputs": {
+        "successes": 50,
+        "trials": 50,
+        "threshold": 0.95,
+        "alpha": 0.05,
+        "intent": "VERIFICATION"
+      },
+      "expected": {
+        "verdict": null,
+        "configuration_error": [
+          "COMPLIANCE_INFEASIBLE"
+        ],
+        "observed_rate": 1
+      }
+    },
+    {
+      "name": "compliance_smoke_50_of_50_threshold_95",
+      "description": "SMOKE runs the undersized design; it cannot PASS.",
+      "decisionRule": "compliance/exact-binomial",
+      "inputs": {
+        "successes": 50,
+        "trials": 50,
+        "threshold": 0.95,
+        "alpha": 0.05,
+        "intent": "SMOKE"
+      },
+      "expected": {
+        "verdict": "FAIL",
+        "configuration_error": [],
+        "observed_rate": 1
+      }
+    },
+    {
+      "name": "regression_pass_91_of_100_baseline_951_of_1000",
+      "decisionRule": "regression/fisher",
+      "inputs": {
+        "successes": 91,
+        "trials": 100,
+        "baseline_successes": 951,
+        "baseline_trials": 1000,
+        "alpha": 0.05
+      },
+      "expected": {
+        "verdict": "PASS",
+        "configuration_error": [],
+        "observed_rate": 0.91
+      }
+    },
+    {
+      "name": "regression_fail_90_of_100_baseline_951_of_1000",
+      "decisionRule": "regression/fisher",
+      "inputs": {
+        "successes": 90,
+        "trials": 100,
+        "baseline_successes": 951,
+        "baseline_trials": 1000,
+        "alpha": 0.05
+      },
+      "expected": {
+        "verdict": "FAIL",
+        "configuration_error": [],
+        "observed_rate": 0.9
+      }
+    },
+    {
+      "name": "regression_pass_95_of_100_baseline_99_of_100",
+      "decisionRule": "regression/fisher",
+      "inputs": {
+        "successes": 95,
+        "trials": 100,
+        "baseline_successes": 99,
+        "baseline_trials": 100,
+        "alpha": 0.05
+      },
+      "expected": {
+        "verdict": "PASS",
+        "configuration_error": [],
+        "observed_rate": 0.95
+      }
+    },
+    {
+      "name": "regression_fail_95_of_100_baseline_100_of_100",
+      "description": "The cutoff is monotone in the baseline count: a perfect baseline demands more than 99 of 100.",
+      "decisionRule": "regression/fisher",
+      "inputs": {
+        "successes": 95,
+        "trials": 100,
+        "baseline_successes": 100,
+        "baseline_trials": 100,
+        "alpha": 0.05
+      },
+      "expected": {
+        "verdict": "FAIL",
+        "configuration_error": [],
+        "observed_rate": 0.95
+      }
+    },
+    {
+      "name": "regression_refused_test_larger_than_baseline",
+      "decisionRule": "regression/fisher",
+      "inputs": {
+        "successes": 190,
+        "trials": 200,
+        "baseline_successes": 95,
+        "baseline_trials": 100,
+        "alpha": 0.05
+      },
+      "expected": {
+        "verdict": null,
+        "configuration_error": [
+          "TEST_LARGER_THAN_BASELINE"
+        ],
+        "observed_rate": 0.95
+      }
+    },
+    {
+      "name": "regression_pass_25_of_25_baseline_951_of_1000_alpha001",
+      "description": "A small test against a large baseline at alpha 0.01 is admitted: the rule never exceeds alpha.",
+      "decisionRule": "regression/fisher",
+      "inputs": {
+        "successes": 25,
+        "trials": 25,
+        "baseline_successes": 951,
+        "baseline_trials": 1000,
+        "alpha": 0.01
+      },
+      "expected": {
+        "verdict": "PASS",
+        "configuration_error": [],
+        "observed_rate": 1
+      }
+    },
+    {
+      "name": "two_criteria_refused_regression_part_test_larger_than_baseline",
+      "description": "The compliance criterion is valid; the regression criterion's test is larger than its baseline, so nothing runs.",
+      "approach": "two_criteria",
+      "decisionRule": [
+        "compliance/exact-binomial",
+        "regression/fisher"
+      ],
+      "inputs": {
+        "successes": 190,
+        "trials": 200,
+        "compliance_criterion": "c_well_formed_compliance",
+        "threshold": 0.9,
+        "intent": "VERIFICATION",
+        "compliance_alpha": 0.01,
+        "regression_criterion": "c_well_formed_regression",
+        "baseline_successes": 95,
+        "baseline_trials": 100,
+        "regression_alpha": 0.05
+      },
+      "expected": {
+        "verdict": null,
+        "configuration_error": [
+          "TEST_LARGER_THAN_BASELINE"
+        ],
+        "observed_rate": 0.95,
+        "criteria": [],
+        "triggering_criteria": [],
+        "false_compliance_envelope": null,
+        "false_degradation_signal_envelope": null
+      }
+    },
+    {
+      "name": "two_criteria_refused_compliance_part_infeasible",
+      "description": "The regression criterion is valid; the compliance criterion cannot PASS at n = 100, so nothing runs.",
+      "approach": "two_criteria",
+      "decisionRule": [
+        "compliance/exact-binomial",
+        "regression/fisher"
+      ],
+      "inputs": {
+        "successes": 100,
+        "trials": 100,
+        "compliance_criterion": "c_well_formed_compliance",
+        "threshold": 0.999,
+        "intent": "VERIFICATION",
+        "compliance_alpha": 0.01,
+        "regression_criterion": "c_well_formed_regression",
+        "baseline_successes": 950,
+        "baseline_trials": 1000,
+        "regression_alpha": 0.05
+      },
+      "expected": {
+        "verdict": null,
+        "configuration_error": [
+          "COMPLIANCE_INFEASIBLE"
+        ],
+        "observed_rate": 1,
+        "criteria": [],
+        "triggering_criteria": [],
+        "false_compliance_envelope": null,
+        "false_degradation_signal_envelope": null
+      }
+    },
+    {
+      "name": "two_criteria_refused_both_parts",
+      "description": "Both parts are invalid: both codes are reported, TEST_LARGER_THAN_BASELINE first.",
+      "approach": "two_criteria",
+      "decisionRule": [
+        "compliance/exact-binomial",
+        "regression/fisher"
+      ],
+      "inputs": {
+        "successes": 200,
+        "trials": 200,
+        "compliance_criterion": "c_well_formed_compliance",
+        "threshold": 0.999,
+        "intent": "VERIFICATION",
+        "compliance_alpha": 0.01,
+        "regression_criterion": "c_well_formed_regression",
+        "baseline_successes": 95,
+        "baseline_trials": 100,
+        "regression_alpha": 0.05
+      },
+      "expected": {
+        "verdict": null,
+        "configuration_error": [
+          "TEST_LARGER_THAN_BASELINE",
+          "COMPLIANCE_INFEASIBLE"
+        ],
+        "observed_rate": 1,
+        "criteria": [],
+        "triggering_criteria": [],
+        "false_compliance_envelope": null,
+        "false_degradation_signal_envelope": null
+      }
+    },
+    {
+      "name": "two_criteria_pass",
+      "description": "Compliance: 945 of 1000 demonstrates 0.90 at alpha 0.01. Regression: 945 meets the cutoff of 933. PASS.",
+      "approach": "two_criteria",
+      "decisionRule": [
+        "compliance/exact-binomial",
+        "regression/fisher"
+      ],
+      "inputs": {
+        "successes": 945,
+        "trials": 1000,
+        "compliance_criterion": "c_well_formed_compliance",
+        "threshold": 0.9,
+        "intent": "VERIFICATION",
+        "compliance_alpha": 0.01,
+        "regression_criterion": "c_well_formed_regression",
+        "baseline_successes": 951,
+        "baseline_trials": 1000,
+        "regression_alpha": 0.05
+      },
+      "expected": {
+        "verdict": "PASS",
+        "configuration_error": [],
+        "observed_rate": 0.945,
+        "criteria": [
+          {
+            "criterion_id": "c_well_formed_compliance",
+            "procedure": "COMPLIANCE",
+            "decisionRule": "compliance/exact-binomial",
+            "alpha": 0.01,
+            "verdict": "PASS"
+          },
+          {
+            "criterion_id": "c_well_formed_regression",
+            "procedure": "REGRESSION",
+            "decisionRule": "regression/fisher",
+            "alpha": 0.05,
+            "verdict": "PASS"
+          }
+        ],
+        "triggering_criteria": [],
+        "false_compliance_envelope": 0.01,
+        "false_degradation_signal_envelope": 0.05
+      }
+    },
+    {
+      "name": "two_criteria_fail_regression",
+      "description": "The requirement of 0.90 is demonstrated, but 925 falls below the cutoff of 933: FAIL, triggered by the regression criterion.",
+      "approach": "two_criteria",
+      "decisionRule": [
+        "compliance/exact-binomial",
+        "regression/fisher"
+      ],
+      "inputs": {
+        "successes": 925,
+        "trials": 1000,
+        "compliance_criterion": "c_well_formed_compliance",
+        "threshold": 0.9,
+        "intent": "VERIFICATION",
+        "compliance_alpha": 0.01,
+        "regression_criterion": "c_well_formed_regression",
+        "baseline_successes": 951,
+        "baseline_trials": 1000,
+        "regression_alpha": 0.05
+      },
+      "expected": {
+        "verdict": "FAIL",
+        "configuration_error": [],
+        "observed_rate": 0.925,
+        "criteria": [
+          {
+            "criterion_id": "c_well_formed_compliance",
+            "procedure": "COMPLIANCE",
+            "decisionRule": "compliance/exact-binomial",
+            "alpha": 0.01,
+            "verdict": "PASS"
+          },
+          {
+            "criterion_id": "c_well_formed_regression",
+            "procedure": "REGRESSION",
+            "decisionRule": "regression/fisher",
+            "alpha": 0.05,
+            "verdict": "FAIL"
+          }
+        ],
+        "triggering_criteria": [
+          "c_well_formed_regression"
+        ],
+        "false_compliance_envelope": 0.01,
+        "false_degradation_signal_envelope": 0.05
+      }
+    },
+    {
+      "name": "two_criteria_fail_compliance",
+      "description": "No degradation from the baseline 930 of 1000, but 945 does not demonstrate 0.95: FAIL, triggered by the compliance criterion.",
+      "approach": "two_criteria",
+      "decisionRule": [
+        "compliance/exact-binomial",
+        "regression/fisher"
+      ],
+      "inputs": {
+        "successes": 945,
+        "trials": 1000,
+        "compliance_criterion": "c_well_formed_compliance",
+        "threshold": 0.95,
+        "intent": "VERIFICATION",
+        "compliance_alpha": 0.01,
+        "regression_criterion": "c_well_formed_regression",
+        "baseline_successes": 930,
+        "baseline_trials": 1000,
+        "regression_alpha": 0.05
+      },
+      "expected": {
+        "verdict": "FAIL",
+        "configuration_error": [],
+        "observed_rate": 0.945,
+        "criteria": [
+          {
+            "criterion_id": "c_well_formed_compliance",
+            "procedure": "COMPLIANCE",
+            "decisionRule": "compliance/exact-binomial",
+            "alpha": 0.01,
+            "verdict": "FAIL"
+          },
+          {
+            "criterion_id": "c_well_formed_regression",
+            "procedure": "REGRESSION",
+            "decisionRule": "regression/fisher",
+            "alpha": 0.05,
+            "verdict": "PASS"
+          }
+        ],
+        "triggering_criteria": [
+          "c_well_formed_compliance"
+        ],
+        "false_compliance_envelope": 0.01,
+        "false_degradation_signal_envelope": 0.05
+      }
+    },
+    {
+      "name": "two_criteria_fail_both",
+      "description": "Both criteria fail; both are named.",
+      "approach": "two_criteria",
+      "decisionRule": [
+        "compliance/exact-binomial",
+        "regression/fisher"
+      ],
+      "inputs": {
+        "successes": 900,
+        "trials": 1000,
+        "compliance_criterion": "c_well_formed_compliance",
+        "threshold": 0.95,
+        "intent": "VERIFICATION",
+        "compliance_alpha": 0.01,
+        "regression_criterion": "c_well_formed_regression",
+        "baseline_successes": 951,
+        "baseline_trials": 1000,
+        "regression_alpha": 0.05
+      },
+      "expected": {
+        "verdict": "FAIL",
+        "configuration_error": [],
+        "observed_rate": 0.9,
+        "criteria": [
+          {
+            "criterion_id": "c_well_formed_compliance",
+            "procedure": "COMPLIANCE",
+            "decisionRule": "compliance/exact-binomial",
+            "alpha": 0.01,
+            "verdict": "FAIL"
+          },
+          {
+            "criterion_id": "c_well_formed_regression",
+            "procedure": "REGRESSION",
+            "decisionRule": "regression/fisher",
+            "alpha": 0.05,
+            "verdict": "FAIL"
+          }
+        ],
+        "triggering_criteria": [
+          "c_well_formed_compliance",
+          "c_well_formed_regression"
+        ],
+        "false_compliance_envelope": 0.01,
+        "false_degradation_signal_envelope": 0.05
+      }
+    },
+    {
+      "name": "test_functional_pass_latency_fail",
+      "approach": "test_verdict",
+      "description": "Functional PASS (91 of 100 meets the cutoff of 91); the enforced p95 <= 500 ms requirement FAILs (85 of 91 latencies within, y_min 91). V_test FAIL, triggered by the latency constraint.",
+      "decisionRule": [
+        "regression/fisher",
+        "latency/compliance-exact-binomial"
+      ],
+      "inputs": {
+        "functional": {
+          "criterion_id": "c_extraction",
+          "successes": 91,
+          "trials": 100,
+          "baseline_successes": 951,
+          "baseline_trials": 1000,
+          "alpha": 0.05
+        },
+        "latency_constraints": [
+          {
+            "constraint_id": "p95_le_500ms",
+            "source": "explicit",
+            "mode": "enforced",
+            "percentile": 0.95,
+            "alpha": 0.05,
+            "threshold_ms": 500,
+            "latencies": [350, 352, 354, 355, 357, 359, 361, 362, 364, 366, 368, 370, 371, 373, 375, 377, 378, 380, 382, 384, 385, 387, 389, 391, 393, 394, 396, 398, 400, 401, 403, 405, 407, 409, 410, 412, 414, 416, 417, 419, 421, 423, 424, 426, 428, 430, 432, 433, 435, 437, 439, 440, 442, 444, 446, 448, 449, 451, 453, 455, 456, 458, 460, 462, 464, 465, 467, 469, 471, 472, 474, 476, 478, 479, 481, 483, 485, 487, 488, 490, 492, 494, 495, 497, 499, 501, 581, 661, 740, 820, 900]
+          }
+        ]
+      },
+      "expected": {
+        "criteria": [
+          {
+            "criterion_id": "c_extraction",
+            "verdict": "PASS"
+          }
+        ],
+        "latency_constraints": [
+          {
+            "constraint_id": "p95_le_500ms",
+            "source": "explicit",
+            "mode": "enforced",
+            "participates": true,
+            "decisionRule": "latency/compliance-exact-binomial",
+            "verdict": "FAIL"
+          }
+        ],
+        "rate_verdict": "PASS",
+        "latency_verdict": "FAIL",
+        "test_verdict": "FAIL",
+        "triggering": [
+          {
+            "kind": "latency",
+            "id": "p95_le_500ms"
+          }
+        ]
+      }
+    },
+    {
+      "name": "test_functional_pass_latency_inconclusive",
+      "approach": "test_verdict",
+      "description": "Functional PASS; the enforced baseline-derived p99 constraint is saturated (a test of 91 latencies against a baseline of 100: no rank achieves alpha), so V_latency is INCONCLUSIVE and so is V_test.",
+      "decisionRule": [
+        "regression/fisher",
+        "latency/precedence"
+      ],
+      "inputs": {
+        "functional": {
+          "criterion_id": "c_extraction",
+          "successes": 91,
+          "trials": 100,
+          "baseline_successes": 951,
+          "baseline_trials": 1000,
+          "alpha": 0.05
+        },
+        "latency_constraints": [
+          {
+            "constraint_id": "p99_vs_baseline",
+            "source": "baseline-derived",
+            "mode": "enforced",
+            "percentile": 0.99,
+            "alpha": 0.05,
+            "baseline_latencies": [193, 199, 202, 223, 241, 246, 257, 259, 260, 261, 264, 271, 272, 273, 274, 280, 280, 281, 284, 289, 289, 293, 297, 298, 303, 311, 319, 326, 330, 332, 334, 336, 340, 342, 350, 353, 356, 361, 362, 365, 366, 370, 370, 372, 375, 376, 377, 382, 382, 389, 390, 395, 396, 398, 400, 404, 404, 405, 408, 409, 414, 415, 418, 419, 419, 426, 427, 428, 432, 434, 435, 439, 454, 454, 455, 461, 462, 468, 483, 496, 505, 510, 528, 531, 533, 546, 546, 557, 558, 574, 585, 597, 612, 636, 658, 676, 678, 713, 753, 774],
+            "latencies": [187, 193, 196, 216, 234, 239, 249, 251, 252, 253, 256, 263, 264, 265, 266, 272, 272, 273, 275, 280, 280, 284, 288, 289, 294, 302, 309, 316, 320, 322, 324, 326, 330, 332, 340, 342, 345, 350, 351, 354, 355, 359, 359, 361, 364, 365, 366, 371, 371, 377, 378, 383, 384, 386, 388, 392, 392, 393, 396, 397, 402, 403, 405, 406, 406, 413, 414, 415, 419, 421, 422, 426, 440, 440, 441, 447, 448, 454, 469, 481, 490, 495, 512, 515, 517, 530, 530, 540, 541, 557, 567]
+          }
+        ]
+      },
+      "expected": {
+        "criteria": [
+          {
+            "criterion_id": "c_extraction",
+            "verdict": "PASS"
+          }
+        ],
+        "latency_constraints": [
+          {
+            "constraint_id": "p99_vs_baseline",
+            "source": "baseline-derived",
+            "mode": "enforced",
+            "participates": true,
+            "decisionRule": "latency/precedence",
+            "verdict": "INCONCLUSIVE"
+          }
+        ],
+        "rate_verdict": "PASS",
+        "latency_verdict": "INCONCLUSIVE",
+        "test_verdict": "INCONCLUSIVE",
+        "triggering": [
+          {
+            "kind": "latency",
+            "id": "p99_vs_baseline"
+          }
+        ]
+      }
+    },
+    {
+      "name": "test_functional_fail_latency_pass",
+      "approach": "test_verdict",
+      "description": "Functional FAIL (90 of 100 below the cutoff of 91); the enforced p95 <= 500 ms requirement passes (90 of 90 within). V_test FAIL, triggered by the criterion.",
+      "decisionRule": [
+        "regression/fisher",
+        "latency/compliance-exact-binomial"
+      ],
+      "inputs": {
+        "functional": {
+          "criterion_id": "c_extraction",
+          "successes": 90,
+          "trials": 100,
+          "baseline_successes": 951,
+          "baseline_trials": 1000,
+          "alpha": 0.05
+        },
+        "latency_constraints": [
+          {
+            "constraint_id": "p95_le_500ms",
+            "source": "explicit",
+            "mode": "enforced",
+            "percentile": 0.95,
+            "alpha": 0.05,
+            "threshold_ms": 500,
+            "latencies": [350, 352, 353, 355, 357, 358, 360, 362, 363, 365, 367, 368, 370, 372, 373, 375, 377, 378, 380, 382, 383, 385, 387, 389, 390, 392, 394, 395, 397, 399, 400, 402, 404, 405, 407, 409, 410, 412, 414, 415, 417, 419, 420, 422, 424, 425, 427, 429, 430, 432, 434, 435, 437, 439, 440, 442, 444, 445, 447, 449, 450, 452, 454, 455, 457, 459, 460, 462, 464, 466, 467, 469, 471, 472, 474, 476, 477, 479, 481, 482, 484, 486, 487, 489, 491, 492, 494, 496, 497, 499]
+          }
+        ]
+      },
+      "expected": {
+        "criteria": [
+          {
+            "criterion_id": "c_extraction",
+            "verdict": "FAIL"
+          }
+        ],
+        "latency_constraints": [
+          {
+            "constraint_id": "p95_le_500ms",
+            "source": "explicit",
+            "mode": "enforced",
+            "participates": true,
+            "decisionRule": "latency/compliance-exact-binomial",
+            "verdict": "PASS"
+          }
+        ],
+        "rate_verdict": "FAIL",
+        "latency_verdict": "PASS",
+        "test_verdict": "FAIL",
+        "triggering": [
+          {
+            "kind": "criterion",
+            "id": "c_extraction"
+          }
+        ]
+      }
+    },
+    {
+      "name": "test_latency_only",
+      "approach": "test_verdict",
+      "description": "No functional criteria: V_test = V_latency. The enforced p95 <= 500 ms requirement over 100 latencies, 99 within: PASS.",
+      "decisionRule": [
+        "latency/compliance-exact-binomial"
+      ],
+      "inputs": {
+        "latency_constraints": [
+          {
+            "constraint_id": "p95_le_500ms",
+            "source": "explicit",
+            "mode": "enforced",
+            "percentile": 0.95,
+            "alpha": 0.05,
+            "threshold_ms": 500,
+            "latencies": [350, 352, 353, 355, 356, 358, 359, 361, 362, 364, 365, 367, 368, 370, 371, 373, 374, 376, 377, 379, 380, 382, 383, 385, 386, 388, 390, 391, 393, 394, 396, 397, 399, 400, 402, 403, 405, 406, 408, 409, 411, 412, 414, 415, 417, 418, 420, 421, 423, 424, 426, 428, 429, 431, 432, 434, 435, 437, 438, 440, 441, 443, 444, 446, 447, 449, 450, 452, 453, 455, 456, 458, 459, 461, 463, 464, 466, 467, 469, 470, 472, 473, 475, 476, 478, 479, 481, 482, 484, 485, 487, 488, 490, 491, 493, 494, 496, 497, 499, 501]
+          }
+        ]
+      },
+      "expected": {
+        "criteria": [],
+        "latency_constraints": [
+          {
+            "constraint_id": "p95_le_500ms",
+            "source": "explicit",
+            "mode": "enforced",
+            "participates": true,
+            "decisionRule": "latency/compliance-exact-binomial",
+            "verdict": "PASS"
+          }
+        ],
+        "rate_verdict": null,
+        "latency_verdict": "PASS",
+        "test_verdict": "PASS",
+        "triggering": []
+      }
+    },
+    {
+      "name": "test_advisory_breach_does_not_change_verdict",
+      "approach": "test_verdict",
+      "description": "Functional PASS and the enforced p95 <= 500 ms requirement PASS (91 of 91 within); an advisory p99 <= 450 ms comparison is breached (ADVISORY_WARN) and does not participate. V_test PASS.",
+      "decisionRule": [
+        "regression/fisher",
+        "latency/compliance-exact-binomial"
+      ],
+      "inputs": {
+        "functional": {
+          "criterion_id": "c_extraction",
+          "successes": 91,
+          "trials": 100,
+          "baseline_successes": 951,
+          "baseline_trials": 1000,
+          "alpha": 0.05
+        },
+        "latency_constraints": [
+          {
+            "constraint_id": "p95_le_500ms",
+            "source": "explicit",
+            "mode": "enforced",
+            "percentile": 0.95,
+            "alpha": 0.05,
+            "threshold_ms": 500,
+            "latencies": [350, 352, 353, 355, 357, 358, 360, 362, 363, 365, 367, 368, 370, 372, 373, 375, 376, 378, 380, 381, 383, 385, 386, 388, 390, 391, 393, 395, 396, 398, 400, 401, 403, 405, 406, 408, 410, 411, 413, 415, 416, 418, 420, 421, 423, 424, 426, 428, 429, 431, 433, 434, 436, 438, 439, 441, 443, 444, 446, 448, 449, 451, 453, 454, 456, 458, 459, 461, 463, 464, 466, 468, 469, 471, 473, 474, 476, 477, 479, 481, 482, 484, 486, 487, 489, 491, 492, 494, 496, 497, 499]
+          },
+          {
+            "constraint_id": "p99_le_450ms_advisory",
+            "source": "explicit",
+            "mode": "advisory",
+            "percentile": 0.99,
+            "alpha": 0.05,
+            "threshold_ms": 450,
+            "latencies": [350, 352, 353, 355, 357, 358, 360, 362, 363, 365, 367, 368, 370, 372, 373, 375, 376, 378, 380, 381, 383, 385, 386, 388, 390, 391, 393, 395, 396, 398, 400, 401, 403, 405, 406, 408, 410, 411, 413, 415, 416, 418, 420, 421, 423, 424, 426, 428, 429, 431, 433, 434, 436, 438, 439, 441, 443, 444, 446, 448, 449, 451, 453, 454, 456, 458, 459, 461, 463, 464, 466, 468, 469, 471, 473, 474, 476, 477, 479, 481, 482, 484, 486, 487, 489, 491, 492, 494, 496, 497, 499]
+          }
+        ]
+      },
+      "expected": {
+        "criteria": [
+          {
+            "criterion_id": "c_extraction",
+            "verdict": "PASS"
+          }
+        ],
+        "latency_constraints": [
+          {
+            "constraint_id": "p95_le_500ms",
+            "source": "explicit",
+            "mode": "enforced",
+            "participates": true,
+            "decisionRule": "latency/compliance-exact-binomial",
+            "verdict": "PASS"
+          },
+          {
+            "constraint_id": "p99_le_450ms_advisory",
+            "source": "explicit",
+            "mode": "advisory",
+            "participates": false,
+            "decisionRule": null,
+            "verdict": "ADVISORY_WARN"
+          }
+        ],
+        "rate_verdict": "PASS",
+        "latency_verdict": "PASS",
+        "test_verdict": "PASS",
+        "triggering": []
       }
     }
   ]

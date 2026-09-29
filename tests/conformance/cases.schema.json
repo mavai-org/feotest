@@ -2,10 +2,13 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/mavai-org/mavai-R/schema/cases.schema.json",
   "title": "mavai-R conformance case suite",
-  "description": "Schema for statistical conformance reference datasets produced by mavai-R. Each JSON file represents one suite of test cases. Top-level shape is uniform across suites; the inputs/expected payloads vary per suite. See R/*.R generators for the per-suite payload shape.",
+  "description": "Schema for statistical conformance reference datasets produced by mavai-R, fixture schema version 2. Each JSON file represents one suite of test cases. Top-level shape is uniform across suites; the inputs/expected payloads vary per suite. See R/*.R generators for the per-suite payload shape. Version 2 (methodology 1.5.0) adds methodologyVersion, fixtureSchemaVersion and decisionRules at suite level and an optional decisionRule per case.",
   "type": "object",
   "required": [
     "suite",
+    "methodologyVersion",
+    "fixtureSchemaVersion",
+    "decisionRules",
     "description",
     "method",
     "tolerance",
@@ -16,6 +19,22 @@
     "suite": {
       "type": "string",
       "description": "Machine-readable suite identifier (e.g. 'wilson_ci', 'verdict', 'criterion_verdict_inferential')."
+    },
+    "methodologyVersion": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$",
+      "description": "The Statistical Companion methodology version the suite's expected values implement (e.g. '1.5.0')."
+    },
+    "fixtureSchemaVersion": {
+      "const": 2,
+      "description": "Version of the fixture file shape this schema describes. 1 was the unversioned shape up to fixtures 0.10.13; 2 adds methodologyVersion, fixtureSchemaVersion and decisionRules."
+    },
+    "decisionRules": {
+      "type": "array",
+      "description": "The versioned decision rules the suite's expected values depend on; empty for descriptive and structural suites.",
+      "items": {
+        "$ref": "#/$defs/decisionRuleVersion"
+      }
     },
     "description": {
       "type": "string",
@@ -67,7 +86,23 @@
             "REGRESSION",
             "COMPLIANCE"
           ],
-          "description": "Procedure direction per companion §3.2 / §1.4.6 (SC-RU-05). Present on inferential per-criterion cases."
+          "description": "Procedure direction per companion §3.2 / §1.4.6 (SC-RU-05): the kind of threshold, not a versioned rule (see decisionRule). Present on inferential per-criterion cases."
+        },
+        "decisionRule": {
+          "description": "The decision rule(s) a case exercises, where its suite lists more than one. A configuration carrying both a normative and an empirical bar names both.",
+          "oneOf": [
+            {
+              "$ref": "#/$defs/decisionRuleId"
+            },
+            {
+              "type": "array",
+              "minItems": 1,
+              "uniqueItems": true,
+              "items": {
+                "$ref": "#/$defs/decisionRuleId"
+              }
+            }
+          ]
         },
         "inputs": {
           "description": "Input parameters for the statistical computation. Shape varies by suite. Computation suites use a flat numeric-keyed object; per-criterion verdict suites add procedure/denominator_policy strings; baseline-object and scenario suites carry nested baseline / test_run objects.",
@@ -76,6 +111,33 @@
         "expected": {
           "description": "Expected outputs from R's reference computation. Shape varies by suite. Numeric values are compared within the suite's tolerance; boolean / string values are compared exactly; nested objects are compared structurally.",
           "$ref": "#/$defs/anyJson"
+        }
+      }
+    },
+    "decisionRuleId": {
+      "type": "string",
+      "enum": [
+        "regression/fisher",
+        "compliance/exact-binomial",
+        "latency/precedence",
+        "latency/compliance-exact-binomial"
+      ],
+      "description": "A versioned decision rule of methodology 1.5.0."
+    },
+    "decisionRuleVersion": {
+      "type": "object",
+      "required": [
+        "id",
+        "version"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/decisionRuleId"
+        },
+        "version": {
+          "type": "integer",
+          "minimum": 1
         }
       }
     },

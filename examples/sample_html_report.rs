@@ -12,9 +12,10 @@ use feotest::model::{
     TerminationInfo, TerminationReason, TestIdentity, TestIntent, ThresholdOrigin, Warning,
 };
 use feotest::reporting::HtmlReportWriter;
+use feotest::statistics::decision::{evaluate_compliance, evaluate_regression};
 use feotest::verdict::{
-    BaselineProvenance, CovariateStatus, CriterionRow, FunctionalAssessment, Misalignment,
-    SpecProvenance, StatisticalAnalysis, Verdict, VerdictRecord,
+    BaselineProvenance, CovariateStatus, CriterionRow, DesignDisclosure, FunctionalAssessment,
+    Misalignment, SpecProvenance, StatisticalAnalysis, Verdict, VerdictRecord,
 };
 
 const fn execution(
@@ -35,8 +36,12 @@ const fn execution(
 }
 
 fn full_pass_record() -> VerdictRecord {
-    let analysis = StatisticalAnalysis::new(0.95, 0.014, 0.932, 0.920, ThresholdOrigin::Empirical)
-        .with_test_results(3.2, 0.001);
+    // 192 of 200 against a baseline of 480 of 500, decided by regression/fisher.
+    let analysis = StatisticalAnalysis::regression(
+        &evaluate_regression(192, 200, 480, 500, 0.05),
+        0.95,
+        DesignDisclosure::default(),
+    );
 
     let provenance = SpecProvenance::new(ThresholdOrigin::Empirical)
         .with_spec_filename("translation-service.yaml")
@@ -97,8 +102,13 @@ fn full_pass_record() -> VerdictRecord {
 }
 
 fn fail_record() -> VerdictRecord {
-    let analysis = StatisticalAnalysis::new(0.95, 0.040, 0.722, 0.900, ThresholdOrigin::Sla)
-        .with_test_results(-1.50, 0.933);
+    // 80 of 100 against a requirement of 0.90, decided by
+    // compliance/exact-binomial.
+    let analysis = StatisticalAnalysis::compliance(
+        &evaluate_compliance(80, 100, 0.90, 0.05),
+        0.95,
+        ThresholdOrigin::Sla,
+    );
 
     let provenance = SpecProvenance::new(ThresholdOrigin::Sla)
         .with_contract_ref("Payment SLA v1.0 §2.4")
@@ -160,8 +170,13 @@ fn fail_record() -> VerdictRecord {
 }
 
 fn inconclusive_covariate_record() -> VerdictRecord {
-    let analysis = StatisticalAnalysis::new(0.95, 0.031, 0.838, 0.850, ThresholdOrigin::Empirical)
-        .with_test_results(1.61, 0.054);
+    // 90 of 100 against a baseline of 276 of 300, decided by
+    // regression/fisher; the covariate drift makes the verdict inconclusive.
+    let analysis = StatisticalAnalysis::regression(
+        &evaluate_regression(90, 100, 276, 300, 0.05),
+        0.95,
+        DesignDisclosure::default(),
+    );
 
     let provenance = SpecProvenance::new(ThresholdOrigin::Empirical)
         .with_spec_filename("sentiment-analyser.yaml");

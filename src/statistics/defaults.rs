@@ -12,7 +12,3 @@ pub const DEFAULT_ALPHA: f64 = 1.0 - DEFAULT_CONFIDENCE;
 /// conventional choice. The report's sensitivity statements are made at
 /// this power for runs whose sizing did not declare one.
 pub const DEFAULT_TARGET_POWER: f64 = 0.80;
-
-/// Minimum confidence level below which a derived threshold is flagged as
-/// statistically unsound.
-pub(in crate::statistics) const SOUNDNESS_FLOOR: f64 = 0.80;

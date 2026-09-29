@@ -1,208 +1,56 @@
-//! Risk-driven sample sizing against a moving acceptance floor.
+//! Risk-driven sizing of a regression test against the operative rule
+//! (Statistical Companion §5.4.1).
 //!
-//! A baseline-derived test does not judge against a fixed threshold: its
-//! acceptance floor is the Wilson lower bound of the baseline rate computed
-//! *at the test's own sample size*, so the floor falls as the sample shrinks
-//! — a small sample proves less, so less is demanded of it. The closed-form
-//! power calculations in [`sample_size`](crate::statistics::sample_size)
-//! hold the threshold constant and therefore overstate the power of small
-//! designs. The functions here put the moving floor inside the calculation.
+//! A regression test's cutoff is derived at the test's own size, so sizing
+//! is done against the cutoff the test will actually apply. Two operations
+//! answer different questions and are named apart:
 //!
-//! The caller declares a **minimum acceptable rate** — the worst true
-//! success rate they are willing to tolerate; a declared bound, not a
-//! measured estimate. [`self_consistent_power`] prices the probability that
-//! a service truly at that rate fails a test of a given size;
-//! [`required_sample_size`] finds the smallest size meeting a target power;
-//! [`detectable_rate`] inverts the question for a fixed, affordable size.
+//! - **Design sizing**, before the baseline exists: the baseline is planned
+//!   at `n_b` trials and an expected rate `p0`, and the design power
+//!   averages over the baseline count yet to be drawn.
+//! - **Resolved sizing**, against an existing baseline: its observed count
+//!   fixes the cutoff for every candidate test size, and the resolved power
+//!   decides. Once a baseline exists, `BASELINE_TOO_SMALL` is judged by it.
 //!
-//! The floor and the power calculation share one z convention: the floor is
-//! the same one-sided Wilson lower bound used for threshold derivation
-//! throughout the statistics module.
+//! The **design alternative rate** `p_design` is the true rate at which the
+//! test must reach its target power — a declared design input, not a
+//! measured estimate and not a tolerance: the test still flags any
+//! degradation from the baseline, including one to a rate above
+//! `p_design`.
+//!
+//! Exact power is a sawtooth in the test size, so the required size is the
+//! smallest `n_t` from which power *stays* at or above the target for every
+//! larger test up to the baseline size — not the first crossing — subject
+//! to the design rule `n_t ≤ n_b`.
 
-use statrs::distribution::{ContinuousCDF, Normal};
+use crate::statistics::distributions::{binomial_cdf, bisect};
+use crate::statistics::regression::{
+    baseline_window, cutoff_near, design_power, fail_probability, fisher_cutoff, fisher_cutoffs,
+    fisher_cutoffs_near,
+};
 
-use crate::statistics::proportion;
-use crate::statistics::types::ConfidenceLevel;
-
-/// The search cap for [`required_sample_size`]: a requirement beyond this is
-/// treated as a misconfigured tolerance, not a plan.
-const REQUIRED_SAMPLE_SIZE_CAP: u32 = 10_000_000;
-
-/// Returns the standard normal distribution N(0, 1).
-///
-/// # Panics
-///
-/// Cannot panic — parameters are compile-time constants.
-fn standard_normal() -> Normal {
-    Normal::new(0.0, 1.0).unwrap()
-}
-
-/// Computes the self-consistent power of a test of `sample_size` samples.
-///
-/// The acceptance floor is the one-sided Wilson lower bound of
-/// `baseline_rate` at `sample_size` itself — the bar this test would
-/// actually apply. The result is the probability that a service whose true
-/// rate is `minimum_acceptable_rate` fails the test, i.e. that a
-/// degradation at least that severe is detected:
-///
-/// Power(n) = Φ((floor(n) − `p_min`) / √(`p_min` × (1 − `p_min`) / n))
-///
-/// # Panics
-///
-/// Panics if `sample_size` is zero, if `baseline_rate` is not in (0, 1), or
-/// if `minimum_acceptable_rate` is not in (0, `baseline_rate`). The
-/// construction is defined only for a tolerance strictly below the measured
-/// baseline rate: a tolerance at or above it asks the test to detect a
-/// "degradation" the baseline already exceeds — re-measure the baseline
-/// rather than asserting improvement through the tolerance.
-#[must_use]
-pub fn self_consistent_power(
-    sample_size: u32,
-    baseline_rate: f64,
-    minimum_acceptable_rate: f64,
-    confidence: ConfidenceLevel,
-) -> f64 {
-    assert!(sample_size > 0, "sample_size must be positive");
-    assert_sizing_domain(baseline_rate, minimum_acceptable_rate);
-
-    let floor = proportion::lower_bound_from_rate(baseline_rate, sample_size, confidence);
-    let n = f64::from(sample_size);
-    let standard_error = (minimum_acceptable_rate * (1.0 - minimum_acceptable_rate) / n).sqrt();
-    standard_normal().cdf((floor - minimum_acceptable_rate) / standard_error)
-}
-
-/// Computes the smallest sample size whose self-consistent power meets
-/// `target_power`.
-///
-/// Within the domain, growing the sample both raises the acceptance floor
-/// toward the baseline rate and shrinks the standard error, so the power is
-/// increasing in the sample size and the minimum is well defined. It is
-/// found by doubling until the target is met, then bisecting.
-///
-/// # Panics
-///
-/// Panics if `baseline_rate` is not in (0, 1), if `minimum_acceptable_rate`
-/// is not in (0, `baseline_rate`) (see [`self_consistent_power`] for the
-/// domain rationale), if `target_power` is not in (0, 1), or if the
-/// requirement exceeds 10,000,000 samples — a tolerance that tight against
-/// that baseline is a misconfiguration, not a plan.
-#[must_use]
-pub fn required_sample_size(
-    baseline_rate: f64,
-    minimum_acceptable_rate: f64,
-    confidence: ConfidenceLevel,
-    target_power: f64,
-) -> u32 {
-    assert_sizing_domain(baseline_rate, minimum_acceptable_rate);
-    assert!(
-        target_power > 0.0 && target_power < 1.0,
-        "target_power must be in (0, 1), got {target_power}"
-    );
-
-    let power_of =
-        |n: u32| self_consistent_power(n, baseline_rate, minimum_acceptable_rate, confidence);
-
-    let mut upper = 1;
-    #[allow(
-        clippy::while_float,
-        reason = "power increases toward 1 with n; the cap bounds the loop"
-    )]
-    while power_of(upper) < target_power {
-        upper *= 2;
-        assert!(
-            upper <= REQUIRED_SAMPLE_SIZE_CAP,
-            "required sample size exceeds {REQUIRED_SAMPLE_SIZE_CAP}: \
-             minimum_acceptable_rate ({minimum_acceptable_rate}) is too close to \
-             baseline_rate ({baseline_rate}) to detect at power {target_power}"
-        );
-    }
-    if upper == 1 {
-        return 1;
-    }
-
-    // Invariant: power(lower) < target_power <= power(upper).
-    let mut lower = upper / 2;
-    while lower + 1 < upper {
-        let mid = lower + (upper - lower) / 2;
-        (lower, upper) = if power_of(mid) >= target_power {
-            (lower, mid)
-        } else {
-            (mid, upper)
-        };
-    }
-    upper
-}
-
-/// Computes the largest tolerable true rate detectable at `target_power`
-/// with `sample_size` samples.
-///
-/// This is the inversion of [`required_sample_size`] for a fixed,
-/// affordable sample size: the highest minimum acceptable rate (the
-/// smallest drop from the baseline) at which the self-consistent power
-/// still meets the target. Found by bisection over (0, `baseline_rate`) to
-/// an absolute tolerance of 1e-10.
-///
-/// # Panics
-///
-/// Panics if `sample_size` is zero, if `baseline_rate` is not in (0, 1), or
-/// if `target_power` is not in (0, 1).
-#[must_use]
-pub fn detectable_rate(
-    sample_size: u32,
-    baseline_rate: f64,
-    confidence: ConfidenceLevel,
-    target_power: f64,
-) -> f64 {
-    assert!(sample_size > 0, "sample_size must be positive");
-    assert!(
-        baseline_rate != 0.0,
-        "{}",
-        SizingRefusal::ZeroBaseline.message(baseline_rate, f64::NAN)
-    );
-    assert!(
-        baseline_rate > 0.0 && baseline_rate < 1.0,
-        "baseline_rate must be in (0, 1), got {baseline_rate}"
-    );
-    assert!(
-        target_power > 0.0 && target_power < 1.0,
-        "target_power must be in (0, 1), got {target_power}"
-    );
-
-    let mut lower = 1e-9;
-    let mut upper = baseline_rate - 1e-9;
-    #[allow(
-        clippy::while_float,
-        reason = "the bisection interval halves each iteration; convergence to 1e-10 is guaranteed"
-    )]
-    while upper - lower > 1e-10 {
-        let mid = f64::midpoint(lower, upper);
-        let meets_target =
-            self_consistent_power(sample_size, baseline_rate, mid, confidence) >= target_power;
-        (lower, upper) = if meets_target {
-            (mid, upper)
-        } else {
-            (lower, mid)
-        };
-    }
-    lower
-}
+/// Bisection resolution for the detectable-rate inversion.
+const DETECTABLE_RATE_TOLERANCE: f64 = 1e-10;
 
 /// Why a sizing design cannot be priced.
 ///
-/// The domain restriction of companion §5.4.1 is reached by two different
-/// routes, and they call for different corrective action. Carrying the
-/// cause as data rather than only as prose lets a caller — a diagnostic, a
-/// report, a conformance run — tell them apart without parsing a message.
+/// Carried as a value so a caller — a pre-flight check, a report, a
+/// conformance run — can tell the refusals apart without parsing a message.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SizingRefusal {
-    /// The baseline observed no successes, so its effective rate is exactly
-    /// 0 at every sample size (companion §4.3.4) and no declared tolerance
-    /// can sit below it. *Measure a baseline before sizing against it.*
+    /// The baseline observed (or expects) no successes (§4.3.4): there is no
+    /// rate below it to detect. *Measure a baseline before sizing against
+    /// it.*
     ZeroBaseline,
-    /// The baseline is usable, but the declared tolerance does not sit
-    /// strictly below it, so there is no degradation to detect.
-    /// *Re-measure the baseline rather than raising the tolerance.*
-    EmptyToleranceInterval,
+    /// The design alternative rate is not below the baseline rate, so there
+    /// is no degradation to detect. *Re-measure rather than raise the
+    /// rate.*
+    AlternativeNotBelowBaseline,
+    /// A candidate test larger than the baseline the design rule admits.
+    TestLargerThanBaseline,
+    /// No test the design rule admits reaches and holds the target power: a
+    /// larger baseline is needed.
+    BaselineTooSmall,
 }
 
 impl SizingRefusal {
@@ -211,208 +59,396 @@ impl SizingRefusal {
     pub const fn category(self) -> &'static str {
         match self {
             Self::ZeroBaseline => "ZERO_BASELINE",
-            Self::EmptyToleranceInterval => "EMPTY_TOLERANCE_INTERVAL",
+            Self::AlternativeNotBelowBaseline => "ALTERNATIVE_NOT_BELOW_BASELINE",
+            Self::TestLargerThanBaseline => "TEST_LARGER_THAN_BASELINE",
+            Self::BaselineTooSmall => "BASELINE_TOO_SMALL",
         }
     }
 
     /// The operator-facing explanation, naming the corrective action.
     #[must_use]
-    pub fn message(self, baseline_rate: f64, minimum_acceptable_rate: f64) -> String {
+    pub fn message(self, baseline_rate: f64, design_alternative_rate: f64) -> String {
         match self {
-            Self::ZeroBaseline => "baseline_rate is exactly 0: the baseline observed no \
-                 successes, so its effective rate is 0 at every sample size and there is no \
-                 tolerated rate below it to detect. No sample size can price this design. \
-                 Measure a baseline with at least one success before sizing against it."
+            Self::ZeroBaseline => "the baseline rate is exactly 0: the baseline observed no \
+                 successes, so there is no rate below it to detect and no sample size can \
+                 price this design. Measure a baseline with at least one success before \
+                 sizing against it."
                 .to_owned(),
-            Self::EmptyToleranceInterval => format!(
-                "minimum_acceptable_rate ({minimum_acceptable_rate}) must sit below \
-                 baseline_rate ({baseline_rate}): the tolerance declares how far below the \
-                 measured baseline a true rate may drop; to demand more than the baseline \
-                 delivered, re-measure the baseline rather than raising the tolerance"
+            Self::AlternativeNotBelowBaseline => format!(
+                "the design alternative rate ({design_alternative_rate}) must sit below the \
+                 baseline rate ({baseline_rate}): it is the true rate at which the test must \
+                 detect a degradation; to demand more than the baseline delivered, re-measure \
+                 the baseline rather than raising the rate"
+            ),
+            Self::TestLargerThanBaseline => "the test is larger than the baseline it consumes; \
+                 the baseline must be at least as large as any test that consumes it"
+                .to_owned(),
+            Self::BaselineTooSmall => format!(
+                "no test up to the size of the baseline reaches and holds the target power \
+                 against a design alternative rate of {design_alternative_rate} (baseline \
+                 rate {baseline_rate}): measure a larger baseline, declare a lower design \
+                 alternative rate, or accept a lower power"
             ),
         }
     }
 }
 
-/// Checks the sizing domain without panicking, naming the cause when it does
-/// not hold.
-///
-/// The sizing entry points panic on an inadmissible design, which is the
-/// right response to a misconfiguration discovered at pre-flight. This is
-/// the same decision made available as a value, so a caller that wants to
-/// ask before it commits — or to report the refusal rather than unwind —
-/// can.
-///
-/// # Errors
-///
-/// Returns the [`SizingRefusal`] naming why the design cannot be priced.
+/// The refusal a sizing design meets before any power is computed, or
+/// `None`.
 ///
 /// # Panics
 ///
-/// Panics if `baseline_rate` is outside `[0, 1)` or `minimum_acceptable_rate`
-/// is not positive. Those are malformed inputs rather than inadmissible
-/// designs: a refusal says a well-formed design cannot be priced, which is a
-/// different statement from a rate that is not a rate.
+/// Panics if `baseline_rate` is outside `[0, 1]`.
+#[must_use]
 pub fn check_sizing_domain(
     baseline_rate: f64,
-    minimum_acceptable_rate: f64,
-) -> Result<(), SizingRefusal> {
+    baseline_trials: u32,
+    design_alternative_rate: Option<f64>,
+    test_samples: Option<u32>,
+) -> Option<SizingRefusal> {
+    assert!(
+        (0.0..=1.0).contains(&baseline_rate),
+        "baseline_rate must be in [0, 1], got {baseline_rate}"
+    );
     if baseline_rate == 0.0 {
-        return Err(SizingRefusal::ZeroBaseline);
+        return Some(SizingRefusal::ZeroBaseline);
     }
-    assert!(
-        baseline_rate > 0.0 && baseline_rate < 1.0,
-        "baseline_rate must be in (0, 1), got {baseline_rate}"
-    );
-    assert!(
-        minimum_acceptable_rate > 0.0,
-        "minimum_acceptable_rate must be positive, got {minimum_acceptable_rate}"
-    );
-    if minimum_acceptable_rate >= baseline_rate {
-        return Err(SizingRefusal::EmptyToleranceInterval);
+    if design_alternative_rate.is_some_and(|rate| rate >= baseline_rate) {
+        return Some(SizingRefusal::AlternativeNotBelowBaseline);
     }
-    Ok(())
+    if test_samples.is_some_and(|n| n > baseline_trials) {
+        return Some(SizingRefusal::TestLargerThanBaseline);
+    }
+    None
 }
 
-/// Asserts the sizing domain: `baseline_rate` in (0, 1) and
-/// `minimum_acceptable_rate` strictly below it (and above 0).
-fn assert_sizing_domain(baseline_rate: f64, minimum_acceptable_rate: f64) {
-    if let Err(refusal) = check_sizing_domain(baseline_rate, minimum_acceptable_rate) {
-        panic!(
-            "{}",
-            refusal.message(baseline_rate, minimum_acceptable_rate)
-        );
+/// A required test size and the power there.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct DesignSizing {
+    required_samples: u32,
+    power: f64,
+}
+
+impl DesignSizing {
+    /// The smallest test size from which the design power stays at target.
+    #[must_use]
+    pub const fn required_samples(&self) -> u32 {
+        self.required_samples
     }
+
+    /// The design power at the required size.
+    #[must_use]
+    pub const fn power(&self) -> f64 {
+        self.power
+    }
+}
+
+/// Design sizing: the smallest `n_t ≤ n_b` from which design power stays at
+/// target.
+///
+/// Scans down from `n_b` to the first size whose power falls short; the
+/// answer is the next size up. `None` (`BASELINE_TOO_SMALL`) when the power
+/// at `n_b` itself is short. The domain is the caller's to check first
+/// ([`check_sizing_domain`]).
+///
+/// # Panics
+///
+/// Panics if `baseline_trials` is zero, a rate is outside `[0, 1]`, or
+/// `alpha` is not in `(0, 1)`.
+#[must_use]
+pub fn design_required_samples(
+    baseline_rate: f64,
+    baseline_trials: u32,
+    design_alternative_rate: f64,
+    alpha: f64,
+    target_power: f64,
+) -> Option<DesignSizing> {
+    let counts = baseline_window(baseline_trials, baseline_rate);
+    let mut cutoffs = fisher_cutoffs(&counts, baseline_trials, baseline_trials, alpha);
+    let mut held: Option<DesignSizing> = None;
+    for test_samples in (1..=baseline_trials).rev() {
+        if test_samples < baseline_trials {
+            let guesses: Vec<u32> = cutoffs
+                .iter()
+                .map(|&c| scaled_guess(c, test_samples, test_samples + 1))
+                .collect();
+            cutoffs = fisher_cutoffs_near(&counts, baseline_trials, test_samples, alpha, &guesses);
+        }
+        let power = fail_probability(
+            &cutoffs,
+            &counts,
+            baseline_trials,
+            baseline_rate,
+            test_samples,
+            design_alternative_rate,
+        );
+        if power < target_power {
+            return held;
+        }
+        held = Some(DesignSizing {
+            required_samples: test_samples,
+            power,
+        });
+    }
+    held
+}
+
+/// A cutoff at one size, scaled to a neighbouring size as a walking guess.
+fn scaled_guess(cutoff: u32, to: u32, from: u32) -> u32 {
+    let scaled = u64::from(cutoff) * u64::from(to) + u64::from(from) / 2;
+    u32::try_from(scaled / u64::from(from)).expect("a scaled cutoff never exceeds its size")
+}
+
+/// The largest design alternative rate detectable at the target design
+/// power.
+///
+/// Power falls as `p_design` rises toward `p0`, so bisection over `(0, p0)`
+/// to `1e-10`; `None` when even `p_design = 0` falls short.
+///
+/// # Panics
+///
+/// Panics if a size is zero, `baseline_rate` is outside `[0, 1]`, or
+/// `alpha` is not in `(0, 1)`.
+#[must_use]
+pub fn design_detectable_rate(
+    test_samples: u32,
+    baseline_rate: f64,
+    baseline_trials: u32,
+    alpha: f64,
+    target_power: f64,
+) -> Option<f64> {
+    let counts = baseline_window(baseline_trials, baseline_rate);
+    let cutoffs = fisher_cutoffs(&counts, baseline_trials, test_samples, alpha);
+    let power_at = |rate: f64| {
+        fail_probability(
+            &cutoffs,
+            &counts,
+            baseline_trials,
+            baseline_rate,
+            test_samples,
+            rate,
+        )
+    };
+    if power_at(0.0) < target_power {
+        return None;
+    }
+    let (low, _) = bisect(0.0, baseline_rate, DETECTABLE_RATE_TOLERANCE, |rate| {
+        power_at(rate) < target_power
+    });
+    Some(low)
+}
+
+/// The design power at a candidate test size
+/// (see [`design_power`]).
+///
+/// # Panics
+///
+/// Panics on the inputs `design_power` rejects.
+#[must_use]
+pub fn design_power_at(
+    test_samples: u32,
+    baseline_rate: f64,
+    baseline_trials: u32,
+    design_alternative_rate: f64,
+    alpha: f64,
+) -> f64 {
+    design_power(
+        baseline_trials,
+        test_samples,
+        alpha,
+        baseline_rate,
+        design_alternative_rate,
+    )
+}
+
+/// The required test size under resolved sizing against an observed
+/// baseline.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ResolvedSizing {
+    required_samples: u32,
+    power: f64,
+    first_crossing: u32,
+}
+
+impl ResolvedSizing {
+    /// The smallest `n_t` from which the resolved power stays at or above
+    /// the target up to `n_b`.
+    #[must_use]
+    pub const fn required_samples(&self) -> u32 {
+        self.required_samples
+    }
+
+    /// The resolved power at [`required_samples`](Self::required_samples).
+    #[must_use]
+    pub const fn power(&self) -> f64 {
+        self.power
+    }
+
+    /// The smallest `n_t` whose resolved power first reaches the target —
+    /// reported, never the answer.
+    #[must_use]
+    pub const fn first_crossing(&self) -> u32 {
+        self.first_crossing
+    }
+}
+
+/// The cutoff against an observed baseline at every test size `1..=n_b`.
+///
+/// Element `i` is the cutoff at `n_t = i + 1`; each size's cutoff is walked
+/// from its predecessor's, one or two p-values apart.
+///
+/// # Panics
+///
+/// Panics on the inputs
+/// [`fisher_cutoff`] rejects.
+#[must_use]
+pub fn resolved_cutoffs(baseline_successes: u32, baseline_trials: u32, alpha: f64) -> Vec<u32> {
+    let mut cutoffs = Vec::with_capacity(baseline_trials as usize);
+    let mut cutoff = fisher_cutoff(baseline_successes, baseline_trials, 1, alpha);
+    cutoffs.push(cutoff);
+    for test_samples in 2..=baseline_trials {
+        cutoff = cutoff_near(
+            baseline_successes,
+            baseline_trials,
+            test_samples,
+            alpha,
+            cutoff,
+        );
+        cutoffs.push(cutoff);
+    }
+    cutoffs
+}
+
+/// Resolved sizing: `None` (`BASELINE_TOO_SMALL`) when no `n_t ≤ n_b`
+/// reaches and holds the target. The domain is the caller's to check first
+/// ([`check_sizing_domain`]).
+///
+/// # Panics
+///
+/// Panics on the inputs
+/// [`fisher_cutoff`] rejects,
+/// or a rate outside `[0, 1]`.
+#[must_use]
+pub fn resolved_sizing(
+    baseline_successes: u32,
+    baseline_trials: u32,
+    design_alternative_rate: f64,
+    alpha: f64,
+    target_power: f64,
+) -> Option<ResolvedSizing> {
+    let cutoffs = resolved_cutoffs(baseline_successes, baseline_trials, alpha);
+    let powers: Vec<f64> = (1..=baseline_trials)
+        .zip(&cutoffs)
+        .map(|(test_samples, &cutoff)| {
+            binomial_cdf(i64::from(cutoff) - 1, test_samples, design_alternative_rate)
+        })
+        .collect();
+    let last_short = powers.iter().rposition(|&p| p < target_power);
+    let start = match last_short {
+        Some(index) if index == powers.len() - 1 => return None,
+        Some(index) => index + 1,
+        None => 0,
+    };
+    let crossing = powers
+        .iter()
+        .position(|&p| p >= target_power)
+        .expect("the power at the required size reaches the target");
+    Some(ResolvedSizing {
+        required_samples: size_at(start),
+        power: powers[start],
+        first_crossing: size_at(crossing),
+    })
+}
+
+/// The test size at a zero-based position of the size scan.
+fn size_at(index: usize) -> u32 {
+    u32::try_from(index + 1).expect("the scan never exceeds the baseline size")
 }
 
 #[cfg(test)]
-#[allow(unused_must_use, reason = "test boilerplate may drop must_use values")]
 mod tests {
     use super::*;
+    use crate::statistics::regression::resolved_power;
     use approx::assert_relative_eq;
 
-    fn cl(v: f64) -> ConfidenceLevel {
-        ConfidenceLevel::new(v)
-    }
-
-    // --- self_consistent_power ---
-
     #[test]
-    fn power_increases_with_sample_size() {
-        let sizes = [50, 150, 405, 1000];
-        let powers: Vec<f64> = sizes
-            .iter()
-            .map(|&n| self_consistent_power(n, 0.96, 0.93, cl(0.95)))
-            .collect();
-        for pair in powers.windows(2) {
-            assert!(pair[1] > pair[0], "power must increase with sample size");
-        }
-    }
-
-    #[test]
-    fn power_is_a_probability() {
-        for n in [1, 10, 100, 5000] {
-            let power = self_consistent_power(n, 0.9, 0.8, cl(0.95));
-            assert!((0.0..=1.0).contains(&power));
-        }
+    fn domain_refusals_are_named_in_order() {
+        assert_eq!(
+            check_sizing_domain(0.0, 100, Some(0.5), None),
+            Some(SizingRefusal::ZeroBaseline)
+        );
+        assert_eq!(
+            check_sizing_domain(0.9, 100, Some(0.9), None),
+            Some(SizingRefusal::AlternativeNotBelowBaseline)
+        );
+        assert_eq!(
+            check_sizing_domain(0.9, 100, Some(0.8), Some(200)),
+            Some(SizingRefusal::TestLargerThanBaseline)
+        );
+        assert_eq!(check_sizing_domain(0.9, 100, Some(0.8), Some(100)), None);
     }
 
     #[test]
-    #[should_panic(expected = "sample_size must be positive")]
-    fn power_panics_on_zero_sample_size() {
-        self_consistent_power(0, 0.9, 0.8, cl(0.95));
+    fn refusal_categories_are_stable() {
+        assert_eq!(
+            SizingRefusal::BaselineTooSmall.category(),
+            "BASELINE_TOO_SMALL"
+        );
+        assert!(
+            SizingRefusal::AlternativeNotBelowBaseline
+                .message(0.9, 0.95)
+                .contains("re-measure")
+        );
     }
 
     #[test]
-    #[should_panic(expected = "re-measure the baseline rather than raising the tolerance")]
-    fn power_panics_when_tolerance_reaches_baseline() {
-        self_consistent_power(100, 0.9, 0.9, cl(0.95));
+    fn scaled_guess_rounds_to_the_nearest_count() {
+        assert_eq!(scaled_guess(91, 99, 100), 90);
+        assert_eq!(scaled_guess(0, 5, 6), 0);
     }
 
     #[test]
-    #[should_panic(expected = "re-measure the baseline rather than raising the tolerance")]
-    fn power_panics_when_tolerance_exceeds_baseline() {
-        self_consistent_power(100, 0.9, 0.95, cl(0.95));
+    fn design_sizing_holds_the_power_from_the_required_size_up() {
+        let sizing = design_required_samples(0.9, 1000, 0.8, 0.05, 0.8).unwrap();
+        assert!(sizing.power() >= 0.8);
+        let below = design_power_at(sizing.required_samples() - 1, 0.9, 1000, 0.8, 0.05);
+        assert!(below < 0.8);
     }
 
     #[test]
-    #[should_panic(expected = "baseline_rate must be in (0, 1)")]
-    fn power_panics_on_perfect_baseline() {
-        self_consistent_power(100, 1.0, 0.9, cl(0.95));
-    }
-
-    // --- required_sample_size ---
-
-    #[test]
-    fn required_sample_size_is_minimal() {
-        let n = required_sample_size(0.87, 0.84, cl(0.95), 0.80);
-        assert!(self_consistent_power(n, 0.87, 0.84, cl(0.95)) >= 0.80);
-        assert!(self_consistent_power(n - 1, 0.87, 0.84, cl(0.95)) < 0.80);
+    fn a_design_that_cannot_reach_the_power_is_too_small() {
+        assert!(design_required_samples(0.96, 300, 0.93, 0.05, 0.8).is_none());
     }
 
     #[test]
-    fn tighter_tolerance_requires_more_samples() {
-        let wide = required_sample_size(0.96, 0.90, cl(0.95), 0.80);
-        let tight = required_sample_size(0.96, 0.93, cl(0.95), 0.80);
-        assert!(tight > wide);
-    }
-
-    #[test]
-    fn higher_target_power_requires_more_samples() {
-        let modest = required_sample_size(0.96, 0.93, cl(0.95), 0.80);
-        let demanding = required_sample_size(0.96, 0.93, cl(0.95), 0.90);
-        assert!(demanding > modest);
-    }
-
-    #[test]
-    #[should_panic(expected = "target_power must be in (0, 1)")]
-    fn required_sample_size_panics_on_invalid_target_power() {
-        required_sample_size(0.9, 0.8, cl(0.95), 1.0);
-    }
-
-    #[test]
-    #[should_panic(expected = "re-measure the baseline rather than raising the tolerance")]
-    fn required_sample_size_panics_when_tolerance_reaches_baseline() {
-        required_sample_size(0.9, 0.9, cl(0.95), 0.80);
-    }
-
-    // --- detectable_rate ---
-
-    #[test]
-    fn detectable_rate_round_trips_through_required_sample_size() {
-        // At exactly the required size, the detectable rate recovers the
-        // declared tolerance (to the bisection's resolution as seen through
-        // the discrete sample size).
-        let n = required_sample_size(0.87, 0.84, cl(0.95), 0.80);
-        let rate = detectable_rate(n, 0.87, cl(0.95), 0.80);
-        assert_relative_eq!(rate, 0.84, epsilon = 1e-3);
-        // The recovered rate is itself detectable at the target power.
-        assert!(self_consistent_power(n, 0.87, rate, cl(0.95)) >= 0.80);
-    }
-
-    #[test]
-    fn detectable_rate_rises_with_sample_size() {
-        let coarse = detectable_rate(100, 0.87, cl(0.95), 0.80);
-        let fine = detectable_rate(891, 0.87, cl(0.95), 0.80);
-        assert!(fine > coarse, "more samples detect smaller degradations");
-    }
-
-    #[test]
-    fn detectable_rate_stays_below_baseline() {
-        let rate = detectable_rate(10_000, 0.87, cl(0.95), 0.80);
+    fn detectable_rate_meets_the_target_power() {
+        let rate = design_detectable_rate(100, 0.87, 3000, 0.05, 0.8).unwrap();
         assert!(rate < 0.87);
-        assert!(rate > 0.0);
+        assert!(design_power_at(100, 0.87, 3000, rate, 0.05) >= 0.8 - 1e-6);
     }
 
     #[test]
-    #[should_panic(expected = "sample_size must be positive")]
-    fn detectable_rate_panics_on_zero_sample_size() {
-        detectable_rate(0, 0.9, cl(0.95), 0.80);
+    fn resolved_cutoffs_agree_with_direct_derivation() {
+        let cutoffs = resolved_cutoffs(95, 100, 0.05);
+        for (index, cutoff) in cutoffs.iter().enumerate() {
+            let size = u32::try_from(index + 1).unwrap();
+            assert_eq!(*cutoff, fisher_cutoff(95, 100, size, 0.05));
+        }
     }
 
     #[test]
-    #[should_panic(expected = "baseline_rate must be in (0, 1)")]
-    fn detectable_rate_panics_on_invalid_baseline_rate() {
-        detectable_rate(100, 1.0, cl(0.95), 0.80);
+    fn resolved_sizing_reports_the_power_at_the_required_size() {
+        let sizing = resolved_sizing(1920, 2000, 0.93, 0.05, 0.8).unwrap();
+        assert!(sizing.first_crossing() <= sizing.required_samples());
+        assert_relative_eq!(
+            sizing.power(),
+            resolved_power(1920, 2000, sizing.required_samples(), 0.05, 0.93),
+            max_relative = 1e-12
+        );
+    }
+
+    #[test]
+    fn a_baseline_too_small_for_resolved_sizing_is_refused() {
+        assert!(resolved_sizing(288, 300, 0.93, 0.05, 0.8).is_none());
     }
 }

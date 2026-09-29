@@ -14,8 +14,10 @@ use feotest::model::{
 };
 use feotest::verdict::{
     BaselineProvenance, CovariateStatus, CriterionRow, FunctionalAssessment, Misalignment,
-    SpecProvenance, StatisticalAnalysis, Verdict, VerdictRecord,
+    SpecProvenance, Verdict, VerdictRecord,
 };
+
+mod common;
 
 const fn sample_execution() -> ExecutionSummary {
     ExecutionSummary::new(
@@ -56,10 +58,7 @@ fn fail_verdict_with_distribution_and_warnings() {
             Verdict::Fail,
         )),
     )
-    .statistical_analysis(
-        StatisticalAnalysis::new(0.95, 0.04, 0.722, 0.90, ThresholdOrigin::Empirical)
-            .with_test_results(2.29, 0.011),
-    )
+    .statistical_analysis(common::regression_analysis(80, 100, 951, 1000))
     .warning(Warning::new("BASELINE_EXPIRED", "Baseline is 45 days old"))
     .build();
 
@@ -101,13 +100,7 @@ fn pass_verdict_with_baseline_provenance_and_spec_provenance() {
         sample_execution(),
         FunctionalAssessment::single(CriterionRow::result(95, 5, vec![], Verdict::Pass)),
     )
-    .statistical_analysis(StatisticalAnalysis::new(
-        0.95,
-        0.022,
-        0.907,
-        0.90,
-        ThresholdOrigin::Empirical,
-    ))
+    .statistical_analysis(common::regression_analysis(95, 100, 951, 1000))
     .spec_provenance(
         SpecProvenance::new(ThresholdOrigin::Empirical)
             .with_spec_filename("service.yaml")

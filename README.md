@@ -31,10 +31,12 @@ The workflow follows a measure-then-test discipline:
 
 1. **Measure** — run a large number of trials under controlled conditions to
    establish an empirical baseline for the service.
-2. **Derive** — compute a statistically grounded threshold from the baseline,
-   accounting for sampling variability via Wilson score confidence intervals.
-3. **Test** — run a smaller number of trials and apply statistical inference to
-   determine whether the service still meets the derived threshold.
+2. **Derive** — derive the test's cutoff from the baseline's counts at the
+   test's own size, by the one-sided Fisher exact test, so the uncertainty of
+   the baseline and of the test are both priced in.
+3. **Test** — run a smaller number of trials and decide, by an exact rule,
+   whether the service has degraded from its baseline — or, for a declared
+   requirement, whether the evidence demonstrates it.
 
 This separation ensures that thresholds are grounded in evidence, not guesswork.
 
@@ -96,28 +98,35 @@ assert!(result.passed());
 For a complete worked example, see
 [feotest-examples](https://github.com/mavai-org/feotest-examples).
 
-## Three operational approaches
+## Operational approaches
 
-Every probabilistic test configures a **threshold** — the minimum pass rate the
-service must achieve. The framework offers three approaches for determining this
-threshold, each fixing two variables and deriving the third:
+Every probabilistic test decides each criterion by a versioned decision rule
+of the Statistical Companion (methodology 1.5.0): a declared requirement by
+`compliance/exact-binomial`, a baseline-derived bar by `regression/fisher`.
+The approaches fix what you know and derive the rest:
 
 | Approach | You specify | Framework computes |
 |---|---|---|
-| **Threshold-first** | samples + threshold | implied confidence |
-| **Sample-size-first** | samples + confidence | threshold (from baseline) |
-| **Confidence-first** | confidence + effect size + power | required samples |
+| **Threshold-first** | samples + minimum pass rate | the implied alpha of the cutoff |
+| **Sample-size-first** | samples + confidence | each regression cutoff (from the baseline) |
+| **Confidence-first** | confidence + effect size + power | required samples (resolved sizing) |
+| **Risk-driven** | design alternative rate + confidence + power | required samples (resolved sizing) |
 
-**Threshold-first** is the simplest: "I know the pass rate must be at least 95%.
-Run 100 samples and tell me if it passes." This is natural for SLA-driven
-services.
+**Threshold-first** is the simplest: "the pass rate must be at least 95%. Run
+100 samples and tell me whether the evidence demonstrates it." This is natural
+for SLA-driven services.
 
 **Sample-size-first** is the empirical approach: "I have budget for 100 samples.
-Derive the best threshold the baseline supports at 95% confidence." This is
-natural for services where the threshold is not known upfront.
+Tell me whether the service has degraded from its baseline at 95% confidence."
+This is natural for services where the threshold is not known upfront.
 
-**Confidence-first** is the quality-driven approach: "I need to detect a 5%
-degradation with 95% confidence and 80% power. Tell me how many samples I need."
+**Confidence-first** and **risk-driven** are the quality-driven approaches: "I
+need to catch a drop to 93% with 80% power. Tell me how many samples I need,"
+sized exactly against the observed baseline.
+
+A configuration that cannot support its claim — a test larger than the
+baseline it consumes, or a requirement no outcome of the planned size could
+demonstrate — is refused before any sample runs, and the refusal is recorded.
 
 ## Architecture
 
@@ -154,8 +163,13 @@ The statistical model rests on explicit assumptions:
 - **Controlled operational conditions**: exogenous factors (network state,
   model version, input distribution) are sufficiently stable during a test run.
 
-Confidence intervals are computed using **Wilson score intervals**. Thresholds
-are derived from one-sided confidence bounds. Verdicts use one-sided z-tests.
+Every verdict is decided by an exact finite rule — the one-sided Fisher exact
+test, the exact one-sided binomial test, and, for latency, the precedence rank
+and the exact binomial test on the latencies within a ceiling — with a
+documented convention for probabilities exactly at alpha. Wilson score
+intervals are reported beside the verdicts as descriptive context; no rule
+decides with them. The rules are conformance-tested against the reference
+oracle of the Statistical Companion, methodology 1.5.0.
 
 `feotest` does not claim that these assumptions are always perfectly met. It
 insists that they be made explicit and that departures from them be acknowledged

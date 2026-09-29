@@ -5,32 +5,37 @@ expression: buf
 ║═════════════════════════════════════════════════════════════║
 ║ TRANSPARENT STATISTICS                                      ║
 ║                                                             ║
-║ Test:       my-service                                      ║
-║ Approach:   threshold-first                                 ║
-║ Intent:     SMOKE                                           ║
-║ Origin:     SLA                                             ║
-║ Contract:   API SLA v3.2 §2.1                               ║
+║ Test:        payment-gateway                                ║
+║ Approach:    threshold-first                                ║
+║ Intent:      SMOKE                                          ║
+║ Methodology: 1.5.0                                          ║
+║ Origin:      SLA                                            ║
+║ Contract:    API SLA v3.2 §2.1                              ║
 ║─────────────────────────────────────────────────────────────║
 ║ HYPOTHESES                                                  ║
 ║                                                             ║
-║ H0: p >= 0.900  (service meets threshold)                   ║
-║ H1: p <  0.900  (service is degraded)                       ║
+║ H0: p <= 0.950  (compliance not demonstrated)               ║
+║ H1: p >  0.950  (the requirement is met)                    ║
 ║─────────────────────────────────────────────────────────────║
 ║ OBSERVED DATA AND INFERENCE                                 ║
 ║                                                             ║
-║ Successes / Total:    10 / 10                               ║
-║ Observed pass rate:   1.000                                 ║
-║ Threshold:            0.900                                 ║
-║   (implied confidence: 0.950)                               ║
-║ z-statistic:          2.294                                 ║
-║ p-value:              0.011                                 ║
-║ Wilson lower [95%]: 0.907                                   ║
-║ Standard error:       0.022                                 ║
+║ Successes / Total:    148 / 150                             ║
+║ Observed pass rate:   0.987                                 ║
+║ Decision rule:        compliance/exact-binomial v1          ║
+║ Threshold:            0.950                                 ║
+║   (declared floor; each criterion decided by its rule)      ║
+║ Smallest passing:     148                                   ║
+║ False compliance:     0.0182                                ║
+║ Clopper-Pearson lower: 0.959 (descriptive)                  ║
+║ Wilson lower [95%]: 0.961 (descriptive)                     ║
+║ Standard error:       0.009                                 ║
 ║─────────────────────────────────────────────────────────────║
 ║ VERDICT                                                     ║
 ║                                                             ║
 ║ PASS (non-evidential — Smoke intent)                        ║
 ║                                                             ║
-║ The observed success rate of 1.000 is consistent with the   ║
-║ baseline expectation. No evidence of degradation.           ║
+║ Every criterion passed under its rule                       ║
+║ (compliance/exact-binomial for the first) and every         ║
+║ enforced latency constraint passed: 148 of 150 >= k_min 148 ║
+║ (compliance/exact-binomial).                                ║
 ║═════════════════════════════════════════════════════════════║

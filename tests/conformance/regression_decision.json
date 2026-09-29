@@ -1,265 +1,415 @@
 {
   "suite": "regression_decision",
-  "description": "End-to-end scenario cases for the composed decision rules. REGRESSION cases derive the threshold from a baseline per the sample-size-first construction (companion S3.4) and decide PASS iff the raw observed success count K >= cutoff_integer -- the integer cutoff is the binding artefact; threshold_real, displayed_rate, and achieved_size are report obligations. COMPLIANCE cases take the threshold as given and decide via the test sample's own Wilson lower bound clearing it (S3.2/S3.6). The conflation_detector pair shares one observation across both procedures with opposite verdicts, so a framework that applies the compliance rule on the regression path fails the suite even though every component computation is arithmetically conformant. Frameworks MUST evaluate these cases through their production verdict path.",
-  "method": "REGRESSION: p* = sample-size-first Wilson lower bound (with the S4.3.2 perfect-baseline guard, and the S4.3.4 zero-baseline degeneration), c = ceiling(n_test * p*), PASS iff K >= c; achieved size = P_p0(K < c). COMPLIANCE: PASS iff WilsonLower(K, n_test, C) >= given threshold.",
+  "methodologyVersion": "1.5.0",
+  "fixtureSchemaVersion": 2,
+  "decisionRules": [
+    {
+      "id": "regression/fisher",
+      "version": 1
+    }
+  ],
+  "description": "End-to-end verdicts of empirical regression under regression/fisher (companion §3.4): the cutoff c derived from (K_b, n_b, n_t, alpha) and PASS iff the observed test count K_t >= c. Refused configurations carry their configuration_error and no verdict. Binding: cutoff_integer, configuration_error, verdict. Informational: threshold_real, displayed_rate, size_at_assumed_common_rate. Frameworks MUST evaluate these cases through their production verdict path. The conflation_detector case pairs with compliance_decision's conflation_detector_compliance_fail: one observation, opposite verdicts under the two rules.",
+  "method": "regression/fisher v1: for k_t = 0..n_t, the one-sided Fisher p-value is the hypergeometric lower tail P(X <= k_t) = phyper(k_t, s, n_b + n_t - s, n_t) with s = K_b + k_t pooled successes; k_t FAILs iff the p-value <= alpha; c = the smallest k_t whose p-value exceeds alpha. Configuration error, checked first: TEST_LARGER_THAN_BASELINE when n_t > n_b. Informational: threshold_real = c/n_t; displayed_rate = round(c/n_t, 6); size_at_assumed_common_rate = sum_k P_p(K_b = k) P_p(K_t < c(k)) at p = K_b/n_b (null at K_b/n_b in {0, 1}). PASS iff K_t >= c.",
   "tolerance": 1e-10,
   "cases": [
     {
       "name": "worked_example_pass_at_cutoff",
-      "procedure": "REGRESSION",
       "inputs": {
         "baseline_successes": 951,
         "baseline_trials": 1000,
         "test_samples": 100,
-        "confidence": 0.95,
+        "alpha": 0.05,
         "observed_successes": 91
       },
       "expected": {
-        "threshold_real": 0.902123591001564,
         "cutoff_integer": 91,
+        "configuration_error": [],
+        "threshold_real": 0.91,
         "displayed_rate": 0.91,
-        "achieved_size": 0.0249856283219066,
+        "size_at_assumed_common_rate": 0.0339673926250216,
         "verdict": "PASS"
       }
     },
     {
       "name": "worked_example_fail_below_cutoff",
-      "procedure": "REGRESSION",
       "inputs": {
         "baseline_successes": 951,
         "baseline_trials": 1000,
         "test_samples": 100,
-        "confidence": 0.95,
+        "alpha": 0.05,
         "observed_successes": 90
       },
       "expected": {
-        "threshold_real": 0.902123591001564,
         "cutoff_integer": 91,
+        "configuration_error": [],
+        "threshold_real": 0.91,
         "displayed_rate": 0.91,
-        "achieved_size": 0.0249856283219066,
+        "size_at_assumed_common_rate": 0.0339673926250216,
         "verdict": "FAIL"
       }
     },
     {
       "name": "worked_example_pass_above_cutoff",
-      "procedure": "REGRESSION",
       "inputs": {
         "baseline_successes": 951,
         "baseline_trials": 1000,
         "test_samples": 100,
-        "confidence": 0.95,
+        "alpha": 0.05,
         "observed_successes": 97
       },
       "expected": {
-        "threshold_real": 0.902123591001564,
         "cutoff_integer": 91,
+        "configuration_error": [],
+        "threshold_real": 0.91,
         "displayed_rate": 0.91,
-        "achieved_size": 0.0249856283219066,
+        "size_at_assumed_common_rate": 0.0339673926250216,
         "verdict": "PASS"
       }
     },
     {
       "name": "worked_example_fail_deep_degradation",
-      "procedure": "REGRESSION",
       "inputs": {
         "baseline_successes": 951,
         "baseline_trials": 1000,
         "test_samples": 100,
-        "confidence": 0.95,
+        "alpha": 0.05,
         "observed_successes": 80
       },
       "expected": {
-        "threshold_real": 0.902123591001564,
         "cutoff_integer": 91,
+        "configuration_error": [],
+        "threshold_real": 0.91,
         "displayed_rate": 0.91,
-        "achieved_size": 0.0249856283219066,
+        "size_at_assumed_common_rate": 0.0339673926250216,
         "verdict": "FAIL"
       }
     },
     {
       "name": "small_test_pass_at_cutoff",
-      "procedure": "REGRESSION",
       "inputs": {
-        "baseline_successes": 9,
-        "baseline_trials": 10,
-        "test_samples": 10,
-        "confidence": 0.95,
-        "observed_successes": 7
+        "baseline_successes": 27,
+        "baseline_trials": 30,
+        "test_samples": 25,
+        "alpha": 0.05,
+        "observed_successes": 18
       },
       "expected": {
-        "threshold_real": 0.652281332664142,
-        "cutoff_integer": 7,
-        "displayed_rate": 0.7,
-        "achieved_size": 0.0127951984,
+        "cutoff_integer": 18,
+        "configuration_error": [],
+        "threshold_real": 0.72,
+        "displayed_rate": 0.72,
+        "size_at_assumed_common_rate": 0.0175146837307742,
         "verdict": "PASS"
       }
     },
     {
       "name": "small_test_fail_below_cutoff",
-      "procedure": "REGRESSION",
       "inputs": {
-        "baseline_successes": 9,
-        "baseline_trials": 10,
-        "test_samples": 10,
-        "confidence": 0.95,
-        "observed_successes": 6
+        "baseline_successes": 27,
+        "baseline_trials": 30,
+        "test_samples": 25,
+        "alpha": 0.05,
+        "observed_successes": 17
       },
       "expected": {
-        "threshold_real": 0.652281332664142,
-        "cutoff_integer": 7,
-        "displayed_rate": 0.7,
-        "achieved_size": 0.0127951984,
+        "cutoff_integer": 18,
+        "configuration_error": [],
+        "threshold_real": 0.72,
+        "displayed_rate": 0.72,
+        "size_at_assumed_common_rate": 0.0175146837307742,
+        "verdict": "FAIL"
+      }
+    },
+    {
+      "name": "near_perfect_baseline_pass_at_cutoff",
+      "inputs": {
+        "baseline_successes": 99,
+        "baseline_trials": 100,
+        "test_samples": 100,
+        "alpha": 0.05,
+        "observed_successes": 94
+      },
+      "expected": {
+        "cutoff_integer": 94,
+        "configuration_error": [],
+        "threshold_real": 0.94,
+        "displayed_rate": 0.94,
+        "size_at_assumed_common_rate": 0.00128278211655939,
+        "verdict": "PASS"
+      }
+    },
+    {
+      "name": "near_perfect_baseline_fail_below_cutoff",
+      "inputs": {
+        "baseline_successes": 99,
+        "baseline_trials": 100,
+        "test_samples": 100,
+        "alpha": 0.05,
+        "observed_successes": 93
+      },
+      "expected": {
+        "cutoff_integer": 94,
+        "configuration_error": [],
+        "threshold_real": 0.94,
+        "displayed_rate": 0.94,
+        "size_at_assumed_common_rate": 0.00128278211655939,
         "verdict": "FAIL"
       }
     },
     {
       "name": "perfect_baseline_pass_at_cutoff",
-      "procedure": "REGRESSION",
       "inputs": {
-        "baseline_successes": 50,
-        "baseline_trials": 50,
-        "test_samples": 50,
-        "confidence": 0.95,
-        "observed_successes": 44
+        "baseline_successes": 100,
+        "baseline_trials": 100,
+        "test_samples": 100,
+        "alpha": 0.05,
+        "observed_successes": 96
       },
       "expected": {
-        "threshold_real": 0.870587356892824,
-        "cutoff_integer": 44,
-        "displayed_rate": 0.88,
-        "achieved_size": 0.0134726851349366,
+        "cutoff_integer": 96,
+        "configuration_error": [],
+        "threshold_real": 0.96,
+        "displayed_rate": 0.96,
+        "size_at_assumed_common_rate": null,
         "verdict": "PASS"
       }
     },
     {
       "name": "perfect_baseline_fail_below_cutoff",
-      "procedure": "REGRESSION",
+      "description": "95 of 100 FAILs against a perfect baseline and PASSes against 99 of 100.",
       "inputs": {
-        "baseline_successes": 50,
-        "baseline_trials": 50,
-        "test_samples": 50,
-        "confidence": 0.95,
-        "observed_successes": 43
+        "baseline_successes": 100,
+        "baseline_trials": 100,
+        "test_samples": 100,
+        "alpha": 0.05,
+        "observed_successes": 95
       },
       "expected": {
-        "threshold_real": 0.870587356892824,
-        "cutoff_integer": 44,
-        "displayed_rate": 0.88,
-        "achieved_size": 0.0134726851349366,
+        "cutoff_integer": 96,
+        "configuration_error": [],
+        "threshold_real": 0.96,
+        "displayed_rate": 0.96,
+        "size_at_assumed_common_rate": null,
         "verdict": "FAIL"
       }
     },
     {
       "name": "zero_baseline_pass_on_nothing_observed",
-      "procedure": "REGRESSION",
       "inputs": {
         "baseline_successes": 0,
-        "baseline_trials": 50,
+        "baseline_trials": 100,
         "test_samples": 50,
-        "confidence": 0.95,
+        "alpha": 0.05,
         "observed_successes": 0
       },
       "expected": {
-        "threshold_real": 0,
         "cutoff_integer": 0,
+        "configuration_error": [],
+        "threshold_real": 0,
         "displayed_rate": 0,
-        "achieved_size": 0,
+        "size_at_assumed_common_rate": null,
         "verdict": "PASS"
       }
     },
     {
       "name": "zero_baseline_pass_at_test_200",
-      "procedure": "REGRESSION",
       "inputs": {
         "baseline_successes": 0,
         "baseline_trials": 1000,
         "test_samples": 200,
-        "confidence": 0.95,
+        "alpha": 0.05,
         "observed_successes": 0
       },
       "expected": {
-        "threshold_real": 0,
         "cutoff_integer": 0,
+        "configuration_error": [],
+        "threshold_real": 0,
         "displayed_rate": 0,
-        "achieved_size": 0,
+        "size_at_assumed_common_rate": null,
         "verdict": "PASS"
       }
     },
     {
-      "name": "worked_example_high_confidence_at_95_of_100",
-      "procedure": "REGRESSION",
+      "name": "boundary_equal_sizes_pass_at_cutoff",
       "inputs": {
         "baseline_successes": 951,
         "baseline_trials": 1000,
-        "test_samples": 100,
-        "confidence": 0.99,
-        "observed_successes": 95
+        "test_samples": 1000,
+        "alpha": 0.05,
+        "observed_successes": 933
       },
       "expected": {
-        "threshold_real": 0.873729407129101,
-        "cutoff_integer": 88,
-        "displayed_rate": 0.88,
-        "achieved_size": 0.00122265473861374,
+        "cutoff_integer": 933,
+        "configuration_error": [],
+        "threshold_real": 0.933,
+        "displayed_rate": 0.933,
+        "size_at_assumed_common_rate": 0.0403533182561198,
         "verdict": "PASS"
       }
     },
     {
-      "name": "compliance_pass_clear_margin",
-      "procedure": "COMPLIANCE",
+      "name": "boundary_equal_sizes_fail_below_cutoff",
       "inputs": {
-        "threshold": 0.8,
-        "test_samples": 100,
-        "confidence": 0.95,
-        "observed_successes": 95
+        "baseline_successes": 951,
+        "baseline_trials": 1000,
+        "test_samples": 1000,
+        "alpha": 0.05,
+        "observed_successes": 932
       },
       "expected": {
-        "wilson_lower": 0.900838914720947,
+        "cutoff_integer": 933,
+        "configuration_error": [],
+        "threshold_real": 0.933,
+        "displayed_rate": 0.933,
+        "size_at_assumed_common_rate": 0.0403533182561198,
+        "verdict": "FAIL"
+      }
+    },
+    {
+      "name": "alpha001_pass_at_cutoff",
+      "inputs": {
+        "baseline_successes": 951,
+        "baseline_trials": 1000,
+        "test_samples": 1000,
+        "alpha": 0.01,
+        "observed_successes": 925
+      },
+      "expected": {
+        "cutoff_integer": 925,
+        "configuration_error": [],
+        "threshold_real": 0.925,
+        "displayed_rate": 0.925,
+        "size_at_assumed_common_rate": 0.0074842242031557,
         "verdict": "PASS"
       }
     },
     {
-      "name": "compliance_fail_bound_below_threshold",
-      "procedure": "COMPLIANCE",
+      "name": "alpha001_fail_below_cutoff",
       "inputs": {
-        "threshold": 0.9,
-        "test_samples": 100,
-        "confidence": 0.95,
-        "observed_successes": 92
+        "baseline_successes": 951,
+        "baseline_trials": 1000,
+        "test_samples": 1000,
+        "alpha": 0.01,
+        "observed_successes": 924
       },
       "expected": {
-        "wilson_lower": 0.863535230424513,
+        "cutoff_integer": 925,
+        "configuration_error": [],
+        "threshold_real": 0.925,
+        "displayed_rate": 0.925,
+        "size_at_assumed_common_rate": 0.0074842242031557,
+        "verdict": "FAIL"
+      }
+    },
+    {
+      "name": "refused_test_larger_than_baseline",
+      "inputs": {
+        "baseline_successes": 95,
+        "baseline_trials": 100,
+        "test_samples": 200,
+        "alpha": 0.05,
+        "observed_successes": 190
+      },
+      "expected": {
+        "cutoff_integer": null,
+        "configuration_error": [
+          "TEST_LARGER_THAN_BASELINE"
+        ],
+        "threshold_real": null,
+        "displayed_rate": null,
+        "size_at_assumed_common_rate": null,
+        "verdict": null
+      }
+    },
+    {
+      "name": "exact_boundary_fail_at_alpha",
+      "description": "The p-value of the observed count equals alpha exactly; the inclusive rule FAILs it.",
+      "inputs": {
+        "baseline_successes": 12,
+        "baseline_trials": 12,
+        "test_samples": 4,
+        "alpha": 0.05,
+        "observed_successes": 2
+      },
+      "expected": {
+        "cutoff_integer": 3,
+        "configuration_error": [],
+        "threshold_real": 0.75,
+        "displayed_rate": 0.75,
+        "size_at_assumed_common_rate": null,
+        "verdict": "FAIL"
+      }
+    },
+    {
+      "name": "exact_boundary_pass_at_cutoff",
+      "inputs": {
+        "baseline_successes": 12,
+        "baseline_trials": 12,
+        "test_samples": 4,
+        "alpha": 0.05,
+        "observed_successes": 3
+      },
+      "expected": {
+        "cutoff_integer": 3,
+        "configuration_error": [],
+        "threshold_real": 0.75,
+        "displayed_rate": 0.75,
+        "size_at_assumed_common_rate": null,
+        "verdict": "PASS"
+      }
+    },
+    {
+      "name": "small_test_large_baseline_pass_at_cutoff",
+      "inputs": {
+        "baseline_successes": 951,
+        "baseline_trials": 1000,
+        "test_samples": 25,
+        "alpha": 0.01,
+        "observed_successes": 21
+      },
+      "expected": {
+        "cutoff_integer": 21,
+        "configuration_error": [],
+        "threshold_real": 0.84,
+        "displayed_rate": 0.84,
+        "size_at_assumed_common_rate": 0.00480241920852723,
+        "verdict": "PASS"
+      }
+    },
+    {
+      "name": "small_test_large_baseline_fail_below_cutoff",
+      "inputs": {
+        "baseline_successes": 951,
+        "baseline_trials": 1000,
+        "test_samples": 25,
+        "alpha": 0.01,
+        "observed_successes": 20
+      },
+      "expected": {
+        "cutoff_integer": 21,
+        "configuration_error": [],
+        "threshold_real": 0.84,
+        "displayed_rate": 0.84,
+        "size_at_assumed_common_rate": 0.00480241920852723,
         "verdict": "FAIL"
       }
     },
     {
       "name": "conflation_detector_regression_pass",
-      "procedure": "REGRESSION",
       "inputs": {
         "baseline_successes": 951,
         "baseline_trials": 1000,
         "test_samples": 100,
-        "confidence": 0.95,
+        "alpha": 0.05,
         "observed_successes": 91
       },
       "expected": {
-        "threshold_real": 0.902123591001564,
         "cutoff_integer": 91,
+        "configuration_error": [],
+        "threshold_real": 0.91,
         "displayed_rate": 0.91,
-        "achieved_size": 0.0249856283219066,
+        "size_at_assumed_common_rate": 0.0339673926250216,
         "verdict": "PASS"
-      }
-    },
-    {
-      "name": "conflation_detector_compliance_fail",
-      "procedure": "COMPLIANCE",
-      "inputs": {
-        "threshold": 0.902124,
-        "test_samples": 100,
-        "confidence": 0.95,
-        "observed_successes": 91
-      },
-      "expected": {
-        "wilson_lower": 0.85151175054591,
-        "verdict": "FAIL"
       }
     }
   ]

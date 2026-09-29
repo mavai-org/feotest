@@ -187,3 +187,30 @@ pub fn run_against_baseline(
         .spec_resolver(SpecResolver::with_dir(baseline_dir))
         .run()
 }
+
+// ---------------------------------------------------------------------------
+// Decided analyses (numbers from the oracle's worked examples, computed by
+// this crate's statistics — never typed in)
+// ---------------------------------------------------------------------------
+
+/// The analysis of a criterion decided by `regression/fisher` at 95%
+/// confidence, as the runner attaches it.
+pub fn regression_analysis(
+    successes: u32,
+    trials: u32,
+    baseline_successes: u32,
+    baseline_trials: u32,
+) -> feotest::verdict::StatisticalAnalysis {
+    let decision = feotest::statistics::decision::evaluate_regression(
+        successes,
+        trials,
+        baseline_successes,
+        baseline_trials,
+        0.05,
+    );
+    feotest::verdict::StatisticalAnalysis::regression(
+        &decision,
+        0.95,
+        feotest::verdict::DesignDisclosure::default(),
+    )
+}

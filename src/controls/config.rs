@@ -146,8 +146,8 @@ impl ExecutionConfig {
     /// Sets the minimum number of samples the engine must execute before
     /// it is allowed to terminate on `SuccessGuaranteed`.
     ///
-    /// Typically sourced from
-    /// [`crate::statistics::feasibility::feasibility_check`] so that
+    /// Typically the feasibility minimum of the run's requirements
+    /// ([`crate::statistics::compliance::minimum_feasible_samples`]) so that
     /// early termination never bypasses the sample count required for a
     /// statistically valid verdict. Has no effect on
     /// `FailureInevitable`, which stops as soon as the threshold becomes

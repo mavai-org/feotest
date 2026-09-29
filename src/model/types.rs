@@ -37,43 +37,13 @@ pub fn optional_duration_as_millis<S: Serializer>(
     }
 }
 
-/// The intent behind a probabilistic test.
-///
-/// Determines how the framework enforces statistical feasibility and
-/// qualifies the resulting verdict.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-// mavai-ref: JVI-Q3H5YYY — do not remove (resolves in mavai-orchestrator)
-// mavai-ref: JVI-WKHRGXJ — do not remove (resolves in mavai-orchestrator)
-pub enum TestIntent {
-    /// Evidential claim. The framework rejects the configuration before
-    /// execution if sample size cannot support verification at 95% confidence
-    /// (when threshold origin is normative).
-    Verification,
-
-    /// Lightweight early-warning check. Accepts undersized configurations
-    /// but labels the verdict as non-evidential.
-    Smoke,
-}
-
-impl fmt::Display for TestIntent {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Verification => write!(f, "VERIFICATION"),
-            Self::Smoke => write!(f, "SMOKE"),
-        }
-    }
-}
-
-impl Serialize for TestIntent {
-    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        serializer.serialize_str(&self.to_string())
-    }
-}
+pub use crate::statistics::rules::TestIntent;
 
 /// The provenance of a pass-rate threshold.
 ///
-/// Documents where a threshold comes from and whether it is normative
-/// (carries enforcement consequences under `Verification` intent).
+/// Documents where a threshold comes from and whether it is normative. A
+/// declared requirement is recorded with the test's normative origin; a
+/// baseline-derived criterion is always empirical.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 // mavai-ref: JVI-J8G7TKM — do not remove (resolves in mavai-orchestrator)
 pub enum ThresholdOrigin {
@@ -90,10 +60,8 @@ pub enum ThresholdOrigin {
 }
 
 impl ThresholdOrigin {
-    /// Whether this origin carries normative enforcement consequences.
-    ///
-    /// Normative origins (`Sla`, `Slo`, `Policy`) trigger feasibility
-    /// enforcement under `Verification` intent.
+    /// Whether this origin is normative (`Sla`, `Slo`, `Policy`): a
+    /// requirement the evidence must demonstrate.
     #[must_use]
     pub const fn is_normative(self) -> bool {
         matches!(self, Self::Sla | Self::Slo | Self::Policy)
@@ -161,6 +129,9 @@ pub enum TerminationReason {
     FailureInevitable,
     /// Early termination: success is guaranteed.
     SuccessGuaranteed,
+    /// The configuration was refused before any sample ran (Statistical
+    /// Companion §5.7.1): no sample was executed and no verdict exists.
+    ConfigurationRefused,
 }
 
 impl TerminationReason {
@@ -188,6 +159,7 @@ impl fmt::Display for TerminationReason {
             Self::RunTokenBudgetExhausted => write!(f, "RUN_TOKEN_BUDGET_EXHAUSTED"),
             Self::FailureInevitable => write!(f, "FAILURE_INEVITABLE"),
             Self::SuccessGuaranteed => write!(f, "SUCCESS_GUARANTEED"),
+            Self::ConfigurationRefused => write!(f, "CONFIGURATION_REFUSED"),
         }
     }
 }

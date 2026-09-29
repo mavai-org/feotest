@@ -96,6 +96,10 @@ fn scenario_no_latency_config_dimension_absent() {
 }
 
 // Scenario 2 — explicit p95 met → dimension present, zero violations, pass.
+// An explicit ceiling is a requirement decided by
+// latency/compliance-exact-binomial: 59 successful latencies are the fewest
+// from which any count can demonstrate a p95, so the scenarios bounding p95
+// run 60 samples (fewer is refused under verification intent).
 #[test]
 fn scenario_explicit_p95_met() {
     let inputs = vec!["input".to_string()];
@@ -104,7 +108,7 @@ fn scenario_explicit_p95_met() {
             .p95(Duration::from_millis(50)),
     )
     .inputs(&inputs)
-    .approach(threshold_first(30, 0.80))
+    .approach(threshold_first(60, 0.80))
     .run();
 
     let record = result.verdict_record();
@@ -125,11 +129,20 @@ fn scenario_explicit_p95_violated_overall_fail() {
             .p95(Duration::from_millis(5)),
     )
     .inputs(&inputs)
-    .approach(threshold_first(30, 0.80))
+    .approach(threshold_first(60, 0.80))
     .run();
 
     let record = result.verdict_record();
-    assert_eq!(record.verdict(), Verdict::Pass, "functional still passes");
+    assert_eq!(
+        record.functional_assessment().composite(),
+        Verdict::Pass,
+        "functional still passes"
+    );
+    assert_eq!(
+        record.verdict(),
+        Some(Verdict::Fail),
+        "the test verdict composes latency"
+    );
     assert!(!result.passed(), "overall must fail due to latency");
     let dim = record.latency().unwrap();
     assert_eq!(dim.strict_violations(), 1);
@@ -145,7 +158,7 @@ fn scenario_explicit_p95_violated_assert_latency_panics() {
             .p95(Duration::from_millis(5)),
     )
     .inputs(&inputs)
-    .approach(threshold_first(30, 0.80))
+    .approach(threshold_first(60, 0.80))
     .run();
     result.verdict_record().assert_latency();
 }
@@ -227,9 +240,11 @@ fn scenario_baseline_p95_violated_strict_via_builder() {
     }
 }
 
-// Scenario 11 — feasibility gate on small baseline + high percentile.
+// Scenario 11 — a small baseline and a high percentile: no baseline rank
+// achieves alpha at this test size, so the enforced p99 is saturated —
+// warned before the run, decided INCONCLUSIVE after it.
 #[test]
-fn scenario_p99_with_small_baseline_is_infeasible() {
+fn scenario_p99_with_small_baseline_is_saturated() {
     let dir = tempfile::tempdir().unwrap();
     let inputs = vec!["input".to_string()];
 
@@ -253,6 +268,7 @@ fn scenario_p99_with_small_baseline_is_infeasible() {
     .approach(threshold_first(30, 0.80))
     .threshold_origin(feotest::model::ThresholdOrigin::Sla)
     .spec_resolver(resolver)
+    .enforce_baseline_latency(true)
     .run();
 
     let record = result.verdict_record();
@@ -262,12 +278,14 @@ fn scenario_p99_with_small_baseline_is_infeasible() {
         .iter()
         .find(|e| e.percentile() == feotest::latency::Percentile::P99)
         .expect("p99 evaluation produced");
-    assert_eq!(p99.status(), EvaluationStatus::Infeasible);
+    assert_eq!(p99.status(), EvaluationStatus::Saturated);
+    assert_eq!(p99.threshold(), None);
+    assert_eq!(record.verdict(), Some(Verdict::Inconclusive));
     assert!(
         record
             .warnings()
             .iter()
-            .any(|w| w.code() == "LATENCY_INFEASIBLE")
+            .any(|w| w.code() == "LATENCY_SATURATION_EXPECTED")
     );
 }
 

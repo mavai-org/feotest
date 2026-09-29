@@ -27,7 +27,7 @@ fn builder_result_carries_approach() {
         result.approach(),
         ThresholdApproach::ThresholdFirst { .. }
     ));
-    assert_eq!(result.verdict_record().verdict(), Verdict::Pass);
+    assert_eq!(result.verdict_record().verdict(), Some(Verdict::Pass));
 }
 
 #[test]
@@ -90,7 +90,7 @@ fn render_with_sample_size_first_approach() {
     render_transparent_stats(result.verdict_record(), result.approach(), &mut buf).unwrap();
 
     assert!(buf.contains("sample-size-first"));
-    assert!(buf.contains("derived from baseline at 0.950 confidence"));
+    assert!(buf.contains("Fisher cutoff at 0.950 confidence"));
 }
 
 #[test]
@@ -118,7 +118,7 @@ fn render_fail_verdict_includes_rejection() {
     render_transparent_stats(result.verdict_record(), result.approach(), &mut buf).unwrap();
 
     assert!(buf.contains("FAIL"));
-    assert!(buf.contains("null hypothesis is rejected"));
+    assert!(buf.contains("The test failed"));
 }
 
 #[test]

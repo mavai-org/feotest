@@ -1,0 +1,41 @@
+---
+source: src/reporting/transparent.rs
+expression: "render_with(&compliance_record(TestIntent::Verification),\n&threshold_first(150, 0.0))"
+---
+║═════════════════════════════════════════════════════════════║
+║ TRANSPARENT STATISTICS                                      ║
+║                                                             ║
+║ Test:        payment-gateway                                ║
+║ Approach:    threshold-first                                ║
+║ Intent:      VERIFICATION                                   ║
+║ Methodology: 1.5.0                                          ║
+║ Origin:      SLA                                            ║
+║ Contract:    API SLA v3.2 §2.1                              ║
+║─────────────────────────────────────────────────────────────║
+║ HYPOTHESES                                                  ║
+║                                                             ║
+║ H0: p <= 0.950  (compliance not demonstrated)               ║
+║ H1: p >  0.950  (the requirement is met)                    ║
+║─────────────────────────────────────────────────────────────║
+║ OBSERVED DATA AND INFERENCE                                 ║
+║                                                             ║
+║ Successes / Total:    148 / 150                             ║
+║ Observed pass rate:   0.987                                 ║
+║ Decision rule:        compliance/exact-binomial v1          ║
+║ Threshold:            0.950                                 ║
+║   (declared floor; each criterion decided by its rule)      ║
+║ Smallest passing:     148                                   ║
+║ False compliance:     0.0182                                ║
+║ Clopper-Pearson lower: 0.959 (descriptive)                  ║
+║ Wilson lower [95%]: 0.961 (descriptive)                     ║
+║ Standard error:       0.009                                 ║
+║─────────────────────────────────────────────────────────────║
+║ VERDICT                                                     ║
+║                                                             ║
+║ PASS                                                        ║
+║                                                             ║
+║ Every criterion passed under its rule                       ║
+║ (compliance/exact-binomial for the first) and every         ║
+║ enforced latency constraint passed: 148 of 150 >= k_min 148 ║
+║ (compliance/exact-binomial).                                ║
+║═════════════════════════════════════════════════════════════║

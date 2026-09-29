@@ -16,9 +16,10 @@ use feotest::model::{
 };
 use feotest::reporting::HtmlReportWriter;
 use feotest::verdict::{
-    BaselineProvenance, CriterionRow, FunctionalAssessment, SpecProvenance, StatisticalAnalysis,
-    Verdict, VerdictRecord,
+    BaselineProvenance, CriterionRow, FunctionalAssessment, SpecProvenance, Verdict, VerdictRecord,
 };
+
+mod common;
 
 const fn sample_execution(
     planned: u32,
@@ -36,9 +37,10 @@ const fn sample_execution(
     )
 }
 
+/// The companion's §3.4 worked example: 97 of 100 against a baseline of 951
+/// of 1000 (cutoff 91).
 fn pass_record() -> VerdictRecord {
-    let analysis = StatisticalAnalysis::new(0.95, 0.022, 0.907, 0.900, ThresholdOrigin::Empirical)
-        .with_test_results(2.294, 0.011);
+    let analysis = common::regression_analysis(97, 100, 951, 1000);
     let provenance =
         SpecProvenance::new(ThresholdOrigin::Empirical).with_spec_filename("my-service.yaml");
 
@@ -46,17 +48,24 @@ fn pass_record() -> VerdictRecord {
         TestIdentity::new("my-service").with_test_name("test_translation"),
         Verdict::Pass,
         TestIntent::Verification,
-        sample_execution(100, 100, 96, 4),
-        FunctionalAssessment::single(CriterionRow::result(96, 4, vec![], Verdict::Pass)),
+        sample_execution(100, 100, 97, 3),
+        FunctionalAssessment::single(CriterionRow::new(
+            "result",
+            97,
+            3,
+            vec![],
+            Some(analysis.clone()),
+            Verdict::Pass,
+        )),
     )
     .statistical_analysis(analysis)
     .spec_provenance(provenance)
     .build()
 }
 
+/// 80 of 100 against a baseline of 951 of 1000 (cutoff 91).
 fn fail_record() -> VerdictRecord {
-    let analysis = StatisticalAnalysis::new(0.95, 0.040, 0.722, 0.900, ThresholdOrigin::Empirical)
-        .with_test_results(-1.500, 0.933);
+    let analysis = common::regression_analysis(80, 100, 951, 1000);
 
     VerdictRecord::builder(
         TestIdentity::new("payment-service").with_test_name("test_payment_accuracy"),
@@ -89,7 +98,7 @@ fn inconclusive_record() -> VerdictRecord {
 /// sized at 100 samples against a baseline measured over 1,000, with both
 /// cost halves recorded.
 fn downsized_record(sizing_entries: Vec<(&str, &str)>) -> VerdictRecord {
-    let analysis = StatisticalAnalysis::new(0.95, 0.022, 0.907, 0.900, ThresholdOrigin::Empirical);
+    let analysis = common::regression_analysis(96, 100, 960, 1000);
     VerdictRecord::builder(
         TestIdentity::new("sized-service").with_test_name("test_sized"),
         Verdict::Pass,
@@ -222,7 +231,7 @@ fn report_groups_by_service_contract() {
 fn run_design_block_discloses_approach_and_sizing_trade() {
     let record = downsized_record(vec![
         ("sizing-approach", "confidence-first (risk-driven)"),
-        ("sizing-tolerated-rate", "0.93"),
+        ("sizing-design-alternative-rate", "0.93"),
         ("sizing-declared-confidence", "0.95"),
         ("sizing-declared-power", "0.8"),
         ("sizing-computed-samples", "100"),
@@ -238,9 +247,9 @@ fn run_design_block_discloses_approach_and_sizing_trade() {
 
     assert!(html.contains("Run design"));
     assert!(html.contains("confidence-first (risk-driven)"));
-    assert!(html.contains("priced against the acceptance bar"));
-    assert!(html.contains("Tolerated rate"));
-    assert!(html.contains("93%"));
+    assert!(html.contains("resolved sizing against the observed baseline"));
+    assert!(html.contains("Design alternative rate"));
+    assert!(html.contains("93.0%"));
     assert!(html.contains("Target power"));
     assert!(
         html.contains("This test was sized at 100 samples against a baseline measured over 1000.")

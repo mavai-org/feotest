@@ -1,6 +1,5 @@
 ---
 source: tests/verdict_serde.rs
-assertion_line: 89
 expression: "serde_json::to_value(&record).unwrap()"
 ---
 {
@@ -51,6 +50,7 @@ expression: "serde_json::to_value(&record).unwrap()"
     "useCaseId": "classifier"
   },
   "intent": "VERIFICATION",
+  "methodologyVersion": "1.5.0",
   "verdict": "INCONCLUSIVE",
   "verdictReason": "covariate misalignment"
 }

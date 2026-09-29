@@ -1,5 +1,8 @@
 {
   "suite": "latency_percentile",
+  "methodologyVersion": "1.5.0",
+  "fixtureSchemaVersion": 2,
+  "decisionRules": [],
   "description": "Empirical percentile estimation using nearest-rank method, with summary statistics (mean, max)",
   "method": "Nearest-rank (ceiling) percentile; sample mean and max",
   "tolerance": 1e-10,

@@ -125,10 +125,8 @@ mod tests {
         CostSummary, ExecutionSummary, TerminationInfo, TerminationReason, TestIdentity,
         TestIntent, ThresholdOrigin,
     };
-    use crate::verdict::{
-        CriterionRow, FunctionalAssessment, SpecProvenance, StatisticalAnalysis, Verdict,
-        VerdictRecord,
-    };
+    use crate::oracle_examples::{analysis_of, regression_row};
+    use crate::verdict::{FunctionalAssessment, SpecProvenance, Verdict, VerdictRecord};
     use std::time::Duration;
 
     fn sample_execution(
@@ -148,9 +146,8 @@ mod tests {
     }
 
     fn pass_record() -> VerdictRecord {
-        let analysis =
-            StatisticalAnalysis::new(0.95, 0.022, 0.907, 0.900, ThresholdOrigin::Empirical)
-                .with_test_results(2.294, 0.011);
+        let row = regression_row("worked_example_pass_above_cutoff", "result");
+        let analysis = analysis_of(&row);
         let provenance =
             SpecProvenance::new(ThresholdOrigin::Empirical).with_spec_filename("my-service.yaml");
 
@@ -158,8 +155,8 @@ mod tests {
             TestIdentity::new("my-service").with_test_name("test_translation"),
             Verdict::Pass,
             TestIntent::Verification,
-            sample_execution(100, 100, 96, 4),
-            FunctionalAssessment::single(CriterionRow::result(96, 4, vec![], Verdict::Pass)),
+            sample_execution(100, 100, row.pass(), row.fail()),
+            FunctionalAssessment::single(row),
         )
         .statistical_analysis(analysis)
         .spec_provenance(provenance)
@@ -167,20 +164,16 @@ mod tests {
     }
 
     fn fail_record() -> VerdictRecord {
+        let row = regression_row("worked_example_fail_deep_degradation", "result");
+        let analysis = analysis_of(&row);
         VerdictRecord::builder(
             TestIdentity::new("my-service").with_test_name("test_accuracy"),
             Verdict::Fail,
             TestIntent::Verification,
-            sample_execution(100, 100, 80, 20),
-            FunctionalAssessment::single(CriterionRow::result(80, 20, vec![], Verdict::Fail)),
+            sample_execution(100, 100, row.pass(), row.fail()),
+            FunctionalAssessment::single(row),
         )
-        .statistical_analysis(StatisticalAnalysis::new(
-            0.95,
-            0.040,
-            0.722,
-            0.900,
-            ThresholdOrigin::Empirical,
-        ))
+        .statistical_analysis(analysis)
         .build()
     }
 

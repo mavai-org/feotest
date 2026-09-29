@@ -1,5 +1,8 @@
 {
   "suite": "wilson_lower",
+  "methodologyVersion": "1.5.0",
+  "fixtureSchemaVersion": 2,
+  "decisionRules": [],
   "description": "Wilson score one-sided lower bound",
   "method": "qnorm-based Wilson score lower bound (one-sided z)",
   "tolerance": 1e-10,

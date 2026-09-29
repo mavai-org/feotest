@@ -79,6 +79,7 @@ fn golden_dataset_run_computes_the_matching_pass_rate() {
     let result = ProbabilisticTest::for_contract(EchoTranslator)
         .inputs(&inputs)
         .samples(10)
+        .smoke()
         .run();
 
     let rows = result.verdict_record().functional_assessment().criteria();
@@ -135,6 +136,7 @@ fn matching_without_ground_truth_aborts_the_run() {
     let _ = ProbabilisticTest::for_contract(NoGroundTruth)
         .inputs(&inputs)
         .samples(5)
+        .smoke()
         .run();
 }
 
@@ -188,6 +190,7 @@ fn custom_matcher_failure_name_reaches_the_distribution() {
     let result = ProbabilisticTest::for_contract(CaseInsensitiveTranslator)
         .inputs(&inputs)
         .samples(2)
+        .smoke()
         .run();
 
     let rows = result.verdict_record().functional_assessment().criteria();
