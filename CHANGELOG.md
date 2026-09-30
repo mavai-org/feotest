@@ -5,6 +5,37 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.3.1] - 2026-09-30
+
+The verdict record now states, on each criterion, the smallest count that
+would have passed, as the mavai-R v0.11.2 verdict schema defines it. No
+rule, cutoff, size or verdict changes.
+
+### Added
+
+- **`required-pass` on the verdict XML criterion row.** Every criterion
+  decided by a pass-rate rule states the smallest passing count under that
+  rule — the Fisher cutoff for `regression/fisher`, `k_min` for
+  `compliance/exact-binomial` — so the row passes iff `pass` reaches it.
+  The count is the one the rule decided with, never recomputed from
+  `threshold` (which for a compliance criterion is the requirement, not the
+  bar). A compliance criterion whose design is too small for any count to
+  pass carries no `required-pass`. The same count is available as
+  `RuleEvidence::required_pass` and `StatisticalAnalysis::required_pass`.
+
+### Conformance
+
+- The vendored fixtures and interchange schemas are re-pinned at mavai-R
+  **v0.11.2** from the `cases-v0.11.2.zip` and `interchange-v0.11.2.zip`
+  release assets. Every vendored case file is byte-identical to v0.11.1;
+  only the manifest's `fixtureVersion` moves. `verdict-1.7.xsd` gains the
+  optional `required-pass` attribute, and records from real runs — two
+  criteria under both rules, a saturated latency evaluation, and a
+  requirement no count can pass beside a regression criterion — validate
+  against it, each row's `required-pass` checked against the engine's
+  cutoff or `k_min` and against its verdict. Conformance stands at 445 of
+  445 family-mandatory binding assertions and 359 of 359 in scope.
+
 ## [0.3.0] - 2026-09-28
 
 Every verdict is now decided by the decision rules of Statistical Companion

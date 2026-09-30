@@ -3,7 +3,7 @@ source: src/reporting/verdict_xml.rs
 expression: xml
 ---
 <?xml version="1.0" encoding="UTF-8"?>
-<verdict-record xmlns="http://mavai.org/verdict/1.0" version="1.7" methodology-version="1.5.0" timestamp="2026-04-01T12:00:00Z" generator="feotest/0.3.0">
+<verdict-record xmlns="http://mavai.org/verdict/1.0" version="1.7" methodology-version="1.5.0" timestamp="2026-04-01T12:00:00Z" generator="feotest/0.3.1">
   <identity use-case-id="my-service" test-name="test_accuracy"/>
   <execution planned-samples="100" samples-executed="100" successes="80" failures="20" elapsed-ms="500" intent="VERIFICATION" confidence="0.95"/>
   <functional successes="80" failures="20" pass-rate="0.8000">
@@ -17,7 +17,7 @@ expression: xml
   <termination reason="COMPLETED"/>
   <cost total-time-ms="500" total-tokens="1000" avg-time-per-sample-ms="5" avg-tokens-per-sample="10"/>
   <per-criterion>
-    <criterion id="result" verdict="FAIL" pass="80" fail="20" inconclusive="0" total="100" observed-rate="0.8000" threshold="0.9100" decision-rule="regression/fisher" decision-rule-version="1"/>
+    <criterion id="result" verdict="FAIL" pass="80" fail="20" inconclusive="0" total="100" observed-rate="0.8000" threshold="0.9100" decision-rule="regression/fisher" decision-rule-version="1" required-pass="91"/>
     <composite value="FAIL"/>
   </per-criterion>
   <verdict value="FAIL" decision-rule="regression/fisher" decision-rule-version="1" reason="80 of 100 &lt; cutoff 91 (regression/fisher)"/>
