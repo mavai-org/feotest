@@ -10,7 +10,8 @@
 //! evaluation, a record with an explicit latency requirement, and a refused
 //! configuration. The co-constraints XSD 1.0 cannot state (a refused record
 //! states codes and no value; a saturated evaluation has no threshold and no
-//! baseline rank) are asserted here. Validation shells out to `xmllint`;
+//! baseline rank; a criterion row's `required-pass` is the count its rule
+//! decided with, absent when no count can pass) are asserted here. Validation shells out to `xmllint`;
 //! when it is not installed the test skips, mirroring the HTML report tests'
 //! handling of `xsltproc`.
 
@@ -32,7 +33,7 @@ use feotest::reporting::VerdictXmlWriter;
 use feotest::service_contract::ServiceContract;
 use feotest::spec::SpecResolver;
 use feotest::verdict::{
-    CriterionRow, FunctionalAssessment, SpecProvenance, Verdict, VerdictRecord,
+    CriterionRow, FunctionalAssessment, RuleEvidence, SpecProvenance, Verdict, VerdictRecord,
 };
 
 mod common;
@@ -74,6 +75,64 @@ fn assert_validates(record: &VerdictRecord) -> String {
         String::from_utf8_lossy(&output.stderr)
     );
     record_xml
+}
+
+/// The value of `attribute` on the `<criterion>` row with id `id`, if the
+/// row carries it.
+fn criterion_attribute(xml: &str, id: &str, attribute: &str) -> Option<String> {
+    let row = xml
+        .lines()
+        .find(|line| line.contains("<criterion ") && line.contains(&format!(" id=\"{id}\"")))
+        .unwrap_or_else(|| panic!("no criterion row {id} in:\n{xml}"));
+    let marker = format!(" {attribute}=\"");
+    let start = row.find(&marker)? + marker.len();
+    let end = row[start..].find('"').unwrap() + start;
+    Some(row[start..end].to_owned())
+}
+
+/// Every decided criterion row states as `required-pass` exactly the count
+/// its rule decided with — the Fisher cutoff or `k_min` from the engine's
+/// evidence, never a count derived from the threshold rate — and the row's
+/// verdict is PASS iff its success count reaches it. A row no count can
+/// pass carries no `required-pass`. Returns how many rows stated one.
+fn assert_required_pass_is_the_rules_count(record: &VerdictRecord, xml: &str) -> usize {
+    let mut stated = 0;
+    for row in record.functional_assessment().criteria() {
+        let emitted = criterion_attribute(xml, row.name(), "required-pass")
+            .map(|value| value.parse::<u32>().unwrap());
+        let Some(analysis) = row.statistical_analysis() else {
+            assert_eq!(emitted, None, "{}: no rule, no required-pass", row.name());
+            continue;
+        };
+        let decided_with = match analysis.evidence() {
+            RuleEvidence::Regression(evidence) => Some(evidence.cutoff),
+            RuleEvidence::Compliance(evidence) => evidence.minimum_passing_count,
+        };
+        assert_eq!(
+            emitted,
+            decided_with,
+            "{}: the rule's own count",
+            row.name()
+        );
+        match emitted {
+            Some(required) => {
+                stated += 1;
+                assert_eq!(
+                    row.verdict() == Verdict::Pass,
+                    row.pass() >= required,
+                    "{}: PASS iff pass >= required-pass",
+                    row.name()
+                );
+            }
+            None => assert_eq!(
+                row.verdict(),
+                Verdict::Fail,
+                "{}: no count can pass",
+                row.name()
+            ),
+        }
+    }
+    stated
 }
 
 /// A contract whose criteria pass on exactly the first `passing` judged
@@ -208,6 +267,54 @@ fn a_decided_record_naming_its_rules_validates() {
     assert!(xml.contains("methodology-version=\"1.5.0\""));
     assert!(xml.contains("decision-rule=\"compliance/exact-binomial\""));
     assert!(xml.contains("decision-rule=\"regression/fisher\""));
+
+    // Both rows state the count their rule decided with: k_min 97 for the
+    // requirement (the v0.11.2 two-criteria worked example's figure), the
+    // Fisher cutoff for the baseline.
+    assert_eq!(assert_required_pass_is_the_rules_count(&record, &xml), 2);
+    assert_eq!(
+        criterion_attribute(&xml, "well-formed-compliance", "required-pass").as_deref(),
+        Some("97")
+    );
+    assert!(criterion_attribute(&xml, "well-formed-regression", "required-pass").is_some());
+}
+
+#[test]
+fn a_criterion_no_count_can_pass_states_no_required_pass() {
+    // Under smoke intent an infeasible requirement runs: no count of 20 can
+    // demonstrate 0.999 at alpha 0.05, so the compliance row carries no
+    // required-pass, while the regression row beside it still does.
+    let baseline = establish_baseline("xsd-no-count", 100);
+    let inputs = vec!["input".to_string()];
+    let record = ProbabilisticTest::for_contract(ScriptedContract {
+        requirement: Some((0.999, 0.95)),
+        ..ScriptedContract::all_passing("xsd-no-count")
+    })
+    .inputs(&inputs)
+    .approach(ThresholdApproach::SampleSizeFirst {
+        samples: 20,
+        confidence: 0.95,
+    })
+    .smoke()
+    .threshold_origin(ThresholdOrigin::Sla)
+    .spec_resolver(SpecResolver::with_dir(baseline.path()))
+    .disable_early_termination()
+    .run()
+    .verdict_record()
+    .clone();
+    assert!(!record.is_refused());
+
+    let xml = assert_validates(&record);
+    assert_eq!(assert_required_pass_is_the_rules_count(&record, &xml), 1);
+    assert_eq!(
+        criterion_attribute(&xml, "well-formed-compliance", "required-pass"),
+        None
+    );
+    assert!(
+        criterion_attribute(&xml, "well-formed-compliance", "decision-rule").is_some(),
+        "the rule decided the row; only the count is absent"
+    );
+    assert!(criterion_attribute(&xml, "well-formed-regression", "required-pass").is_some());
 }
 
 #[test]
@@ -237,6 +344,8 @@ fn a_record_with_a_saturated_latency_evaluation_validates() {
         assert!(!line.contains("threshold-ms"), "saturated: no threshold");
         assert!(!line.contains("baseline-rank"), "saturated: no rank");
     }
+    // The functional criterion was still decided by its rule.
+    assert_eq!(assert_required_pass_is_the_rules_count(&record, &xml), 1);
 }
 
 #[test]

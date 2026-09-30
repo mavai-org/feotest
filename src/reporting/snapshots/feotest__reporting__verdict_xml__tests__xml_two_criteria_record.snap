@@ -16,8 +16,8 @@ expression: xml
   <termination reason="COMPLETED"/>
   <cost total-time-ms="500" total-tokens="1000" avg-time-per-sample-ms="0" avg-tokens-per-sample="1"/>
   <per-criterion>
-    <criterion id="c_well_formed_compliance" verdict="PASS" pass="925" fail="75" inconclusive="0" total="1000" observed-rate="0.9250" threshold="0.9000" decision-rule="compliance/exact-binomial" decision-rule-version="1"/>
-    <criterion id="c_well_formed_regression" verdict="FAIL" pass="925" fail="75" inconclusive="0" total="1000" observed-rate="0.9250" threshold="0.9330" decision-rule="regression/fisher" decision-rule-version="1"/>
+    <criterion id="c_well_formed_compliance" verdict="PASS" pass="925" fail="75" inconclusive="0" total="1000" observed-rate="0.9250" threshold="0.9000" decision-rule="compliance/exact-binomial" decision-rule-version="1" required-pass="922"/>
+    <criterion id="c_well_formed_regression" verdict="FAIL" pass="925" fail="75" inconclusive="0" total="1000" observed-rate="0.9250" threshold="0.9330" decision-rule="regression/fisher" decision-rule-version="1" required-pass="933"/>
     <composite value="FAIL"/>
   </per-criterion>
   <verdict value="FAIL" reason="failed: c_well_formed_regression: 925 of 1000 &lt; cutoff 933 (regression/fisher)"/>

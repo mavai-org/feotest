@@ -541,6 +541,10 @@ fn write_per_criterion(w: &mut String, record: &VerdictRecord) {
         if let Some(analysis) = row.statistical_analysis() {
             write!(w, " threshold=\"{:.4}\"", analysis.threshold()).unwrap();
             write_rule(w, analysis.decision_rule());
+            // The count the rule decided with; absent when no count can pass.
+            if let Some(required) = analysis.required_pass() {
+                write!(w, " required-pass=\"{required}\"").unwrap();
+            }
         }
         writeln!(w, "/>").unwrap();
     }
@@ -876,7 +880,8 @@ mod tests {
         assert!(xml.contains(
             "<criterion id=\"result\" verdict=\"PASS\" pass=\"97\" fail=\"3\" \
              inconclusive=\"0\" total=\"100\" observed-rate=\"0.9700\" threshold=\"0.9100\" \
-             decision-rule=\"regression/fisher\" decision-rule-version=\"1\"/>"
+             decision-rule=\"regression/fisher\" decision-rule-version=\"1\" \
+             required-pass=\"91\"/>"
         ));
         assert!(xml.contains("<composite value=\"PASS\"/>"));
         // One rule decided the whole test, so <verdict> names it.

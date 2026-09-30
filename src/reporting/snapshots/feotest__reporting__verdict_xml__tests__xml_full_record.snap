@@ -29,7 +29,7 @@ expression: xml
     <entry key="region" value="us-east-1"/>
   </environment>
   <per-criterion>
-    <criterion id="result" verdict="PASS" pass="933" fail="67" inconclusive="0" total="1000" observed-rate="0.9330" threshold="0.9330" decision-rule="regression/fisher" decision-rule-version="1"/>
+    <criterion id="result" verdict="PASS" pass="933" fail="67" inconclusive="0" total="1000" observed-rate="0.9330" threshold="0.9330" decision-rule="regression/fisher" decision-rule-version="1" required-pass="933"/>
     <composite value="PASS"/>
   </per-criterion>
   <verdict value="PASS" decision-rule="regression/fisher" decision-rule-version="1" reason="933 of 1000 &gt;= cutoff 933 (regression/fisher)"/>

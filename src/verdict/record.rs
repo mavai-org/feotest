@@ -684,6 +684,13 @@ impl StatisticalAnalysis {
     pub const fn evidence(&self) -> &RuleEvidence {
         &self.evidence
     }
+
+    /// The smallest passing count under the rule that decided the criterion,
+    /// as the rule computed it: see [`RuleEvidence::required_pass`].
+    #[must_use]
+    pub const fn required_pass(&self) -> Option<u32> {
+        self.evidence.required_pass()
+    }
 }
 
 /// What a decision rule computed for one criterion.
@@ -703,6 +710,19 @@ impl RuleEvidence {
         match self {
             Self::Compliance(_) => DecisionRule::ComplianceExactBinomial,
             Self::Regression(_) => DecisionRule::RegressionFisher,
+        }
+    }
+
+    /// The smallest passing count the rule decided with, so PASS iff the
+    /// success count reaches it: the Fisher cutoff for `regression/fisher`,
+    /// `k_min` for `compliance/exact-binomial`. `None` when no count can
+    /// pass (a compliance design too small). The count is the rule's own,
+    /// never recomputed from the threshold rate.
+    #[must_use]
+    pub const fn required_pass(&self) -> Option<u32> {
+        match self {
+            Self::Compliance(evidence) => evidence.minimum_passing_count,
+            Self::Regression(evidence) => Some(evidence.cutoff),
         }
     }
 }

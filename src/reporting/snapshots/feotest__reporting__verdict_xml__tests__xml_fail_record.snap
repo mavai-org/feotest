@@ -17,7 +17,7 @@ expression: xml
   <termination reason="COMPLETED"/>
   <cost total-time-ms="500" total-tokens="1000" avg-time-per-sample-ms="5" avg-tokens-per-sample="10"/>
   <per-criterion>
-    <criterion id="result" verdict="FAIL" pass="80" fail="20" inconclusive="0" total="100" observed-rate="0.8000" threshold="0.9100" decision-rule="regression/fisher" decision-rule-version="1"/>
+    <criterion id="result" verdict="FAIL" pass="80" fail="20" inconclusive="0" total="100" observed-rate="0.8000" threshold="0.9100" decision-rule="regression/fisher" decision-rule-version="1" required-pass="91"/>
     <composite value="FAIL"/>
   </per-criterion>
   <verdict value="FAIL" decision-rule="regression/fisher" decision-rule-version="1" reason="80 of 100 &lt; cutoff 91 (regression/fisher)"/>
