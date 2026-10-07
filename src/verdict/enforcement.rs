@@ -29,6 +29,7 @@ const LATENCY: &str = "latency";
 
 /// The mode a run gives each dimension of the test verdict.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+// mavai-ref: JVI-9GVFJ2S — do not remove (resolves in mavai-orchestrator)
 pub struct AssertionEnforcement {
     functional: EnforcementMode,
     latency: EnforcementMode,
