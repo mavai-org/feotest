@@ -41,14 +41,15 @@ expression: "serde_json::to_value(&record).unwrap()"
         "passRate": 0.95,
         "verdict": "PASS"
       }
-    ]
+    ],
+    "mode": "enforced"
   },
   "identity": {
     "testName": "meets_sla",
     "useCaseId": "service"
   },
   "intent": "VERIFICATION",
-  "methodologyVersion": "1.5.0",
+  "methodologyVersion": "1.6.0",
   "specProvenance": {
     "contractRef": "Baseline v1",
     "expiration": {

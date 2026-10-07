@@ -263,6 +263,6 @@ mod tests {
     fn empty_aggregate_has_no_conformance_mismatches() {
         let agg = SampleAggregate::new();
         assert_eq!(agg.conformance_mismatches(), 0);
-        assert!(agg.example_mismatches().is_empty());
+        assert_eq!(agg.example_mismatches().len(), 0);
     }
 }

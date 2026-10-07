@@ -1,7 +1,7 @@
 //! Statistical inference for Bernoulli trial outcomes and latencies.
 //!
 //! This module holds the decision rules of the Statistical Companion,
-//! methodology 1.5.0 — each an exact finite computation, named by a
+//! methodology 1.6.0 — each an exact finite computation, named by a
 //! versioned identifier that travels with every verdict it decides — and the
 //! descriptive statistics reported beside them.
 //!

@@ -1,6 +1,6 @@
 {
   "suite": "feasibility",
-  "methodologyVersion": "1.5.0",
+  "methodologyVersion": "1.6.0",
   "fixtureSchemaVersion": 2,
   "decisionRules": [
     {

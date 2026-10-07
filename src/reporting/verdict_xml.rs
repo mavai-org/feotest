@@ -1,13 +1,15 @@
 //! Verdict XML serialisation (the verdict XML interchange format).
 //!
 //! Serialises a [`VerdictRecord`] to XML conforming to the
-//! `http://mavai.org/verdict/1.0` schema, version 1.7 (Statistical Companion
-//! 1.5.0): the record states the methodology version whose decision rules
-//! produced it, each decision names its versioned rule, the record's verdict
-//! is the overall test verdict, and a configuration refused before any
-//! sample ran carries its configuration errors in place of a verdict. The
-//! output is a standalone `<verdict-record>` document suitable for
-//! file-per-test persistence and XSLT transformation to HTML.
+//! `http://mavai.org/verdict/1.0` schema, version 1.8 (Statistical Companion
+//! 1.6.0): the record states the methodology version whose decision rules
+//! produced it, each decision names its versioned rule, each dimension
+//! states whether the run enforced it or made it advisory, the record's
+//! verdict is the overall test verdict over the enforced dimensions, and a
+//! configuration refused before any sample ran carries its configuration
+//! errors in place of a verdict. The output is a standalone
+//! `<verdict-record>` document suitable for file-per-test persistence and
+//! XSLT transformation to HTML.
 
 use std::fmt::Write;
 use std::io;
@@ -23,7 +25,7 @@ use crate::verdict::{RuleEvidence, StatisticalAnalysis, Verdict, VerdictRecord};
 const NAMESPACE: &str = "http://mavai.org/verdict/1.0";
 
 /// The schema version this emitter writes.
-const SCHEMA_VERSION: &str = "1.7";
+const SCHEMA_VERSION: &str = "1.8";
 
 /// Serialises verdict records to the verdict XML interchange format.
 // mavai-ref: JVI-DQWKY4Z — do not remove (resolves in mavai-orchestrator)
@@ -213,15 +215,10 @@ fn write_latency(w: &mut String, record: &VerdictRecord) {
         latency.successful_samples()
     )
     .unwrap();
-    write!(w, " strict-violations=\"{}\"", latency.strict_violations()).unwrap();
-    write!(
-        w,
-        " advisory-violations=\"{}\"",
-        latency.advisory_violations()
-    )
-    .unwrap();
+    // The mode is stated exactly when the verdict is.
     if let Some(verdict) = latency.verdict() {
         write!(w, " verdict=\"{}\"", verdict_str(verdict)).unwrap();
+        write!(w, " mode=\"{}\"", latency.mode().name()).unwrap();
     }
     writeln!(w, ">").unwrap();
 
@@ -250,9 +247,11 @@ fn write_latency(w: &mut String, record: &VerdictRecord) {
     writeln!(w, "  </latency>").unwrap();
 }
 
-/// One `<evaluation>`: a saturated baseline-derived evaluation carries no
-/// threshold and no baseline rank; an enforced one names its rule, and an
-/// enforced explicit requirement its within-threshold and required counts.
+/// One `<evaluation>`: every evaluation names the rule that decided it and
+/// that rule's outcome as its status, whatever the dimension's mode; a
+/// saturated baseline-derived evaluation carries no threshold and no
+/// baseline rank, and an explicit requirement its within-threshold and
+/// required counts.
 fn write_evaluation(w: &mut String, evaluation: &LatencyEvaluation) {
     write!(
         w,
@@ -283,15 +282,8 @@ fn write_evaluation(w: &mut String, evaluation: &LatencyEvaluation) {
             write!(w, " baseline-n=\"{n}\"").unwrap();
         }
     }
-    let mode = match evaluation.mode() {
-        crate::latency::enforcement::LatencyEnforcementMode::Advisory => "advisory",
-        crate::latency::enforcement::LatencyEnforcementMode::Strict => "strict",
-    };
-    write!(w, " mode=\"{mode}\"").unwrap();
     write!(w, " status=\"{}\"", evaluation.status().name()).unwrap();
-    if let Some(rule) = evaluation.decision_rule() {
-        write_rule(w, rule);
-    }
+    write_rule(w, evaluation.decision_rule());
     if let Some(within) = evaluation.within_threshold() {
         write!(w, " within-threshold=\"{within}\"").unwrap();
     }
@@ -513,7 +505,8 @@ const fn verdict_str(verdict: Verdict) -> &'static str {
 }
 
 /// Emits the `<per-criterion>` bundle: one `<criterion>` row per criterion
-/// plus the `<composite>` verdict over them. Present whenever the run
+/// plus the `<composite>` verdict over them, with the functional
+/// dimension's mode. Present whenever the run
 /// evaluated criteria (the normal case for a contract-driven run), which is
 /// absent for a refused configuration, which judged nothing.
 fn write_per_criterion(w: &mut String, record: &VerdictRecord) {
@@ -550,16 +543,18 @@ fn write_per_criterion(w: &mut String, record: &VerdictRecord) {
     }
     writeln!(
         w,
-        "    <composite value=\"{}\"/>",
-        verdict_str(assessment.composite())
+        "    <composite value=\"{}\" mode=\"{}\"/>",
+        verdict_str(assessment.composite()),
+        assessment.mode().name()
     )
     .unwrap();
     writeln!(w, "  </per-criterion>").unwrap();
 }
 
-/// The `<verdict>`: the overall test verdict and — when one rule decided the
-/// whole test — that rule; for a refused configuration, the ordered
-/// configuration-error list and no value.
+/// The `<verdict>`: the overall test verdict over the enforced dimensions
+/// and — when one rule decided every enforced dimension — that rule; for a
+/// refused configuration, the ordered configuration-error list and no
+/// value.
 fn write_verdict(w: &mut String, record: &VerdictRecord) {
     write!(w, "  <verdict").unwrap();
     if let Some(verdict) = record.verdict() {
@@ -611,7 +606,6 @@ mod tests {
     use super::*;
     use crate::controls::PacingConfig;
     use crate::latency::dimension::{EvaluationStatus, LatencyDimension, LatencyEvaluation};
-    use crate::latency::enforcement::LatencyEnforcementMode;
     use crate::latency::percentile::Percentile;
     use crate::latency::resolver::ThresholdProvenance;
     use crate::model::{
@@ -619,7 +613,7 @@ mod tests {
         TerminationInfo, TerminationReason, TestIdentity, TestIntent, ThresholdOrigin, Warning,
     };
     use crate::oracle_examples::{analysis_of, regression_row, two_criteria};
-    use crate::statistics::rules::ConfigurationError;
+    use crate::statistics::rules::{ConfigurationError, EnforcementMode};
     use crate::verdict::{
         BaselineProvenance, CovariateStatus, CriterionRow, FunctionalAssessment, Misalignment,
         SpecProvenance,
@@ -771,7 +765,6 @@ mod tests {
                     Some(Duration::from_millis(120)),
                     Some(Duration::from_millis(200)),
                     ThresholdProvenance::Explicit,
-                    LatencyEnforcementMode::Strict,
                     EvaluationStatus::Pass,
                 ),
                 LatencyEvaluation::new(
@@ -783,20 +776,18 @@ mod tests {
                         rank: None,
                         n: 95,
                     },
-                    LatencyEnforcementMode::Strict,
                     EvaluationStatus::Saturated,
                 ),
                 LatencyEvaluation::new(
                     Percentile::P99,
-                    Some(Duration::from_millis(890)),
+                    Some(Duration::from_millis(780)),
                     Some(Duration::from_millis(800)),
                     ThresholdProvenance::BaselineDerived {
                         confidence: 0.95,
                         rank: Some(94),
                         n: 95,
                     },
-                    LatencyEnforcementMode::Advisory,
-                    EvaluationStatus::AdvisoryWarn,
+                    EvaluationStatus::Pass,
                 ),
             ],
             97,
@@ -805,6 +796,36 @@ mod tests {
         VerdictRecord::builder(
             TestIdentity::new("latency-service").with_test_name("test_response_time"),
             Verdict::Inconclusive,
+            TestIntent::Verification,
+            sample_execution(100, 100, row.pass(), row.fail()),
+            FunctionalAssessment::single(row),
+        )
+        .confidence_level(0.95)
+        .statistical_analysis(analysis)
+        .latency(latency)
+        .build()
+    }
+
+    /// The latency dimension advisory, after the companion's worked
+    /// example: the functional criterion passes, the explicit p90 ≤ 600 ms
+    /// requirement FAILs by its rule and is reported, and the test passes.
+    fn record_with_advisory_latency() -> VerdictRecord {
+        let row = regression_row("worked_example_pass_above_cutoff", "result");
+        let analysis = analysis_of(&row);
+        let latency = LatencyDimension::from_parts(
+            vec![LatencyEvaluation::new(
+                Percentile::P90,
+                Some(Duration::from_millis(690)),
+                Some(Duration::from_millis(600)),
+                ThresholdProvenance::Explicit,
+                EvaluationStatus::Fail,
+            )],
+            93,
+        )
+        .with_mode(EnforcementMode::Advisory);
+        VerdictRecord::builder(
+            TestIdentity::new("latency-service").with_test_name("test_response_time"),
+            Verdict::Pass,
             TestIntent::Verification,
             sample_execution(100, 100, row.pass(), row.fail()),
             FunctionalAssessment::single(row),
@@ -873,17 +894,17 @@ mod tests {
     }
 
     #[test]
-    fn a_record_states_schema_1_7_and_its_methodology() {
+    fn a_record_states_schema_1_8_and_its_methodology() {
         let xml = VerdictXmlWriter::write_record(&pass_record(), Some("2026-04-01T12:00:00Z"));
-        assert!(xml.contains("version=\"1.7\""));
-        assert!(xml.contains("methodology-version=\"1.5.0\""));
+        assert!(xml.contains("version=\"1.8\""));
+        assert!(xml.contains("methodology-version=\"1.6.0\""));
         assert!(xml.contains(
             "<criterion id=\"result\" verdict=\"PASS\" pass=\"97\" fail=\"3\" \
              inconclusive=\"0\" total=\"100\" observed-rate=\"0.9700\" threshold=\"0.9100\" \
              decision-rule=\"regression/fisher\" decision-rule-version=\"1\" \
              required-pass=\"91\"/>"
         ));
-        assert!(xml.contains("<composite value=\"PASS\"/>"));
+        assert!(xml.contains("<composite value=\"PASS\" mode=\"enforced\"/>"));
         // One rule decided the whole test, so <verdict> names it.
         assert!(xml.contains(
             "<verdict value=\"PASS\" decision-rule=\"regression/fisher\" \
@@ -926,7 +947,47 @@ mod tests {
         assert!(!saturated.contains("threshold-ms"));
         assert!(!saturated.contains("baseline-rank"));
         assert!(saturated.contains("decision-rule=\"latency/precedence\""));
-        assert!(xml.contains("verdict=\"INCONCLUSIVE\">"));
+        assert!(xml.contains("verdict=\"INCONCLUSIVE\" mode=\"enforced\">"));
+    }
+
+    #[test]
+    fn an_advisory_latency_dimension_is_stated_beside_the_binding_verdict() {
+        let xml = VerdictXmlWriter::write_record(
+            &record_with_advisory_latency(),
+            Some("2026-04-01T12:00:00Z"),
+        );
+        assert!(xml.contains("verdict=\"FAIL\" mode=\"advisory\">"));
+        assert!(
+            xml.contains("status=\"FAIL\" decision-rule=\"latency/compliance-exact-binomial\"")
+        );
+        assert!(xml.contains("<composite value=\"PASS\" mode=\"enforced\"/>"));
+        // Only the enforced functional dimension bound the verdict, and one
+        // rule decided it; the advisory latency rule does not count.
+        assert!(xml.contains(
+            "<verdict value=\"PASS\" decision-rule=\"regression/fisher\" \
+             decision-rule-version=\"1\""
+        ));
+        assert!(xml.contains("; latency advisory\""));
+        for withdrawn in ["ADVISORY_WARN", "STRICT_FAIL", "strict", "-violations"] {
+            assert!(!xml.contains(withdrawn), "{withdrawn} in:\n{xml}");
+        }
+    }
+
+    #[test]
+    fn an_advisory_functional_dimension_states_its_mode_on_the_composite() {
+        let row = regression_row("worked_example_pass_above_cutoff", "result");
+        let record = VerdictRecord::builder(
+            TestIdentity::new("advisory-service"),
+            Verdict::Pass,
+            TestIntent::Verification,
+            sample_execution(100, 100, row.pass(), row.fail()),
+            FunctionalAssessment::single(row).with_mode(EnforcementMode::Advisory),
+        )
+        .build();
+        let xml = VerdictXmlWriter::write_record(&record, Some("2026-04-01T12:00:00Z"));
+        assert!(xml.contains("<composite value=\"PASS\" mode=\"advisory\"/>"));
+        // No dimension bound the verdict, so no rule decided it.
+        assert!(xml.contains("<verdict value=\"PASS\" reason="));
     }
 
     #[test]
@@ -971,6 +1032,15 @@ mod tests {
     fn xml_with_latency() {
         let xml =
             VerdictXmlWriter::write_record(&record_with_latency(), Some("2026-04-01T12:00:00Z"));
+        assert_snapshot!(xml);
+    }
+
+    #[test]
+    fn xml_with_advisory_latency() {
+        let xml = VerdictXmlWriter::write_record(
+            &record_with_advisory_latency(),
+            Some("2026-04-01T12:00:00Z"),
+        );
         assert_snapshot!(xml);
     }
 

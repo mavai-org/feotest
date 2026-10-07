@@ -52,11 +52,11 @@ use feotest::ptest::ProbabilisticTest;
 use feotest::service_contract::ServiceContract;
 use feotest::spec::SpecResolver;
 use feotest::statistics::compliance::{self, AlternativeKind, DEFAULT_SIZING_HORIZON};
-use feotest::statistics::decision::{Trigger, Verdict, compose_overall_verdict};
-use feotest::statistics::feasibility::feasibility_check;
-use feotest::statistics::latency::{
-    self, ConstraintThreshold, LatencyConstraint, LatencyMode, LatencyOutcome, ThresholdSource,
+use feotest::statistics::decision::{
+    DimensionDecisions, Trigger, Verdict, compose_overall_verdict,
 };
+use feotest::statistics::feasibility::feasibility_check;
+use feotest::statistics::latency::{self, ConstraintThreshold, LatencyConstraint, ThresholdSource};
 use feotest::statistics::proportion;
 use feotest::statistics::regression;
 use feotest::statistics::risk_driven_sizing::{self, SizingRefusal};
@@ -64,7 +64,7 @@ use feotest::statistics::rules::{
     ConfigurationError, DecisionRule, METHODOLOGY_VERSION, check_test_size,
 };
 use feotest::statistics::types::ConfidenceLevel;
-use feotest::verdict::{RuleEvidence, VerdictRecord};
+use feotest::verdict::{AssertionEnforcement, EnforcementMode, RuleEvidence, VerdictRecord};
 
 // ---------------------------------------------------------------------------
 // The coverage ledger
@@ -1383,19 +1383,15 @@ fn conformance_latency_percentile() {
 // latency_percentile_minimums — emission minimums and the latency gates
 // ---------------------------------------------------------------------------
 
-/// The fixture's intent, source and mode inputs.
-fn gate_inputs(case: &Value) -> (TestIntent, LatencyMode, ThresholdSource) {
-    let mode = if case["inputs"]["enforced"].as_bool().unwrap() {
-        LatencyMode::Enforced
-    } else {
-        LatencyMode::Advisory
-    };
+/// The fixture's intent and source inputs; the latency dimension's mode
+/// does not enter the gate.
+fn gate_inputs(case: &Value) -> (TestIntent, ThresholdSource) {
     let source = match case["inputs"]["threshold_source"].as_str().unwrap() {
         "explicit" => ThresholdSource::Explicit,
         "baseline-derived" => ThresholdSource::BaselineDerived,
         other => panic!("unknown threshold source {other}"),
     };
-    (input_intent(case), mode, source)
+    (input_intent(case), source)
 }
 
 fn check_latency_percentile_minimums(ledger: &mut Ledger) {
@@ -1433,12 +1429,11 @@ fn check_latency_percentile_minimums(ledger: &mut Ledger) {
                 check_json(ledger, suite, case, "planned_samples_needed", &needed);
             }
             "nondegeneracy_decision" => {
-                let (intent, mode, source) = gate_inputs(case);
+                let (intent, source) = gate_inputs(case);
                 let decision = latency::decide_nondegeneracy(
                     percentile,
                     input_u32(case, "test_samples"),
                     intent,
-                    mode,
                     source,
                 );
                 check_json(ledger, suite, case, "applies", &json!(decision.applies()));
@@ -1622,18 +1617,17 @@ fn check_latency_compliance_decision(ledger: &mut Ledger) {
             &LatencyConstraint {
                 percentile,
                 alpha,
-                mode: LatencyMode::Enforced,
                 threshold: ConstraintThreshold::Explicit(threshold_ms),
             },
             intent,
         );
         assert_eq!(
             judgement.rule(),
-            Some(DecisionRule::LatencyComplianceExactBinomial)
+            DecisionRule::LatencyComplianceExactBinomial
         );
         let compliance = judgement
             .compliance()
-            .expect("an enforced explicit requirement carries its decision");
+            .expect("an explicit requirement carries its decision");
         check_json(
             ledger,
             suite,
@@ -1652,7 +1646,7 @@ fn check_latency_compliance_decision(ledger: &mut Ledger) {
         );
         let possible = json!(compliance.pass_possible());
         check_json(ledger, suite, case, "pass_possible", &possible);
-        let verdict = verdict_name(judgement.verdict().expect("an enforced constraint"));
+        let verdict = verdict_name(judgement.verdict());
         check_json(ledger, suite, case, "verdict", &verdict);
         check_close(
             ledger,
@@ -1678,10 +1672,10 @@ fn check_latency_compliance_decision(ledger: &mut Ledger) {
             compliance.observed_percentile_ms(),
             tolerance,
         );
-        let advisory = compliance
-            .advisory_percentile_pass(threshold_ms)
+        let raw = compliance
+            .raw_percentile_pass(threshold_ms)
             .map_or(Value::Null, |pass| json!(pass));
-        check_json(ledger, suite, case, "advisory_percentile_pass", &advisory);
+        check_json(ledger, suite, case, "raw_percentile_pass", &raw);
     });
 }
 
@@ -1874,49 +1868,58 @@ fn check_verdict_criteria_case(ledger: &mut Ledger, case: &Value, tolerance: f64
 }
 
 /// One latency constraint of a test-verdict case, judged by the rule for
-/// its threshold source: its fixture row, and its verdict when enforced.
-fn latency_constraint_row(constraint: &Value) -> (Value, Option<Verdict>) {
+/// its threshold source whatever the dimension's mode: its fixture row and
+/// its verdict.
+fn latency_constraint_row(constraint: &Value) -> (Value, Verdict) {
     let latencies = numbers(&constraint["latencies"]).unwrap();
     let baseline = numbers(&constraint["baseline_latencies"]).unwrap_or_default();
     let threshold = match constraint["source"].as_str().unwrap() {
         "explicit" => ConstraintThreshold::Explicit(constraint["threshold_ms"].as_f64().unwrap()),
         _ => ConstraintThreshold::BaselineDerived(&baseline),
     };
-    let mode = match constraint["mode"].as_str().unwrap() {
-        "enforced" => LatencyMode::Enforced,
-        _ => LatencyMode::Advisory,
-    };
     let judgement = latency::judge_latency_constraint(
         &latencies,
         &LatencyConstraint {
             percentile: constraint["percentile"].as_f64().unwrap(),
             alpha: constraint["alpha"].as_f64().unwrap(),
-            mode,
             threshold,
         },
         TestIntent::Verification,
     );
-    let outcome = match judgement.outcome() {
-        LatencyOutcome::Decided(verdict) => verdict.to_string(),
-        LatencyOutcome::Advisory(advisory) => advisory.name().to_owned(),
-    };
     let row = json!({
         "constraint_id": constraint["constraint_id"],
         "source": judgement.source().name(),
-        "mode": if mode == LatencyMode::Enforced { "enforced" } else { "advisory" },
-        "participates": mode == LatencyMode::Enforced,
-        "decisionRule": judgement.rule().map_or(Value::Null, |rule| json!(rule.id())),
-        "verdict": outcome,
+        "decisionRule": judgement.rule().id(),
+        "verdict": judgement.verdict().to_string(),
     });
     (row, judgement.verdict())
 }
 
+/// The run-time switch a test-verdict case names in its `advisory` input,
+/// read by the parser the framework resolves `FEOTEST_ADVISORY` with.
+fn case_enforcement(inputs: &Value) -> AssertionEnforcement {
+    let advisory: Vec<&str> = inputs["advisory"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|dimension| dimension.as_str().unwrap())
+        .collect();
+    AssertionEnforcement::parse(&advisory.join(","))
+}
+
+/// A dimension's mode as the fixture states it.
+fn mode_name(mode: Option<EnforcementMode>) -> Value {
+    mode.map_or(Value::Null, |mode| json!(mode.name()))
+}
+
 /// One test-verdict case of `verdict`: the functional criterion through the
 /// production path, the latency constraints by their rules, composed by the
-/// structural rule the runner uses.
+/// structural rule the runner uses over the dimensions the case's switch
+/// setting enforces.
 fn check_test_verdict_case(ledger: &mut Ledger, case: &Value) {
     let suite = "verdict";
     let inputs = &case["inputs"];
+    let enforcement = case_enforcement(inputs);
     let mut criteria: Vec<(String, Verdict)> = Vec::new();
     if let Some(functional) = inputs.get("functional") {
         let name = functional["criterion_id"].as_str().unwrap().to_owned();
@@ -1935,15 +1938,22 @@ fn check_test_verdict_case(ledger: &mut Ledger, case: &Value) {
         criteria.push((name, row.verdict()));
     }
     let mut rows = Vec::new();
-    let mut enforced = Vec::new();
+    let mut constraints = Vec::new();
     for constraint in inputs["latency_constraints"].as_array().unwrap() {
         let (row, verdict) = latency_constraint_row(constraint);
-        if let Some(verdict) = verdict {
-            enforced.push((row["constraint_id"].as_str().unwrap().to_owned(), verdict));
-        }
+        constraints.push((row["constraint_id"].as_str().unwrap().to_owned(), verdict));
         rows.push(row);
     }
-    let overall = compose_overall_verdict(&criteria, &enforced);
+    let overall = compose_overall_verdict(
+        DimensionDecisions {
+            decisions: &criteria,
+            mode: enforcement.functional(),
+        },
+        DimensionDecisions {
+            decisions: &constraints,
+            mode: enforcement.latency(),
+        },
+    );
     let criteria_rows: Vec<Value> = criteria
         .iter()
         .map(|(id, verdict)| json!({"criterion_id": id, "verdict": verdict.to_string()}))
@@ -1954,6 +1964,10 @@ fn check_test_verdict_case(ledger: &mut Ledger, case: &Value) {
     check_json(ledger, suite, case, "rate_verdict", &rate);
     let latency_verdict = overall.latency_verdict().map_or(Value::Null, verdict_name);
     check_json(ledger, suite, case, "latency_verdict", &latency_verdict);
+    let functional_mode = mode_name(overall.functional_mode());
+    check_json(ledger, suite, case, "functional_mode", &functional_mode);
+    let latency_mode = mode_name(overall.latency_mode());
+    check_json(ledger, suite, case, "latency_mode", &latency_mode);
     check_json(
         ledger,
         suite,

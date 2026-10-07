@@ -1,6 +1,6 @@
 {
   "suite": "latency_compliance_decision",
-  "methodologyVersion": "1.5.0",
+  "methodologyVersion": "1.6.0",
   "fixtureSchemaVersion": 2,
   "decisionRules": [
     {
@@ -8,8 +8,8 @@
       "version": 1
     }
   ],
-  "description": "Verdicts of explicit latency requirements under latency/compliance-exact-binomial (companion §12.3): a requirement that the p-th percentile of successful latencies is at most tau is tested as H0: F(tau) <= p against H1: F(tau) > p. Y counts the successful latencies at or below tau; PASS iff Y >= y_min, the compliance/exact-binomial k_min at p_req = p over the realised number of successful latencies. A VERIFICATION plan whose planned samples are below the feasibility minimum is refused as COMPLIANCE_INFEASIBLE; a run whose realised successful count is below it is INCONCLUSIVE. The raw comparison of the observed percentile with tau is advisory and reported only. Binding: test_samples, within_threshold, y_min, pass_possible, verdict, configuration_error. Informational: false_compliance, clopper_pearson_lower, observed_percentile_ms, advisory_percentile_pass. The latencies are those of the samples that passed every functional criterion (companion §12.2.1). Frameworks MUST evaluate these cases through their production verdict path.",
-  "method": "latency/compliance-exact-binomial v1: Y = #{latencies <= tau}; y_min = min{y : P_p(Y >= y) <= alpha}, Y ~ Bin(n_s, p) (null when no y <= n_s qualifies); PASS iff Y >= y_min; INCONCLUSIVE when y_min is null. COMPLIANCE_INFEASIBLE iff intent is VERIFICATION and planned_samples < ceiling(log(alpha) / log(p)). false_compliance = P_p(Y >= y_min); clopper_pearson_lower = qbeta(alpha, Y, n_s - Y + 1) (0 at Y = 0); observed_percentile_ms is the nearest-rank percentile, rank ceiling(p n_s); advisory_percentile_pass = observed_percentile_ms <= tau.",
+  "description": "Verdicts of explicit latency requirements under latency/compliance-exact-binomial (companion §12.3): a requirement that the p-th percentile of successful latencies is at most tau is tested as H0: F(tau) <= p against H1: F(tau) > p. Y counts the successful latencies at or below tau; PASS iff Y >= y_min, the compliance/exact-binomial k_min at p_req = p over the realised number of successful latencies. A VERIFICATION plan whose planned samples are below the feasibility minimum is refused as COMPLIANCE_INFEASIBLE; a run whose realised successful count is below it is INCONCLUSIVE. The raw comparison of the observed percentile with tau is a labelled figure and decides nothing; an advisory requirement (companion §12.6) is decided by the same rule as an enforced one. Binding: test_samples, within_threshold, y_min, pass_possible, verdict, configuration_error. Informational: false_compliance, clopper_pearson_lower, observed_percentile_ms, raw_percentile_pass. The latencies are those of the samples that passed every functional criterion (companion §12.2.1). Frameworks MUST evaluate these cases through their production verdict path.",
+  "method": "latency/compliance-exact-binomial v1: Y = #{latencies <= tau}; y_min = min{y : P_p(Y >= y) <= alpha}, Y ~ Bin(n_s, p) (null when no y <= n_s qualifies); PASS iff Y >= y_min; INCONCLUSIVE when y_min is null. COMPLIANCE_INFEASIBLE iff intent is VERIFICATION and planned_samples < ceiling(log(alpha) / log(p)). false_compliance = P_p(Y >= y_min); clopper_pearson_lower = qbeta(alpha, Y, n_s - Y + 1) (0 at Y = 0); observed_percentile_ms is the nearest-rank percentile, rank ceiling(p n_s); raw_percentile_pass = observed_percentile_ms <= tau.",
   "tolerance": 1e-10,
   "cases": [
     {
@@ -32,7 +32,7 @@
         "false_compliance": 0.0370812093273551,
         "clopper_pearson_lower": 0.953440188546461,
         "observed_percentile_ms": 493,
-        "advisory_percentile_pass": true
+        "raw_percentile_pass": true
       }
     },
     {
@@ -55,12 +55,12 @@
         "false_compliance": 0.0370812093273551,
         "clopper_pearson_lower": 0.938380799603959,
         "observed_percentile_ms": 494,
-        "advisory_percentile_pass": true
+        "raw_percentile_pass": true
       }
     },
     {
-      "name": "p95_n100_advisory_pass_not_demonstrated",
-      "description": "The observed p95 is within 500 ms (95 of 100 at or below), so the advisory comparison passes; compliance is not demonstrated.",
+      "name": "p95_n100_raw_pass_not_demonstrated",
+      "description": "The observed p95 is within 500 ms (95 of 100 at or below), so the raw comparison passes; compliance is not demonstrated.",
       "inputs": {
         "percentile": 0.95,
         "threshold_ms": 500,
@@ -79,11 +79,11 @@
         "false_compliance": 0.0370812093273551,
         "clopper_pearson_lower": 0.897746622356726,
         "observed_percentile_ms": 499,
-        "advisory_percentile_pass": true
+        "raw_percentile_pass": true
       }
     },
     {
-      "name": "p95_n100_advisory_fail",
+      "name": "p95_n100_raw_fail",
       "description": "94 of 100 within: the observed p95 exceeds 500 ms and the verdict is FAIL.",
       "inputs": {
         "percentile": 0.95,
@@ -103,7 +103,7 @@
         "false_compliance": 0.0370812093273551,
         "clopper_pearson_lower": 0.885014744392079,
         "observed_percentile_ms": 501,
-        "advisory_percentile_pass": false
+        "raw_percentile_pass": false
       }
     },
     {
@@ -127,7 +127,7 @@
         "false_compliance": 0.0370812093273551,
         "clopper_pearson_lower": 0.953440188546461,
         "observed_percentile_ms": 500,
-        "advisory_percentile_pass": true
+        "raw_percentile_pass": true
       }
     },
     {
@@ -153,7 +153,7 @@
         "false_compliance": null,
         "clopper_pearson_lower": null,
         "observed_percentile_ms": null,
-        "advisory_percentile_pass": null
+        "raw_percentile_pass": null
       }
     },
     {
@@ -177,7 +177,7 @@
         "false_compliance": null,
         "clopper_pearson_lower": 0.94966066166958,
         "observed_percentile_ms": 494,
-        "advisory_percentile_pass": true
+        "raw_percentile_pass": true
       }
     },
     {
@@ -201,7 +201,7 @@
         "false_compliance": null,
         "clopper_pearson_lower": 0.94966066166958,
         "observed_percentile_ms": 494,
-        "advisory_percentile_pass": true
+        "raw_percentile_pass": true
       }
     },
     {
@@ -225,7 +225,7 @@
         "false_compliance": 0.0484945252494231,
         "clopper_pearson_lower": 0.950492390111773,
         "observed_percentile_ms": 494,
-        "advisory_percentile_pass": true
+        "raw_percentile_pass": true
       }
     },
     {
@@ -248,7 +248,7 @@
         "false_compliance": 0.0397547408323874,
         "clopper_pearson_lower": 0.990547717791925,
         "observed_percentile_ms": 1198,
-        "advisory_percentile_pass": true
+        "raw_percentile_pass": true
       }
     },
     {
@@ -271,7 +271,7 @@
         "false_compliance": 0.0397547408323874,
         "clopper_pearson_lower": 0.987462394590327,
         "observed_percentile_ms": 1198,
-        "advisory_percentile_pass": true
+        "raw_percentile_pass": true
       }
     },
     {
@@ -294,7 +294,7 @@
         "false_compliance": 0.00807124995510266,
         "clopper_pearson_lower": 0.901818083396702,
         "observed_percentile_ms": 791,
-        "advisory_percentile_pass": true
+        "raw_percentile_pass": true
       }
     },
     {
@@ -317,7 +317,7 @@
         "false_compliance": 0.00807124995510266,
         "clopper_pearson_lower": 0.895355735762461,
         "observed_percentile_ms": 792,
-        "advisory_percentile_pass": true
+        "raw_percentile_pass": true
       }
     },
     {
@@ -340,7 +340,7 @@
         "false_compliance": 0.0403452338759964,
         "clopper_pearson_lower": 0.508054476553901,
         "observed_percentile_ms": 263,
-        "advisory_percentile_pass": true
+        "raw_percentile_pass": true
       }
     },
     {
@@ -364,7 +364,7 @@
         "false_compliance": 0.0625,
         "clopper_pearson_lower": 0.562341325190349,
         "observed_percentile_ms": 200,
-        "advisory_percentile_pass": true
+        "raw_percentile_pass": true
       }
     },
     {
@@ -388,7 +388,7 @@
         "false_compliance": 0.03125,
         "clopper_pearson_lower": 0.5,
         "observed_percentile_ms": 224,
-        "advisory_percentile_pass": true
+        "raw_percentile_pass": true
       }
     }
   ]

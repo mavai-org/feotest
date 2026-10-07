@@ -473,10 +473,19 @@ fn verdict_reasoning(record: &VerdictRecord) -> String {
     let rule = record
         .statistical_analysis()
         .map_or_else(|| "its rule".to_owned(), |a| a.decision_rule().to_string());
+    let functional_binds = record.functional_assessment().mode().is_enforced();
+    let latency_advisory = record
+        .latency()
+        .is_some_and(|dimension| !dimension.mode().is_enforced());
     match record.verdict() {
-        Some(Verdict::Pass) => format!(
+        Some(Verdict::Pass) if functional_binds && !latency_advisory => format!(
             "Every criterion passed under its rule ({rule} for the first) and every \
              enforced latency constraint passed: {}.",
+            record.verdict_reason()
+        ),
+        Some(Verdict::Pass) => format!(
+            "Every enforced assertion passed; an advisory dimension is decided and \
+             reported, and never fails the test: {}.",
             record.verdict_reason()
         ),
         Some(Verdict::Fail) => format!("The test failed: {}.", record.verdict_reason()),
@@ -932,5 +941,22 @@ mod tests {
         render_verdict_line(&record, &mut line).unwrap();
         assert!(line.contains("test_translation"));
         assert!(!line.contains("my-service"));
+    }
+
+    #[test]
+    fn an_advisory_functional_dimension_is_not_claimed_to_have_passed() {
+        let row = regression_row("worked_example_fail_deep_degradation", "result");
+        let record = VerdictRecord::builder(
+            TestIdentity::new("my-service"),
+            Verdict::Pass,
+            TestIntent::Verification,
+            execution(100, &row, TerminationReason::Completed),
+            FunctionalAssessment::single(row)
+                .with_mode(crate::statistics::rules::EnforcementMode::Advisory),
+        )
+        .build();
+        let reasoning = verdict_reasoning(&record);
+        assert!(reasoning.starts_with("Every enforced assertion passed; an advisory dimension"));
+        assert!(reasoning.ends_with("no assertion enforced; functional advisory."));
     }
 }

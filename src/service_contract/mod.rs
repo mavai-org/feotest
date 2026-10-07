@@ -435,7 +435,7 @@ mod tests {
         }
         assert_eq!(Minimal.warmup(), 0);
         assert_eq!(Minimal.description(), "");
-        assert!(Minimal.covariates().is_empty());
+        assert_eq!(Minimal.covariates().len(), 0);
         assert!(Minimal.latency().is_none());
     }
 

@@ -55,6 +55,7 @@
 //!   "execution": { ... },
 //!   "functionalAssessment": {
 //!     "composite": "PASS",
+//!     "mode": "enforced",
 //!     "criteria": [ { "name": "result", "pass": 100, "fail": 0, "passRate": 1.0, "verdict": "PASS" } ]
 //!   },
 //!   "covariateStatus": { "aligned": true }

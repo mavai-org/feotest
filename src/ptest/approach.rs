@@ -8,6 +8,7 @@
 use crate::ptest::builder::ThresholdApproach;
 use crate::statistics::regression::{ImpliedAlpha, fisher_cutoff, implied_alpha};
 use crate::statistics::risk_driven_sizing::{self, SizingRefusal};
+use crate::statistics::rules::EnforcementMode;
 use crate::statistics::types::ConfidenceLevel;
 use crate::statistics::{compliance, defaults};
 
@@ -102,12 +103,16 @@ impl RunPlan {
 ///
 /// `criterion_baselines` carries the per-criterion baseline tallies of the
 /// contract's baseline-derived criteria; `aggregate` is the baseline's
-/// whole-contract tally, when a baseline resolved.
+/// whole-contract tally, when a baseline resolved. A sample-size-first plan
+/// with no baseline and an advisory functional dimension runs its declared
+/// samples with no early-termination floor: a missing baseline does not
+/// stop a run in a dimension that binds nothing.
 ///
 /// # Panics
 ///
-/// Panics if the approach needs a baseline and none is available, or if a
-/// sized plan's design cannot be priced (see [`ThresholdApproach::RiskDriven`]).
+/// Panics if the approach needs a baseline and none is available (a sized
+/// plan always does, to size the run), or if a sized plan's design cannot be
+/// priced (see [`ThresholdApproach::RiskDriven`]).
 // mavai-ref: JVI-0FVFYBM — do not remove (resolves in mavai-orchestrator)
 // mavai-ref: JVI-5YJVXGF — do not remove (resolves in mavai-orchestrator)
 // mavai-ref: JVI-6789AKT — do not remove (resolves in mavai-orchestrator)
@@ -115,13 +120,20 @@ pub fn resolve_plan(
     approach: &ThresholdApproach,
     aggregate: Option<&CriterionBaselineTally>,
     criterion_baselines: &[CriterionBaselineTally],
+    functional_mode: EnforcementMode,
 ) -> RunPlan {
     let confidence = resolved_confidence(approach);
     match approach {
-        ThresholdApproach::SampleSizeFirst { samples, .. } => {
-            let aggregate = require_baseline(aggregate);
-            plan_at(*samples, confidence, aggregate, None)
-        }
+        ThresholdApproach::SampleSizeFirst { samples, .. } => match aggregate {
+            None if !functional_mode.is_enforced() => RunPlan {
+                samples: *samples,
+                confidence,
+                floor: 0.0,
+                design: None,
+                implied_alpha: None,
+            },
+            _ => plan_at(*samples, confidence, require_baseline(aggregate), None),
+        },
         ThresholdApproach::ConfidenceFirst {
             min_detectable_effect,
             power,
@@ -423,6 +435,7 @@ mod tests {
             },
             Some(&tally("aggregate", 951, 1000)),
             &[],
+            EnforcementMode::Enforced,
         );
         let implied = plan.implied_alpha.unwrap();
         assert!(implied.alpha().unwrap() <= 0.05);
@@ -438,9 +451,31 @@ mod tests {
             },
             Some(&tally("aggregate", 951, 1000)),
             &[],
+            EnforcementMode::Enforced,
         );
         assert!((plan.floor - 0.91).abs() < 1e-12);
         assert_eq!(plan.samples, 100);
+    }
+
+    #[test]
+    fn an_advisory_functional_dimension_runs_without_a_baseline() {
+        let approach = ThresholdApproach::SampleSizeFirst {
+            samples: 100,
+            confidence: 0.95,
+        };
+        let plan = resolve_plan(&approach, None, &[], EnforcementMode::Advisory);
+        assert_eq!(plan.samples, 100);
+        assert!(plan.floor.abs() < f64::EPSILON);
+    }
+
+    #[test]
+    #[should_panic(expected = "baseline spec required for this threshold approach")]
+    fn an_enforced_functional_dimension_still_needs_its_baseline() {
+        let approach = ThresholdApproach::SampleSizeFirst {
+            samples: 100,
+            confidence: 0.95,
+        };
+        let _ = resolve_plan(&approach, None, &[], EnforcementMode::Enforced);
     }
 
     #[test]

@@ -133,7 +133,7 @@ mod tests {
         let mut warnings = Vec::new();
         let result = interpret_resolve_result(Ok(spec), &mut warnings);
         assert!(result.is_some());
-        assert!(warnings.is_empty());
+        assert_eq!(warnings.len(), 0);
     }
 
     #[test]
@@ -234,7 +234,7 @@ mod tests {
         let selection = SelectionResult::from_single(test_spec());
         let mut warnings = Vec::new();
         collect_selection_warnings(&selection, &mut warnings);
-        assert!(warnings.is_empty());
+        assert_eq!(warnings.len(), 0);
     }
 
     #[test]
@@ -294,7 +294,7 @@ mod tests {
         let mut warnings = Vec::new();
         let result = interpret_covariate_result(Ok(selection), &mut warnings);
         assert!(result.is_some());
-        assert!(warnings.is_empty());
+        assert_eq!(warnings.len(), 0);
     }
 
     // -----------------------------------------------------------------------

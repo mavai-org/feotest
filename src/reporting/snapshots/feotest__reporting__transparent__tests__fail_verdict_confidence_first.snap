@@ -8,7 +8,7 @@ expression: "render_with(&fail_record(), &approach)"
 ║ Test:        my-service                                     ║
 ║ Approach:    confidence-first                               ║
 ║ Intent:      VERIFICATION                                   ║
-║ Methodology: 1.5.0                                          ║
+║ Methodology: 1.6.0                                          ║
 ║ Origin:      EMPIRICAL                                      ║
 ║─────────────────────────────────────────────────────────────║
 ║ HYPOTHESES                                                  ║

@@ -5,6 +5,6 @@ expression: output
 ═ VERDICT: INCONCLUSIVE (insufficient evidence) ═
 Test:                flaky-service
 
-Methodology:         1.5.0
+Methodology:         1.6.0
 Pass rate:           0.7000 (7/10 samples)
 Elapsed:             0.5s

@@ -3,12 +3,10 @@ source: src/latency/dimension.rs
 expression: "serde_json::to_value(&dimension).unwrap()"
 ---
 {
-  "advisoryViolations": 1,
   "evaluations": [
     {
       "confidence": 0.95,
       "decisionRule": "latency/compliance-exact-binomial",
-      "mode": "STRICT",
       "observedMs": 180,
       "percentile": "p95",
       "provenance": {
@@ -20,7 +18,7 @@ expression: "serde_json::to_value(&dimension).unwrap()"
     },
     {
       "confidence": 0.95,
-      "mode": "ADVISORY",
+      "decisionRule": "latency/precedence",
       "observedMs": 520,
       "percentile": "p99",
       "provenance": {
@@ -29,15 +27,16 @@ expression: "serde_json::to_value(&dimension).unwrap()"
         "n": 100,
         "rank": 99
       },
-      "status": "ADVISORY_WARN",
-      "thresholdMs": 500
+      "status": "FAIL",
+      "thresholdMs": 500,
+      "verdict": "FAIL"
     }
   ],
+  "mode": "advisory",
   "observedPercentiles": {
     "p95": 180,
     "p99": 520
   },
-  "strictViolations": 0,
   "successfulSamples": 100,
-  "verdict": "PASS"
+  "verdict": "FAIL"
 }

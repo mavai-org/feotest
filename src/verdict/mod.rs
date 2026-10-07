@@ -8,9 +8,11 @@
 //! paths: machine-readable XML, human-readable HTML reports, and console output.
 
 mod assessment;
+pub mod enforcement;
 mod record;
 
 pub use assessment::{CriterionRow, FunctionalAssessment};
+pub use enforcement::AssertionEnforcement;
 pub use record::{
     BaselineProvenance, ComplianceEvidence, CovariateStatus, DesignDisclosure, Misalignment,
     RegressionEvidence, RuleEvidence, SpecProvenance, StatisticalAnalysis, VerdictRecord,
@@ -18,3 +20,4 @@ pub use record::{
 };
 
 pub use crate::statistics::decision::Verdict;
+pub use crate::statistics::rules::EnforcementMode;

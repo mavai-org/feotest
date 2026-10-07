@@ -123,10 +123,13 @@ A **verdict** is the outcome of a probabilistic test:
 
 A verdict is not based on whether individual trials succeeded or failed. Each
 criterion is decided by a versioned **decision rule** of the Statistical
-Companion (methodology 1.5.0), at its **confidence level**; the test's verdict
-composes the criteria with any enforced latency constraints by one structural
-rule — PASS if every one passes, FAIL if any fails, INCONCLUSIVE otherwise —
-and names what decided a FAIL or an INCONCLUSIVE. A test can have failing
+Companion (methodology 1.6.0), at its **confidence level**; the test's verdict
+composes the criteria with any latency constraints by one structural rule —
+PASS if every one passes, FAIL if any fails, INCONCLUSIVE otherwise — and
+names what decided a FAIL or an INCONCLUSIVE. Both dimensions are enforced
+unless the run makes one advisory
+([Enforced and advisory assertions](#enforced-and-advisory-assertions)), and
+the test's verdict composes the enforced ones only. A test can have failing
 trials and still produce a Pass verdict — because the failure rate is within
 the expected range.
 
@@ -392,6 +395,77 @@ ProbabilisticTest::for_contract(MyService)
 
 In the macro form the intent is an attribute: `#[probabilistic_test(samples = 50, threshold = 0.99, intent = "smoke")]`.
 
+### Enforced and advisory assertions
+
+Every assertion a test declares is **enforced** by default: the functional
+criteria and the latency constraints, whether a threshold is a stated
+requirement or derived from a baseline. A FAIL in either dimension fails the
+test.
+
+One run-time setting makes a dimension **advisory** instead, the
+`FEOTEST_ADVISORY` environment variable:
+
+| Environment variable | Values |
+|---|---|
+| `FEOTEST_ADVISORY` | `functional`, `latency`, or both as `functional,latency` |
+
+```bash
+FEOTEST_ADVISORY=latency cargo test              # latency decided and reported, never failing a test
+FEOTEST_ADVISORY=functional,latency cargo test   # neither dimension can fail a test
+```
+
+Values are case-insensitive and comma-separated; anything other than
+`functional` and `latency` is a configuration error that stops the test
+before any sample runs, never a value quietly ignored. Unset or empty, every
+assertion is enforced. The setting applies to every test the run executes,
+the `#[probabilistic_test]` macro and a sentinel included.
+
+**What advisory means.** An advisory dimension is still decided by its own
+rules, on the same samples and with the same checks, as it would be if
+enforced: a requirement by `compliance/exact-binomial`, a baseline by
+`regression/fisher`, a latency ceiling by `latency/compliance-exact-binomial`,
+a baseline-derived latency threshold by `latency/precedence`. Its verdict —
+PASS, FAIL or INCONCLUSIVE — is recorded beside the test verdict and labelled
+advisory in the verdict record, the verdict XML, the console and the HTML
+report. It never fails the test: the test verdict composes the enforced
+dimensions only, and with no enforced dimension it is PASS. An advisory
+decision is not one of the test's binding decisions, so it is left out of the
+error envelopes and never named as what decided a FAIL or an INCONCLUSIVE.
+`assert_contract()` and `assert_latency()` never panic on an advisory
+dimension, and `assert_all()` checks the enforced ones only.
+
+Because an advisory dimension binds nothing, a missing baseline does not stop
+the run in it: a baseline-derived criterion or latency constraint without its
+baseline is reported INCONCLUSIVE (a run sized from the baseline —
+confidence-first or risk-driven — still needs one to size it). Nor does an
+advisory functional dimension end a run early while a latency constraint
+still needs its samples.
+
+The setting does not relax the configuration checks. A design no outcome
+could decide — `COMPLIANCE_INFEASIBLE`, `TEST_LARGER_THAN_BASELINE` — is
+refused whether its dimension is enforced or advisory, and the test fails;
+size the run instead. Smoke intent is a different thing from advisory and is
+unaffected by it.
+
+**When to use it.** The usual case is a latency requirement written for
+production, run on a development machine significantly slower than
+production. The requirement refers to its target environment, and it is the
+developer's job to switch latency enforcement off where the machine cannot
+honour it: `FEOTEST_ADVISORY=latency` locally, unset in CI and production.
+There is no builder method or macro attribute for this: the declared
+assertions are the ones that count, and which of them bind on a given run is
+the operator's choice. feotest has no notion of environment either; you know
+which environment you are in.
+
+**Environments and baselines.** Declaring no covariates states that the
+service's behaviour does not depend on the environment it runs in; if you
+believe it does, declare the covariate
+([Spec resolution](#spec-resolution)). A baseline-derived threshold should
+consume the baseline for where the test runs — your own baseline file in
+development, a production baseline in production. Choosing the baseline file
+is yours (`baseline_dir`, `baseline_path` or `FEOTEST_SPEC_DIR`); the switch
+does not choose it for you.
+
 ---
 
 ## Part 5: Service contracts in depth
@@ -441,31 +515,50 @@ fn latency(&self) -> Option<LatencyCriterion> {
 }
 ```
 
-`None` — the default — means the contract makes no latency assertion.
+A percentile can instead be asserted against the baseline the test consumes,
+its threshold derived from the baseline's latencies after the run:
+
+```rust
+fn latency(&self) -> Option<LatencyCriterion> {
+    Some(LatencyCriterion::empirical().against_baseline(Percentile::P95))
+}
+```
+
+The two forms combine on one criterion; a percentile with an explicit ceiling
+is that requirement, whatever the baseline holds. A percentile declared
+neither way is not asserted. `None` — the default — means the contract makes
+no latency assertion.
 
 Latency is measured on the samples that passed every functional criterion, and
 decided after the run on the latencies the run actually produced:
 
-- An **explicit ceiling** is a requirement, enforced strictly and decided by
+- An **explicit ceiling** is a requirement, decided by
   `latency/compliance-exact-binomial`: the count of successful latencies at or
   below the ceiling must demonstrate, at the criterion's confidence (0.95
   unless `.confidence(level)` says otherwise), that at least the percentile's
   share meets it. A p95 ceiling needs at least 59 successful latencies before
   any count can; fewer planned samples are refused under verification, and a
   run that delivers fewer is INCONCLUSIVE.
-- A percentile the contract does not bound gets a **baseline-derived**
-  threshold when the baseline recorded latencies, decided by
-  `latency/precedence`: the baseline latency at the smallest rank an
-  undegraded service would exceed with probability at most alpha, for the
-  test's own count. When no rank achieves that — a small baseline against a
-  high percentile — the constraint is **saturated**: it has no threshold and is
-  INCONCLUSIVE. Baseline-derived thresholds are advisory by default (a raw
-  percentile comparison, labelled so, that never enters the verdict);
-  `.enforce_baseline_latency(true)` enforces them.
+- A percentile asserted against the baseline gets a **baseline-derived**
+  threshold, decided by `latency/precedence` at the builder's
+  `.baseline_latency_confidence(level)` (0.95 otherwise): the baseline latency
+  at the smallest rank an undegraded service would exceed with probability at
+  most alpha, for the test's own count. When no rank achieves that — a small
+  baseline against a high percentile — the constraint is **saturated**: it has
+  no threshold and is INCONCLUSIVE. The baseline must have recorded successful
+  latencies (a measure experiment records them); without them the test stops
+  before any sample runs, unless the latency dimension is advisory, when the
+  constraint is reported INCONCLUSIVE.
 
-Before the run, an enforced constraint expected to be saturated or degenerate
-at the planned size earns a warning with a planning figure — the baseline or
-the sample count that would support it — never a verdict.
+Both kinds are enforced, like every assertion, unless the run makes the
+latency dimension advisory
+([Enforced and advisory assertions](#enforced-and-advisory-assertions)); an
+advisory constraint is decided by the same rule and reported with its
+verdict.
+
+Before the run, a constraint expected to be saturated or degenerate at the
+planned size earns a warning with a planning figure — the baseline or the
+sample count that would support it — never a verdict.
 
 ---
 
@@ -662,20 +755,21 @@ A verdict record contains:
 | Field | Content |
 |---|---|
 | `identity` | Service contract ID and test name |
-| `methodology_version` | The Statistical Companion methodology whose rules decided it (1.5.0) |
-| `verdict` | Pass, Fail, or Inconclusive — the test verdict over the criteria and the enforced latency constraints; absent when the configuration was refused |
+| `methodology_version` | The Statistical Companion methodology whose rules decided it (1.6.0) |
+| `verdict` | Pass, Fail, or Inconclusive — the test verdict over the enforced dimensions (Pass when none is enforced); absent when the configuration was refused |
 | `configuration_errors` | For a refused configuration: every applicable error, in order |
-| `triggering` | The criteria and latency constraints that decided a Fail or an Inconclusive |
+| `triggering` | The criteria and latency constraints of the enforced dimensions that decided a Fail or an Inconclusive |
 | `intent` | Verification or Smoke |
 | `execution` | Samples planned/executed, successes, failures, cost |
-| `functional_assessment` | One row per criterion — pass rate, failure distribution, the rule that decided it — and their composite |
+| `functional_assessment` | One row per criterion — pass rate, failure distribution, the rule that decided it — their composite, and whether the dimension was enforced or advisory |
 | `statistical_analysis` | The rule, its evidence (cutoff or smallest passing count), threshold, confidence; the Wilson bound as descriptive context |
-| `latency` | Each latency evaluation with its rule, and the latency verdict |
+| `latency` | Each latency evaluation with its rule, the latency verdict, and whether the dimension was enforced or advisory |
 | `spec_provenance` | Baseline filename, threshold origin, contract reference |
 | `warnings` | Undersized smoke runs, latency planning warnings, etc. |
 
-Records are written as verdict XML **1.7**, the family's interchange schema for
-methodology 1.5.0.
+Records are written as verdict XML **1.8**, the family's interchange schema for
+methodology 1.6.0, which states each dimension's mode (`enforced` or
+`advisory`).
 
 ### JUnit XML output
 

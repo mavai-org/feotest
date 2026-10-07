@@ -8,7 +8,7 @@ expression: "render_with(&pass_record(), &approach)"
 ║ Test:        my-service                                     ║
 ║ Approach:    confidence-first (risk-driven)                 ║
 ║ Intent:      VERIFICATION                                   ║
-║ Methodology: 1.5.0                                          ║
+║ Methodology: 1.6.0                                          ║
 ║ Origin:      EMPIRICAL                                      ║
 ║─────────────────────────────────────────────────────────────║
 ║ HYPOTHESES                                                  ║

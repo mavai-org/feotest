@@ -466,7 +466,7 @@ mod tests {
 
     #[test]
     fn format_projections_empty_returns_empty() {
-        assert!(format_projections(&[]).is_empty());
+        assert_eq!(format_projections(&[]).len(), 0);
     }
 
     #[test]

@@ -12,16 +12,12 @@ expression: xml
       <check name="content" count="1"/>
     </failure-distribution>
   </functional>
-  <latency successful-samples="97" verdict="INCONCLUSIVE" mode="enforced">
+  <latency successful-samples="93" verdict="FAIL" mode="advisory">
     <observed>
-      <percentile label="p50" value-ms="120"/>
-      <percentile label="p95" value-ms="450"/>
-      <percentile label="p99" value-ms="780"/>
+      <percentile label="p90" value-ms="690"/>
     </observed>
     <evaluations>
-      <evaluation percentile="p50" observed-ms="120" threshold-ms="200" provenance="explicit" status="PASS" decision-rule="latency/compliance-exact-binomial" decision-rule-version="1"/>
-      <evaluation percentile="p95" observed-ms="450" provenance="baseline-derived" baseline-confidence="0.95" baseline-n="95" status="SATURATED" decision-rule="latency/precedence" decision-rule-version="1"/>
-      <evaluation percentile="p99" observed-ms="780" threshold-ms="800" provenance="baseline-derived" baseline-confidence="0.95" baseline-rank="94" baseline-n="95" status="PASS" decision-rule="latency/precedence" decision-rule-version="1"/>
+      <evaluation percentile="p90" observed-ms="690" threshold-ms="600" provenance="explicit" status="FAIL" decision-rule="latency/compliance-exact-binomial" decision-rule-version="1"/>
     </evaluations>
   </latency>
   <statistics confidence-level="0.9500" standard-error="0.0171" wilson-lower="0.9273" threshold="0.9100" threshold-origin="EMPIRICAL" size-at-assumed-common-rate="0.033967392625028556"/>
@@ -32,5 +28,5 @@ expression: xml
     <criterion id="result" verdict="PASS" pass="97" fail="3" inconclusive="0" total="100" observed-rate="0.9700" threshold="0.9100" decision-rule="regression/fisher" decision-rule-version="1" required-pass="91"/>
     <composite value="PASS" mode="enforced"/>
   </per-criterion>
-  <verdict value="INCONCLUSIVE" reason="insufficient evidence"/>
+  <verdict value="PASS" decision-rule="regression/fisher" decision-rule-version="1" reason="97 of 100 &gt;= cutoff 91 (regression/fisher); latency advisory"/>
 </verdict-record>

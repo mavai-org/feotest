@@ -8,7 +8,7 @@ expression: buf
 ║ Test:        payment-gateway                                ║
 ║ Approach:    threshold-first                                ║
 ║ Intent:      SMOKE                                          ║
-║ Methodology: 1.5.0                                          ║
+║ Methodology: 1.6.0                                          ║
 ║ Origin:      SLA                                            ║
 ║ Contract:    API SLA v3.2 §2.1                              ║
 ║─────────────────────────────────────────────────────────────║

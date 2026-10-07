@@ -875,7 +875,7 @@ mod tests {
             .run();
         let latency = result.spec().statistics.latency_distribution.as_ref();
         assert!(latency.is_some());
-        assert!(!latency.unwrap().latencies_ms.is_empty());
+        assert_ne!(latency.unwrap().latencies_ms.len(), 0);
     }
 
     #[test]
@@ -1156,7 +1156,7 @@ mod tests {
             .inputs(&inputs)
             .build()
             .run();
-        assert!(result.judgements().is_empty());
+        assert_eq!(result.judgements().len(), 0);
         // A single empirical criterion also emits no per-criterion block —
         // the aggregate figures already describe it.
         assert!(result.spec().statistics.per_criterion.is_none());
