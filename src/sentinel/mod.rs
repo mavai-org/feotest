@@ -275,7 +275,7 @@ mod tests {
         };
         assert_eq!(spec.trivial().id(), "trivial");
         // Covariate access via the trait is unaffected by the marker macro.
-        assert!(spec.trivial().covariates().is_empty());
+        assert_eq!(spec.trivial().covariates().len(), 0);
         let profile: CovariateProfile = spec.trivial().resolve_covariates();
         assert!(profile.is_empty());
     }

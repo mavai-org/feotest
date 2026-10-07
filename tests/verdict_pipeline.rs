@@ -82,7 +82,7 @@ fn baseline_provenance_populated_from_spec() {
     assert!(bp.baseline_samples() > 0);
     assert!(bp.baseline_rate() > 0.0);
     assert!(bp.derived_threshold() > 0.0);
-    assert!(!bp.generated_at().is_empty());
+    assert_ne!(bp.generated_at().len(), 0);
 }
 
 #[test]
@@ -121,8 +121,8 @@ fn covariate_status_aligned_by_default() {
     let cov = result.verdict_record().covariate_status();
     assert!(cov.aligned());
     assert!(cov.misalignments().is_empty());
-    assert!(cov.baseline_profile().is_empty());
-    assert!(cov.observed_profile().is_empty());
+    assert_eq!(cov.baseline_profile().len(), 0);
+    assert_eq!(cov.observed_profile().len(), 0);
 }
 
 // ---------------------------------------------------------------------------

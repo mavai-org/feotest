@@ -279,7 +279,7 @@ mod tests {
         let observational = CriterionTarget::ZeroFailures;
         let judgements =
             judge_normative_criteria(&[("e", &empirical), ("z", &observational)], &counts);
-        assert!(judgements.is_empty());
+        assert_eq!(judgements.len(), 0);
     }
 
     #[test]

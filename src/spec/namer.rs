@@ -245,7 +245,7 @@ mod tests {
     #[test]
     fn empty_profile_produces_no_covariate_hashes() {
         let profile = CovariateProfile::empty();
-        assert!(profile.value_hashes().is_empty());
+        assert_eq!(profile.value_hashes().len(), 0);
     }
 
     #[test]

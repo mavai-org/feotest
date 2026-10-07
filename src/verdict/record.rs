@@ -1305,12 +1305,12 @@ mod tests {
 
         assert_eq!(record.verdict(), Some(Verdict::Pass));
         assert_eq!(record.methodology_version(), "1.6.0");
-        assert!(record.configuration_errors().is_empty());
+        assert_eq!(record.configuration_errors().len(), 0);
         assert_eq!(record.intent(), TestIntent::Verification);
         assert_eq!(record.identity().service_contract_id(), "shopping-basket");
         assert!(record.statistical_analysis().is_none());
         assert!(record.spec_provenance().is_none());
-        assert!(record.warnings().is_empty());
+        assert_eq!(record.warnings().len(), 0);
     }
 
     #[test]
@@ -1624,7 +1624,7 @@ mod tests {
 
         assert!(record.correlation_id().is_none());
         assert!(record.pacing().is_none());
-        assert!(record.environment().is_empty());
+        assert_eq!(record.environment().len(), 0);
     }
 
     #[test]

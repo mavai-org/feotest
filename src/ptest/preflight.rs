@@ -221,7 +221,7 @@ mod tests {
             &configuration(100, TestIntent::Verification, &baselines),
             &[],
         );
-        assert!(parts.is_empty());
+        assert_eq!(parts.len(), 0);
     }
 
     #[test]
@@ -248,7 +248,7 @@ mod tests {
             &configuration(200, TestIntent::Smoke, &[]),
             &[strict_requirement()],
         );
-        assert!(parts.is_empty());
+        assert_eq!(parts.len(), 0);
     }
 
     #[test]
@@ -262,6 +262,6 @@ mod tests {
             &configuration(100_000, TestIntent::Verification, &[]),
             &[requirement],
         );
-        assert!(parts.is_empty());
+        assert_eq!(parts.len(), 0);
     }
 }
