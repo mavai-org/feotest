@@ -101,7 +101,7 @@ For a complete worked example, see
 ## Operational approaches
 
 Every probabilistic test decides each criterion by a versioned decision rule
-of the Statistical Companion (methodology 1.5.0): a declared requirement by
+of the Statistical Companion (methodology 1.6.0): a declared requirement by
 `compliance/exact-binomial`, a baseline-derived bar by `regression/fisher`.
 The approaches fix what you know and derive the rest:
 
@@ -138,7 +138,7 @@ The framework is organised around a small number of core modules:
 | `model` | Domain types: outcomes, violations, sample aggregates, warnings |
 | `criteria` | Acceptance criteria: normative, empirical, and reference-matching |
 | `service_contract` | The `ServiceContract` trait: the named unit of work under test |
-| `latency` | Latency percentile criteria and enforcement |
+| `latency` | Latency percentile criteria and the latency dimension |
 | `verdict` | Mapping statistical results to pass/fail decisions |
 | `spec` | Baseline specs: generation, resolution, covariate matching, expiration |
 | `controls` | Operational safeguards: warm-up, budgets, pacing, token tracking |
@@ -169,7 +169,7 @@ and the exact binomial test on the latencies within a ceiling — with a
 documented convention for probabilities exactly at alpha. Wilson score
 intervals are reported beside the verdicts as descriptive context; no rule
 decides with them. The rules are conformance-tested against the reference
-oracle of the Statistical Companion, methodology 1.5.0.
+oracle of the Statistical Companion, methodology 1.6.0.
 
 `feotest` does not claim that these assumptions are always perfectly met. It
 insists that they be made explicit and that departures from them be acknowledged
