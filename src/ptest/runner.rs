@@ -4,15 +4,15 @@
 //! configuration whole before any sample runs (recording the refusal),
 //! samples the contract, decides each criterion by its rule and each latency
 //! constraint by the rule for its threshold source, and composes the test
-//! verdict `V_test` from the functional and latency dimensions (Statistical
-//! Companion §1.4.6).
+//! verdict `V_test` from the dimensions the run enforces (Statistical
+//! Companion §1.4.6, §12.6). An advisory dimension is decided exactly as an
+//! enforced one and reported beside the test verdict.
 
 use crate::controls::{Cost, ExecutionConfig, TokenRecorder};
 use crate::criteria::{Criteria, CriterionTarget};
 use crate::experiment::{ContractExecutionResult, ExecutionEngine, SampleEvaluation};
 use crate::latency::{
-    ConstraintConfidence, LatencyCriterion, LatencyDimension, LatencyEnforcementMode,
-    LatencyThresholds, ResolvedLatencyConstraint, enforcement, resolver,
+    ConstraintConfidence, LatencyCriterion, LatencyDimension, ResolvedLatencyConstraint, resolver,
 };
 use crate::model::{
     BudgetExhaustedBehavior, CostSummary, ExecutionSummary, ExpirationInfo, PacingSummary,
@@ -27,12 +27,13 @@ use crate::ptest::preflight::{self, Configuration, RefusedPart, Requirement};
 use crate::service_contract::CovariateContext;
 use crate::service_contract::ServiceContract;
 use crate::spec::{BaselineSpec, SpecResolver};
-use crate::statistics::decision::compose_overall_verdict;
+use crate::statistics::decision::{DimensionDecisions, compose_overall_verdict};
 use crate::statistics::latency::{plan_nondegeneracy, plan_precedence};
-use crate::statistics::rules::alpha_from_confidence;
+use crate::statistics::rules::{EnforcementMode, alpha_from_confidence};
 use crate::statistics::types::ConfidenceLevel;
 use crate::verdict::{
-    BaselineProvenance, CriterionRow, FunctionalAssessment, SpecProvenance, Verdict, VerdictRecord,
+    AssertionEnforcement, BaselineProvenance, CriterionRow, FunctionalAssessment, SpecProvenance,
+    Verdict, VerdictRecord,
 };
 
 /// What constitutes acceptable service behaviour.
@@ -66,6 +67,9 @@ pub struct AssessmentCriteria {
     /// then leaves `min_pass_rate` / `min_samples_for_validity` unset, so the
     /// engine reports `TerminationReason::Completed`.
     pub early_termination_disabled: bool,
+    /// Which dimensions bind the test verdict: the run's setting, never the
+    /// test's.
+    pub enforcement: AssertionEnforcement,
 }
 
 /// How to find and interpret empirical reference data.
@@ -87,8 +91,6 @@ pub struct BaselineContext {
 /// runner; explicit ceilings come from the contract's latency criterion.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct LatencyConfig {
-    /// Explicit enforcement mode for baseline-derived thresholds, if any.
-    pub baseline_mode: Option<LatencyEnforcementMode>,
     /// Confidence of the precedence rank of a baseline-derived threshold.
     pub baseline_confidence: f64,
 }
@@ -119,9 +121,9 @@ impl ProbabilisticTestResult {
 
     /// Whether the test verdict `V_test` is PASS.
     ///
-    /// Composes the functional criteria with the enforced latency
-    /// constraints. Advisory latency comparisons do not affect this result;
-    /// a refused configuration has not passed.
+    /// Composes the dimensions the run enforces; an advisory dimension's
+    /// verdict does not affect this result. A refused configuration has not
+    /// passed.
     #[must_use]
     pub fn passed(&self) -> bool {
         self.verdict_record.passed()
@@ -170,9 +172,10 @@ struct Preparation {
 /// # Panics
 ///
 /// Panics if `inputs` is empty, if the sampling plan cannot be resolved (a
-/// missing baseline, or a sizing design that cannot be priced), or if a
-/// service invocation yields a defect (a transport failure or a caught
-/// panic) — a defect aborts the run.
+/// missing baseline a sized plan or an enforced baseline-derived criterion
+/// needs, or a sizing design that cannot be priced), or if a service
+/// invocation yields a defect (a transport failure or a caught panic) — a
+/// defect aborts the run.
 pub fn execute_contract<C: ServiceContract>(
     contract: &C,
     inputs: &[C::Input],
@@ -226,7 +229,7 @@ where
     let config = resolve_execution_config(
         config_overrides,
         criteria,
-        &prepared.plan,
+        &prepared,
         validity_floor(&prepared, &requirements),
         contract.warmup(),
     );
@@ -262,14 +265,23 @@ where
     C::Output: 'static,
 {
     let baseline_spec = resolve_baseline(baseline, service_contract_id, warnings);
-    let criterion_tallies =
-        empirical_criterion_tallies(&contract_criteria.targets(), baseline_spec.as_ref());
+    let criterion_tallies = empirical_criterion_tallies(
+        &contract_criteria.targets(),
+        baseline_spec.as_ref(),
+        criteria.enforcement.functional(),
+    );
     let aggregate = baseline_spec.as_ref().map(aggregate_tally);
-    let plan = approach::resolve_plan(&criteria.approach, aggregate.as_ref(), &criterion_tallies);
+    let plan = approach::resolve_plan(
+        &criteria.approach,
+        aggregate.as_ref(),
+        &criterion_tallies,
+        criteria.enforcement.functional(),
+    );
     let latency_constraints = resolve_latency_constraints(
         contract.latency(),
-        &criteria.latency,
+        criteria.latency,
         baseline_spec.as_ref(),
+        criteria.enforcement.latency(),
     );
     Preparation {
         baseline_spec,
@@ -381,9 +393,9 @@ fn latency_planning_warnings(
     if rate <= 0.0 {
         return;
     }
-    // An advisory comparison never enters the verdict, so only the enforced
-    // constraints earn a planning warning.
-    for constraint in constraints.iter().filter(|c| c.is_enforced()) {
+    // Every constraint is decided by its rule, enforced or advisory, so every
+    // one earns its planning warnings.
+    for constraint in constraints {
         let percentile = constraint.percentile().as_fraction();
         if let resolver::ConstraintSource::BaselineDerived {
             baseline_latencies_ms,
@@ -401,8 +413,8 @@ fn latency_planning_warnings(
             }
         }
         // The non-degeneracy gate applies to a baseline-derived constraint;
-        // an enforced explicit requirement decides on its within-threshold
-        // count instead.
+        // an explicit requirement decides on its within-threshold count
+        // instead.
         let planning = plan_nondegeneracy(percentile, planned, rate);
         if constraint.is_baseline_derived() && planning.warning() {
             warnings.push(Warning::new(
@@ -415,8 +427,8 @@ fn latency_planning_warnings(
 
 /// Decides the run: each criterion by its rule, each latency constraint by
 /// the rule for its threshold source, and the test verdict by the
-/// structural composite of the two dimensions, adjusted by the budget and
-/// expiration policies.
+/// structural composite of the enforced dimensions, adjusted by the budget
+/// and expiration policies.
 fn decide<O: 'static>(
     service_contract_id: String,
     criteria: &AssessmentCriteria,
@@ -432,6 +444,7 @@ fn decide<O: 'static>(
         &prepared.latency_constraints,
         exec_result.aggregate().successful_latencies(),
         criteria.intent,
+        criteria.enforcement.latency(),
     );
     let criterion_verdicts: Vec<(String, Verdict)> = rows
         .iter()
@@ -439,9 +452,18 @@ fn decide<O: 'static>(
         .collect();
     let latency_verdicts = latency_dimension
         .as_ref()
-        .map(LatencyDimension::enforced_verdicts)
+        .map(LatencyDimension::constraint_verdicts)
         .unwrap_or_default();
-    let overall = compose_overall_verdict(&criterion_verdicts, &latency_verdicts);
+    let overall = compose_overall_verdict(
+        DimensionDecisions {
+            decisions: &criterion_verdicts,
+            mode: criteria.enforcement.functional(),
+        },
+        DimensionDecisions {
+            decisions: &latency_verdicts,
+            mode: criteria.enforcement.latency(),
+        },
+    );
     let (verdict, expiration_info) = apply_run_policies(
         overall.verdict(),
         summary,
@@ -461,7 +483,7 @@ fn decide<O: 'static>(
         verdict,
         criteria.intent,
         summary.clone(),
-        FunctionalAssessment::new(rows),
+        FunctionalAssessment::new(rows).with_mode(criteria.enforcement.functional()),
     )
     .triggering(overall.triggering().to_vec())
     .confidence_level(prepared.plan.confidence.value())
@@ -567,14 +589,10 @@ fn build_baseline_provenance(spec: &BaselineSpec, rows: &[CriterionRow]) -> Base
 
 /// The fewest samples a run executes before a guaranteed success may stop it
 /// early: no fewer than any requirement needs for a count to demonstrate it,
-/// and — when the test enforces a latency constraint, whose decision depends
+/// and — when the test carries a latency constraint, whose decision depends
 /// on how many successful latencies arrive — the whole plan.
 fn validity_floor(prepared: &Preparation, requirements: &[Requirement]) -> u32 {
-    if prepared
-        .latency_constraints
-        .iter()
-        .any(ResolvedLatencyConstraint::is_enforced)
-    {
+    if !prepared.latency_constraints.is_empty() {
         return prepared.plan.samples;
     }
     requirements
@@ -587,14 +605,17 @@ fn validity_floor(prepared: &Preparation, requirements: &[Requirement]) -> u32 {
 /// used as-is, otherwise one is built from the planned sample size and the
 /// criteria's budget-exhaustion behaviour. Early termination is wired in only
 /// under a meaningful floor — a `0.0` floor (the bare-samples plan) runs
-/// every sample and lets each criterion's rule decide the verdict.
+/// every sample and lets each criterion's rule decide the verdict — and
+/// only when the functional outcome can end the run (see
+/// [`functional_outcome_may_end_run`]).
 fn resolve_execution_config(
     config_overrides: Option<&ExecutionConfig>,
     criteria: &AssessmentCriteria,
-    plan: &RunPlan,
+    prepared: &Preparation,
     validity_floor: u32,
     warmup: u32,
 ) -> ExecutionConfig {
+    let plan = &prepared.plan;
     let mut config = config_overrides.cloned().unwrap_or_else(|| {
         let mut c = ExecutionConfig::new(plan.samples);
         if let Some(behaviour) = criteria.on_budget_exhausted {
@@ -602,12 +623,26 @@ fn resolve_execution_config(
         }
         c
     });
-    if plan.floor > 0.0 && !criteria.early_termination_disabled {
+    if plan.floor > 0.0
+        && !criteria.early_termination_disabled
+        && functional_outcome_may_end_run(criteria.enforcement, &prepared.latency_constraints)
+    {
         config = config
             .min_pass_rate(plan.floor)
             .min_samples_for_validity(validity_floor.max(1));
     }
     config.with_warmup(warmup)
+}
+
+/// Whether the functional outcome may end the run early. An advisory
+/// functional dimension decides nothing the test verdict depends on, so
+/// neither its guaranteed success nor its inevitable failure may cut short
+/// the samples a latency constraint is still decided on.
+const fn functional_outcome_may_end_run(
+    enforcement: AssertionEnforcement,
+    latency_constraints: &[ResolvedLatencyConstraint],
+) -> bool {
+    enforcement.functional().is_enforced() || latency_constraints.is_empty()
 }
 
 /// Builds one verdict row per criterion, each decided by its rule.
@@ -680,56 +715,87 @@ fn aggregate_tally(spec: &BaselineSpec) -> CriterionBaselineTally {
 /// per-criterion resolution (and whole-contract aggregate fallback) of
 /// [`criterion_baseline`].
 ///
+/// With no baseline and the functional dimension advisory, no tally
+/// resolves and each baseline-derived criterion is INCONCLUSIVE: a missing
+/// baseline does not stop a run in a dimension that binds nothing.
+///
 /// # Panics
 ///
-/// Panics if the contract carries a baseline-derived criterion and no
-/// baseline resolved — an empirical criterion requires one.
+/// Panics if the contract carries a baseline-derived criterion, the
+/// functional dimension is enforced, and no baseline resolved — an enforced
+/// empirical criterion requires one.
 fn empirical_criterion_tallies(
     targets: &[(&str, &CriterionTarget)],
     baseline: Option<&BaselineSpec>,
+    functional_mode: EnforcementMode,
 ) -> Vec<CriterionBaselineTally> {
-    targets
+    let empirical = targets
         .iter()
-        .filter(|(_, target)| matches!(target, CriterionTarget::EmpiricalRate))
-        .map(|(name, _)| {
-            let spec = baseline.expect("an empirical criterion requires a baseline");
-            criterion_baseline(name, spec)
-        })
+        .filter(|(_, target)| matches!(target, CriterionTarget::EmpiricalRate));
+    let Some(spec) = baseline else {
+        assert!(
+            !functional_mode.is_enforced() || empirical.count() == 0,
+            "an empirical criterion requires a baseline"
+        );
+        return Vec::new();
+    };
+    empirical
+        .map(|(name, _)| criterion_baseline(name, spec))
         .collect()
 }
 
-/// Resolves the latency constraints: explicit ceilings from the contract's
-/// latency criterion (enforced, at its confidence), and baseline-derived
-/// thresholds for every other percentile when the baseline recorded
-/// latencies (in the configured or environment enforcement mode).
+/// Resolves the latency constraints the contract declares: explicit
+/// ceilings (at the criterion's confidence) and percentiles asserted against
+/// the baseline (at the configured baseline confidence).
+///
+/// With no baseline latencies and the latency dimension advisory, a
+/// percentile asserted against the baseline is resolved without them and
+/// judged INCONCLUSIVE: a missing baseline does not stop a run in a
+/// dimension that binds nothing.
+///
+/// # Panics
+///
+/// Panics if a percentile is asserted against the baseline, the latency
+/// dimension is enforced, and no baseline with successful latencies
+/// resolved — an enforced baseline-derived constraint requires one.
 fn resolve_latency_constraints(
     latency: Option<LatencyCriterion>,
-    latency_config: &LatencyConfig,
+    latency_config: LatencyConfig,
     baseline_spec: Option<&BaselineSpec>,
+    latency_mode: EnforcementMode,
 ) -> Vec<ResolvedLatencyConstraint> {
-    let thresholds = latency.map_or_else(LatencyThresholds::new, |c| *c.thresholds());
-    let explicit_confidence = latency.map_or(crate::latency::DEFAULT_LATENCY_CONFIDENCE, |c| {
-        c.decision_confidence()
-    });
+    let Some(declared) = latency else {
+        return Vec::new();
+    };
     let baseline_latency = baseline_spec.and_then(|s| s.statistics.latency_distribution.as_ref());
-    resolver::resolve(
-        &thresholds,
+    let constraints = resolver::resolve(
+        &declared,
         baseline_latency,
         ConstraintConfidence {
-            explicit: explicit_confidence,
+            explicit: declared.decision_confidence(),
             baseline: latency_config.baseline_confidence,
         },
-        enforcement::resolved_mode_from_env(latency_config.baseline_mode),
-    )
+    );
+    assert!(
+        !latency_mode.is_enforced()
+            || !constraints
+                .iter()
+                .any(ResolvedLatencyConstraint::lacks_baseline_latencies),
+        "a latency percentile asserted against the baseline requires a baseline \
+         with successful latencies"
+    );
+    constraints
 }
 
 /// Judges the latency constraints after the run on the latencies of the
-/// samples that passed every functional criterion; `None` when the test
-/// carries no latency constraint.
+/// samples that passed every functional criterion, under the run's mode for
+/// the latency dimension; `None` when the test carries no latency
+/// constraint.
 fn build_latency_dimension(
     constraints: &[ResolvedLatencyConstraint],
     successful_latencies: &[std::time::Duration],
     intent: TestIntent,
+    mode: EnforcementMode,
 ) -> Option<LatencyDimension> {
     if constraints.is_empty() {
         return None;
@@ -742,7 +808,12 @@ fn build_latency_dimension(
         .iter()
         .map(|d| d.as_millis() as f64)
         .collect();
-    Some(LatencyDimension::build(&latencies_ms, constraints, intent))
+    Some(LatencyDimension::build(
+        &latencies_ms,
+        constraints,
+        intent,
+        mode,
+    ))
 }
 
 /// Adjusts the stats-derived verdict in response to a budget-exhausted
@@ -944,4 +1015,94 @@ where
     .unwrap_or_else(|defect| {
         panic!("\n\nservice invocation aborted the run: {defect}\n");
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::Duration;
+
+    fn explicit_p95() -> Vec<ResolvedLatencyConstraint> {
+        resolver::resolve(
+            &LatencyCriterion::meeting()
+                .at_most(crate::latency::Percentile::P95, Duration::from_millis(500)),
+            None,
+            ConstraintConfidence {
+                explicit: 0.95,
+                baseline: 0.95,
+            },
+        )
+    }
+
+    #[test]
+    fn an_enforced_functional_outcome_may_end_the_run() {
+        let enforcement = AssertionEnforcement::ALL_ENFORCED;
+        assert!(functional_outcome_may_end_run(enforcement, &explicit_p95()));
+        assert!(functional_outcome_may_end_run(enforcement, &[]));
+    }
+
+    #[test]
+    fn an_advisory_functional_outcome_never_cuts_latency_samples_short() {
+        let enforcement = AssertionEnforcement::parse("functional");
+        assert!(!functional_outcome_may_end_run(
+            enforcement,
+            &explicit_p95()
+        ));
+        assert!(functional_outcome_may_end_run(enforcement, &[]));
+    }
+
+    #[test]
+    fn without_a_baseline_an_advisory_functional_dimension_resolves_no_tally() {
+        let target = CriterionTarget::EmpiricalRate;
+        let targets = [("c", &target)];
+        let tallies = empirical_criterion_tallies(&targets, None, EnforcementMode::Advisory);
+        assert_eq!(tallies.len(), 0);
+    }
+
+    #[test]
+    #[should_panic(expected = "an empirical criterion requires a baseline")]
+    fn without_a_baseline_an_enforced_empirical_criterion_stops_the_run() {
+        let target = CriterionTarget::EmpiricalRate;
+        let targets = [("c", &target)];
+        let _ = empirical_criterion_tallies(&targets, None, EnforcementMode::Enforced);
+    }
+
+    #[test]
+    fn without_a_baseline_a_normative_criterion_needs_none() {
+        let target = CriterionTarget::NormativeRate(0.9);
+        let targets = [("c", &target)];
+        let tallies = empirical_criterion_tallies(&targets, None, EnforcementMode::Enforced);
+        assert_eq!(tallies.len(), 0);
+    }
+
+    fn asserted_against_baseline() -> LatencyCriterion {
+        LatencyCriterion::empirical().against_baseline(crate::latency::Percentile::P95)
+    }
+
+    const LATENCY_CONFIG: LatencyConfig = LatencyConfig {
+        baseline_confidence: 0.95,
+    };
+
+    #[test]
+    fn without_baseline_latencies_an_advisory_latency_dimension_still_resolves() {
+        let constraints = resolve_latency_constraints(
+            Some(asserted_against_baseline()),
+            LATENCY_CONFIG,
+            None,
+            EnforcementMode::Advisory,
+        );
+        assert_eq!(constraints.len(), 1);
+        assert!(constraints[0].lacks_baseline_latencies());
+    }
+
+    #[test]
+    #[should_panic(expected = "requires a baseline with successful latencies")]
+    fn without_baseline_latencies_an_enforced_baseline_constraint_stops_the_run() {
+        let _ = resolve_latency_constraints(
+            Some(asserted_against_baseline()),
+            LATENCY_CONFIG,
+            None,
+            EnforcementMode::Enforced,
+        );
+    }
 }

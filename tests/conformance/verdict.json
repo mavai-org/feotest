@@ -1,6 +1,6 @@
 {
   "suite": "verdict",
-  "methodologyVersion": "1.5.0",
+  "methodologyVersion": "1.6.0",
   "fixtureSchemaVersion": 2,
   "decisionRules": [
     {
@@ -20,7 +20,7 @@
       "version": 1
     }
   ],
-  "description": "Verdict evaluation under the two ruled rules: regression/fisher for a baseline-derived threshold and compliance/exact-binomial for a given one; each case names its rule in decisionRule. A test carrying a requirement and a baseline on the same postconditions (approach two_criteria) carries two criteria over the same observations, a compliance criterion and a regression criterion, each with one rule and one alpha (compliance_alpha, regression_alpha) and one verdict, reported in criteria; the test's verdict is their structural composite (PASS if both pass, FAIL if either fails, INCONCLUSIVE otherwise), triggering_criteria names the criteria that decided it, and the error envelopes are split by direction. The test is refused whole when any part is invalid, reporting every applicable code. The v1.4.1 point-estimate rule (PASS iff p_hat >= threshold) and its Wald z statistic are withdrawn. Binding: verdict, configuration_error, criteria, triggering_criteria. Informational: observed_rate, false_compliance_envelope, false_degradation_signal_envelope. Cases with approach test_verdict give the overall test verdict: the functional dimension's verdict (rate_verdict, the structural composite of the criteria), the latency dimension's (latency_verdict, the same composite over the enforced latency constraints; advisory constraints never participate) and test_verdict, their composite (PASS if both pass, FAIL if either fails, INCONCLUSIVE otherwise; a dimension that is absent is left out), with triggering naming the criteria and enforced constraints that decided it. Latencies are those of the samples that passed every functional criterion. Binding: rate_verdict, latency_verdict, test_verdict, triggering, each constraint's verdict.",
+  "description": "Verdict evaluation under the two ruled rules: regression/fisher for a baseline-derived threshold and compliance/exact-binomial for a given one; each case names its rule in decisionRule. A test carrying a requirement and a baseline on the same postconditions (approach two_criteria) carries two criteria over the same observations, a compliance criterion and a regression criterion, each with one rule and one alpha (compliance_alpha, regression_alpha) and one verdict, reported in criteria; the test's verdict is their structural composite (PASS if both pass, FAIL if either fails, INCONCLUSIVE otherwise), triggering_criteria names the criteria that decided it, and the error envelopes are split by direction. The test is refused whole when any part is invalid, reporting every applicable code. The v1.4.1 point-estimate rule (PASS iff p_hat >= threshold) and its Wald z statistic are withdrawn. Binding: verdict, configuration_error, criteria, triggering_criteria. Informational: observed_rate, false_compliance_envelope, false_degradation_signal_envelope. Cases with approach test_verdict give the overall test verdict (methodology 1.6.0): the functional dimension's verdict (rate_verdict, the structural composite of the criteria) and the latency dimension's (latency_verdict, the same composite over the latency constraints, each decided by its rule), each with its mode (functional_mode, latency_mode: enforced, or advisory when the input advisory, the run-time switch setting, names the dimension; null for a dimension the test does not carry), and test_verdict, the structural composite of the enforced dimensions (PASS if every one passes, FAIL if any fails, INCONCLUSIVE otherwise; PASS when no dimension is enforced), with triggering naming the criteria and constraints of the enforced dimensions that decided it. An advisory dimension is decided exactly as an enforced one and reported; it never enters test_verdict. Latencies are those of the samples that passed every functional criterion. Binding: rate_verdict, latency_verdict, functional_mode, latency_mode, test_verdict, triggering, each constraint's verdict.",
   "method": "regression/fisher: PASS iff K_t >= c(K_b, n_b, n_t, alpha) (see regression_decision). compliance/exact-binomial: PASS iff K >= k_min(p_req, n, alpha) (see compliance_decision). Configuration errors are checked first, for every part of the configuration; configuration_error is the list of every applicable code in the fixed order TEST_LARGER_THAN_BASELINE, COMPLIANCE_INFEASIBLE (empty when valid).",
   "tolerance": 1e-10,
   "cases": [
@@ -562,13 +562,13 @@
           {
             "constraint_id": "p95_le_500ms",
             "source": "explicit",
-            "mode": "enforced",
             "percentile": 0.95,
             "alpha": 0.05,
             "threshold_ms": 500,
             "latencies": [350, 352, 354, 355, 357, 359, 361, 362, 364, 366, 368, 370, 371, 373, 375, 377, 378, 380, 382, 384, 385, 387, 389, 391, 393, 394, 396, 398, 400, 401, 403, 405, 407, 409, 410, 412, 414, 416, 417, 419, 421, 423, 424, 426, 428, 430, 432, 433, 435, 437, 439, 440, 442, 444, 446, 448, 449, 451, 453, 455, 456, 458, 460, 462, 464, 465, 467, 469, 471, 472, 474, 476, 478, 479, 481, 483, 485, 487, 488, 490, 492, 494, 495, 497, 499, 501, 581, 661, 740, 820, 900]
           }
-        ]
+        ],
+        "advisory": []
       },
       "expected": {
         "criteria": [
@@ -581,14 +581,14 @@
           {
             "constraint_id": "p95_le_500ms",
             "source": "explicit",
-            "mode": "enforced",
-            "participates": true,
             "decisionRule": "latency/compliance-exact-binomial",
             "verdict": "FAIL"
           }
         ],
         "rate_verdict": "PASS",
         "latency_verdict": "FAIL",
+        "functional_mode": "enforced",
+        "latency_mode": "enforced",
         "test_verdict": "FAIL",
         "triggering": [
           {
@@ -619,13 +619,13 @@
           {
             "constraint_id": "p99_vs_baseline",
             "source": "baseline-derived",
-            "mode": "enforced",
             "percentile": 0.99,
             "alpha": 0.05,
             "baseline_latencies": [193, 199, 202, 223, 241, 246, 257, 259, 260, 261, 264, 271, 272, 273, 274, 280, 280, 281, 284, 289, 289, 293, 297, 298, 303, 311, 319, 326, 330, 332, 334, 336, 340, 342, 350, 353, 356, 361, 362, 365, 366, 370, 370, 372, 375, 376, 377, 382, 382, 389, 390, 395, 396, 398, 400, 404, 404, 405, 408, 409, 414, 415, 418, 419, 419, 426, 427, 428, 432, 434, 435, 439, 454, 454, 455, 461, 462, 468, 483, 496, 505, 510, 528, 531, 533, 546, 546, 557, 558, 574, 585, 597, 612, 636, 658, 676, 678, 713, 753, 774],
             "latencies": [187, 193, 196, 216, 234, 239, 249, 251, 252, 253, 256, 263, 264, 265, 266, 272, 272, 273, 275, 280, 280, 284, 288, 289, 294, 302, 309, 316, 320, 322, 324, 326, 330, 332, 340, 342, 345, 350, 351, 354, 355, 359, 359, 361, 364, 365, 366, 371, 371, 377, 378, 383, 384, 386, 388, 392, 392, 393, 396, 397, 402, 403, 405, 406, 406, 413, 414, 415, 419, 421, 422, 426, 440, 440, 441, 447, 448, 454, 469, 481, 490, 495, 512, 515, 517, 530, 530, 540, 541, 557, 567]
           }
-        ]
+        ],
+        "advisory": []
       },
       "expected": {
         "criteria": [
@@ -638,14 +638,14 @@
           {
             "constraint_id": "p99_vs_baseline",
             "source": "baseline-derived",
-            "mode": "enforced",
-            "participates": true,
             "decisionRule": "latency/precedence",
             "verdict": "INCONCLUSIVE"
           }
         ],
         "rate_verdict": "PASS",
         "latency_verdict": "INCONCLUSIVE",
+        "functional_mode": "enforced",
+        "latency_mode": "enforced",
         "test_verdict": "INCONCLUSIVE",
         "triggering": [
           {
@@ -676,13 +676,13 @@
           {
             "constraint_id": "p95_le_500ms",
             "source": "explicit",
-            "mode": "enforced",
             "percentile": 0.95,
             "alpha": 0.05,
             "threshold_ms": 500,
             "latencies": [350, 352, 353, 355, 357, 358, 360, 362, 363, 365, 367, 368, 370, 372, 373, 375, 377, 378, 380, 382, 383, 385, 387, 389, 390, 392, 394, 395, 397, 399, 400, 402, 404, 405, 407, 409, 410, 412, 414, 415, 417, 419, 420, 422, 424, 425, 427, 429, 430, 432, 434, 435, 437, 439, 440, 442, 444, 445, 447, 449, 450, 452, 454, 455, 457, 459, 460, 462, 464, 466, 467, 469, 471, 472, 474, 476, 477, 479, 481, 482, 484, 486, 487, 489, 491, 492, 494, 496, 497, 499]
           }
-        ]
+        ],
+        "advisory": []
       },
       "expected": {
         "criteria": [
@@ -695,14 +695,14 @@
           {
             "constraint_id": "p95_le_500ms",
             "source": "explicit",
-            "mode": "enforced",
-            "participates": true,
             "decisionRule": "latency/compliance-exact-binomial",
             "verdict": "PASS"
           }
         ],
         "rate_verdict": "FAIL",
         "latency_verdict": "PASS",
+        "functional_mode": "enforced",
+        "latency_mode": "enforced",
         "test_verdict": "FAIL",
         "triggering": [
           {
@@ -724,13 +724,13 @@
           {
             "constraint_id": "p95_le_500ms",
             "source": "explicit",
-            "mode": "enforced",
             "percentile": 0.95,
             "alpha": 0.05,
             "threshold_ms": 500,
             "latencies": [350, 352, 353, 355, 356, 358, 359, 361, 362, 364, 365, 367, 368, 370, 371, 373, 374, 376, 377, 379, 380, 382, 383, 385, 386, 388, 390, 391, 393, 394, 396, 397, 399, 400, 402, 403, 405, 406, 408, 409, 411, 412, 414, 415, 417, 418, 420, 421, 423, 424, 426, 428, 429, 431, 432, 434, 435, 437, 438, 440, 441, 443, 444, 446, 447, 449, 450, 452, 453, 455, 456, 458, 459, 461, 463, 464, 466, 467, 469, 470, 472, 473, 475, 476, 478, 479, 481, 482, 484, 485, 487, 488, 490, 491, 493, 494, 496, 497, 499, 501]
           }
-        ]
+        ],
+        "advisory": []
       },
       "expected": {
         "criteria": [],
@@ -738,22 +738,256 @@
           {
             "constraint_id": "p95_le_500ms",
             "source": "explicit",
-            "mode": "enforced",
-            "participates": true,
             "decisionRule": "latency/compliance-exact-binomial",
             "verdict": "PASS"
           }
         ],
         "rate_verdict": null,
         "latency_verdict": "PASS",
+        "functional_mode": null,
+        "latency_mode": "enforced",
         "test_verdict": "PASS",
         "triggering": []
       }
     },
     {
-      "name": "test_advisory_breach_does_not_change_verdict",
+      "name": "test_switch_none_both_fail",
       "approach": "test_verdict",
-      "description": "Functional PASS and the enforced p95 <= 500 ms requirement PASS (91 of 91 within); an advisory p99 <= 450 ms comparison is breached (ADVISORY_WARN) and does not participate. V_test PASS.",
+      "description": "No dimension advisory (the default): both dimensions are enforced, both FAIL, and V_test is FAIL, triggered by the criterion and the latency constraint.",
+      "decisionRule": [
+        "regression/fisher",
+        "latency/compliance-exact-binomial"
+      ],
+      "inputs": {
+        "functional": {
+          "criterion_id": "c_extraction",
+          "successes": 90,
+          "trials": 100,
+          "baseline_successes": 951,
+          "baseline_trials": 1000,
+          "alpha": 0.05
+        },
+        "latency_constraints": [
+          {
+            "constraint_id": "p95_le_500ms",
+            "source": "explicit",
+            "percentile": 0.95,
+            "alpha": 0.05,
+            "threshold_ms": 500,
+            "latencies": [350, 352, 354, 356, 357, 359, 361, 363, 365, 367, 368, 370, 372, 374, 376, 378, 379, 381, 383, 385, 387, 389, 390, 392, 394, 396, 398, 400, 402, 403, 405, 407, 409, 411, 413, 414, 416, 418, 420, 422, 424, 425, 427, 429, 431, 433, 435, 436, 438, 440, 442, 444, 446, 447, 449, 451, 453, 455, 457, 459, 460, 462, 464, 466, 468, 470, 471, 473, 475, 477, 479, 481, 482, 484, 486, 488, 490, 492, 493, 495, 497, 499, 501, 558, 615, 672, 729, 786, 843, 900]
+          }
+        ],
+        "advisory": []
+      },
+      "expected": {
+        "criteria": [
+          {
+            "criterion_id": "c_extraction",
+            "verdict": "FAIL"
+          }
+        ],
+        "latency_constraints": [
+          {
+            "constraint_id": "p95_le_500ms",
+            "source": "explicit",
+            "decisionRule": "latency/compliance-exact-binomial",
+            "verdict": "FAIL"
+          }
+        ],
+        "rate_verdict": "FAIL",
+        "latency_verdict": "FAIL",
+        "functional_mode": "enforced",
+        "latency_mode": "enforced",
+        "test_verdict": "FAIL",
+        "triggering": [
+          {
+            "kind": "criterion",
+            "id": "c_extraction"
+          },
+          {
+            "kind": "latency",
+            "id": "p95_le_500ms"
+          }
+        ]
+      }
+    },
+    {
+      "name": "test_switch_functional_both_fail",
+      "approach": "test_verdict",
+      "description": "The functional dimension advisory: the criterion is still decided by regression/fisher and V_rate FAIL is reported, but V_test composes the latency dimension alone: FAIL, triggered by the latency constraint only.",
+      "decisionRule": [
+        "regression/fisher",
+        "latency/compliance-exact-binomial"
+      ],
+      "inputs": {
+        "functional": {
+          "criterion_id": "c_extraction",
+          "successes": 90,
+          "trials": 100,
+          "baseline_successes": 951,
+          "baseline_trials": 1000,
+          "alpha": 0.05
+        },
+        "latency_constraints": [
+          {
+            "constraint_id": "p95_le_500ms",
+            "source": "explicit",
+            "percentile": 0.95,
+            "alpha": 0.05,
+            "threshold_ms": 500,
+            "latencies": [350, 352, 354, 356, 357, 359, 361, 363, 365, 367, 368, 370, 372, 374, 376, 378, 379, 381, 383, 385, 387, 389, 390, 392, 394, 396, 398, 400, 402, 403, 405, 407, 409, 411, 413, 414, 416, 418, 420, 422, 424, 425, 427, 429, 431, 433, 435, 436, 438, 440, 442, 444, 446, 447, 449, 451, 453, 455, 457, 459, 460, 462, 464, 466, 468, 470, 471, 473, 475, 477, 479, 481, 482, 484, 486, 488, 490, 492, 493, 495, 497, 499, 501, 558, 615, 672, 729, 786, 843, 900]
+          }
+        ],
+        "advisory": [
+          "functional"
+        ]
+      },
+      "expected": {
+        "criteria": [
+          {
+            "criterion_id": "c_extraction",
+            "verdict": "FAIL"
+          }
+        ],
+        "latency_constraints": [
+          {
+            "constraint_id": "p95_le_500ms",
+            "source": "explicit",
+            "decisionRule": "latency/compliance-exact-binomial",
+            "verdict": "FAIL"
+          }
+        ],
+        "rate_verdict": "FAIL",
+        "latency_verdict": "FAIL",
+        "functional_mode": "advisory",
+        "latency_mode": "enforced",
+        "test_verdict": "FAIL",
+        "triggering": [
+          {
+            "kind": "latency",
+            "id": "p95_le_500ms"
+          }
+        ]
+      }
+    },
+    {
+      "name": "test_switch_latency_both_fail",
+      "approach": "test_verdict",
+      "description": "The latency dimension advisory: the requirement is still decided by latency/compliance-exact-binomial and V_latency FAIL is reported, but V_test composes the functional dimension alone: FAIL, triggered by the criterion only.",
+      "decisionRule": [
+        "regression/fisher",
+        "latency/compliance-exact-binomial"
+      ],
+      "inputs": {
+        "functional": {
+          "criterion_id": "c_extraction",
+          "successes": 90,
+          "trials": 100,
+          "baseline_successes": 951,
+          "baseline_trials": 1000,
+          "alpha": 0.05
+        },
+        "latency_constraints": [
+          {
+            "constraint_id": "p95_le_500ms",
+            "source": "explicit",
+            "percentile": 0.95,
+            "alpha": 0.05,
+            "threshold_ms": 500,
+            "latencies": [350, 352, 354, 356, 357, 359, 361, 363, 365, 367, 368, 370, 372, 374, 376, 378, 379, 381, 383, 385, 387, 389, 390, 392, 394, 396, 398, 400, 402, 403, 405, 407, 409, 411, 413, 414, 416, 418, 420, 422, 424, 425, 427, 429, 431, 433, 435, 436, 438, 440, 442, 444, 446, 447, 449, 451, 453, 455, 457, 459, 460, 462, 464, 466, 468, 470, 471, 473, 475, 477, 479, 481, 482, 484, 486, 488, 490, 492, 493, 495, 497, 499, 501, 558, 615, 672, 729, 786, 843, 900]
+          }
+        ],
+        "advisory": [
+          "latency"
+        ]
+      },
+      "expected": {
+        "criteria": [
+          {
+            "criterion_id": "c_extraction",
+            "verdict": "FAIL"
+          }
+        ],
+        "latency_constraints": [
+          {
+            "constraint_id": "p95_le_500ms",
+            "source": "explicit",
+            "decisionRule": "latency/compliance-exact-binomial",
+            "verdict": "FAIL"
+          }
+        ],
+        "rate_verdict": "FAIL",
+        "latency_verdict": "FAIL",
+        "functional_mode": "enforced",
+        "latency_mode": "advisory",
+        "test_verdict": "FAIL",
+        "triggering": [
+          {
+            "kind": "criterion",
+            "id": "c_extraction"
+          }
+        ]
+      }
+    },
+    {
+      "name": "test_switch_both_both_fail",
+      "approach": "test_verdict",
+      "description": "Both dimensions advisory: each is decided and reported FAIL, and V_test is the composite over no enforced dimension, PASS, with nothing triggering it. The test cannot fail on its assertions.",
+      "decisionRule": [
+        "regression/fisher",
+        "latency/compliance-exact-binomial"
+      ],
+      "inputs": {
+        "functional": {
+          "criterion_id": "c_extraction",
+          "successes": 90,
+          "trials": 100,
+          "baseline_successes": 951,
+          "baseline_trials": 1000,
+          "alpha": 0.05
+        },
+        "latency_constraints": [
+          {
+            "constraint_id": "p95_le_500ms",
+            "source": "explicit",
+            "percentile": 0.95,
+            "alpha": 0.05,
+            "threshold_ms": 500,
+            "latencies": [350, 352, 354, 356, 357, 359, 361, 363, 365, 367, 368, 370, 372, 374, 376, 378, 379, 381, 383, 385, 387, 389, 390, 392, 394, 396, 398, 400, 402, 403, 405, 407, 409, 411, 413, 414, 416, 418, 420, 422, 424, 425, 427, 429, 431, 433, 435, 436, 438, 440, 442, 444, 446, 447, 449, 451, 453, 455, 457, 459, 460, 462, 464, 466, 468, 470, 471, 473, 475, 477, 479, 481, 482, 484, 486, 488, 490, 492, 493, 495, 497, 499, 501, 558, 615, 672, 729, 786, 843, 900]
+          }
+        ],
+        "advisory": [
+          "functional",
+          "latency"
+        ]
+      },
+      "expected": {
+        "criteria": [
+          {
+            "criterion_id": "c_extraction",
+            "verdict": "FAIL"
+          }
+        ],
+        "latency_constraints": [
+          {
+            "constraint_id": "p95_le_500ms",
+            "source": "explicit",
+            "decisionRule": "latency/compliance-exact-binomial",
+            "verdict": "FAIL"
+          }
+        ],
+        "rate_verdict": "FAIL",
+        "latency_verdict": "FAIL",
+        "functional_mode": "advisory",
+        "latency_mode": "advisory",
+        "test_verdict": "PASS",
+        "triggering": []
+      }
+    },
+    {
+      "name": "test_switch_latency_fail_does_not_fail_test",
+      "approach": "test_verdict",
+      "description": "Functional PASS (91 of 100 meets the cutoff of 91); the latency dimension advisory, and its p95 <= 500 ms requirement FAILs by its rule (85 of 91 within). V_latency FAIL is reported beside V_test, which is PASS. Enforced, the same run FAILs (test_functional_pass_latency_fail).",
       "decisionRule": [
         "regression/fisher",
         "latency/compliance-exact-binomial"
@@ -771,21 +1005,14 @@
           {
             "constraint_id": "p95_le_500ms",
             "source": "explicit",
-            "mode": "enforced",
             "percentile": 0.95,
             "alpha": 0.05,
             "threshold_ms": 500,
-            "latencies": [350, 352, 353, 355, 357, 358, 360, 362, 363, 365, 367, 368, 370, 372, 373, 375, 376, 378, 380, 381, 383, 385, 386, 388, 390, 391, 393, 395, 396, 398, 400, 401, 403, 405, 406, 408, 410, 411, 413, 415, 416, 418, 420, 421, 423, 424, 426, 428, 429, 431, 433, 434, 436, 438, 439, 441, 443, 444, 446, 448, 449, 451, 453, 454, 456, 458, 459, 461, 463, 464, 466, 468, 469, 471, 473, 474, 476, 477, 479, 481, 482, 484, 486, 487, 489, 491, 492, 494, 496, 497, 499]
-          },
-          {
-            "constraint_id": "p99_le_450ms_advisory",
-            "source": "explicit",
-            "mode": "advisory",
-            "percentile": 0.99,
-            "alpha": 0.05,
-            "threshold_ms": 450,
-            "latencies": [350, 352, 353, 355, 357, 358, 360, 362, 363, 365, 367, 368, 370, 372, 373, 375, 376, 378, 380, 381, 383, 385, 386, 388, 390, 391, 393, 395, 396, 398, 400, 401, 403, 405, 406, 408, 410, 411, 413, 415, 416, 418, 420, 421, 423, 424, 426, 428, 429, 431, 433, 434, 436, 438, 439, 441, 443, 444, 446, 448, 449, 451, 453, 454, 456, 458, 459, 461, 463, 464, 466, 468, 469, 471, 473, 474, 476, 477, 479, 481, 482, 484, 486, 487, 489, 491, 492, 494, 496, 497, 499]
+            "latencies": [350, 352, 354, 355, 357, 359, 361, 362, 364, 366, 368, 370, 371, 373, 375, 377, 378, 380, 382, 384, 385, 387, 389, 391, 393, 394, 396, 398, 400, 401, 403, 405, 407, 409, 410, 412, 414, 416, 417, 419, 421, 423, 424, 426, 428, 430, 432, 433, 435, 437, 439, 440, 442, 444, 446, 448, 449, 451, 453, 455, 456, 458, 460, 462, 464, 465, 467, 469, 471, 472, 474, 476, 478, 479, 481, 483, 485, 487, 488, 490, 492, 494, 495, 497, 499, 501, 581, 661, 740, 820, 900]
           }
+        ],
+        "advisory": [
+          "latency"
         ]
       },
       "expected": {
@@ -799,24 +1026,75 @@
           {
             "constraint_id": "p95_le_500ms",
             "source": "explicit",
-            "mode": "enforced",
-            "participates": true,
             "decisionRule": "latency/compliance-exact-binomial",
-            "verdict": "PASS"
-          },
-          {
-            "constraint_id": "p99_le_450ms_advisory",
-            "source": "explicit",
-            "mode": "advisory",
-            "participates": false,
-            "decisionRule": null,
-            "verdict": "ADVISORY_WARN"
+            "verdict": "FAIL"
           }
         ],
         "rate_verdict": "PASS",
-        "latency_verdict": "PASS",
+        "latency_verdict": "FAIL",
+        "functional_mode": "enforced",
+        "latency_mode": "advisory",
         "test_verdict": "PASS",
         "triggering": []
+      }
+    },
+    {
+      "name": "test_switch_functional_latency_saturated",
+      "approach": "test_verdict",
+      "description": "The functional dimension advisory and FAIL; the enforced baseline-derived p99 constraint is INCONCLUSIVE (90 latencies, below the p99 minimum of 100, and against a baseline of 100 no rank achieves alpha), so V_latency is INCONCLUSIVE and so is V_test, triggered by the latency constraint.",
+      "decisionRule": [
+        "regression/fisher",
+        "latency/precedence"
+      ],
+      "inputs": {
+        "functional": {
+          "criterion_id": "c_extraction",
+          "successes": 90,
+          "trials": 100,
+          "baseline_successes": 951,
+          "baseline_trials": 1000,
+          "alpha": 0.05
+        },
+        "latency_constraints": [
+          {
+            "constraint_id": "p99_vs_baseline",
+            "source": "baseline-derived",
+            "percentile": 0.99,
+            "alpha": 0.05,
+            "baseline_latencies": [193, 199, 202, 223, 241, 246, 257, 259, 260, 261, 264, 271, 272, 273, 274, 280, 280, 281, 284, 289, 289, 293, 297, 298, 303, 311, 319, 326, 330, 332, 334, 336, 340, 342, 350, 353, 356, 361, 362, 365, 366, 370, 370, 372, 375, 376, 377, 382, 382, 389, 390, 395, 396, 398, 400, 404, 404, 405, 408, 409, 414, 415, 418, 419, 419, 426, 427, 428, 432, 434, 435, 439, 454, 454, 455, 461, 462, 468, 483, 496, 505, 510, 528, 531, 533, 546, 546, 557, 558, 574, 585, 597, 612, 636, 658, 676, 678, 713, 753, 774],
+            "latencies": [187, 193, 196, 216, 234, 239, 249, 251, 252, 253, 256, 263, 264, 265, 266, 272, 272, 273, 275, 280, 280, 284, 288, 289, 294, 302, 309, 316, 320, 322, 324, 326, 330, 332, 340, 342, 345, 350, 351, 354, 355, 359, 359, 361, 364, 365, 366, 371, 371, 377, 378, 383, 384, 386, 388, 392, 392, 393, 396, 397, 402, 403, 405, 406, 406, 413, 414, 415, 419, 421, 422, 426, 440, 440, 441, 447, 448, 454, 469, 481, 490, 495, 512, 515, 517, 530, 530, 540, 541, 557]
+          }
+        ],
+        "advisory": [
+          "functional"
+        ]
+      },
+      "expected": {
+        "criteria": [
+          {
+            "criterion_id": "c_extraction",
+            "verdict": "FAIL"
+          }
+        ],
+        "latency_constraints": [
+          {
+            "constraint_id": "p99_vs_baseline",
+            "source": "baseline-derived",
+            "decisionRule": "latency/precedence",
+            "verdict": "INCONCLUSIVE"
+          }
+        ],
+        "rate_verdict": "FAIL",
+        "latency_verdict": "INCONCLUSIVE",
+        "functional_mode": "advisory",
+        "latency_mode": "enforced",
+        "test_verdict": "INCONCLUSIVE",
+        "triggering": [
+          {
+            "kind": "latency",
+            "id": "p99_vs_baseline"
+          }
+        ]
       }
     }
   ]

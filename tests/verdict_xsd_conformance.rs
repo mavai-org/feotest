@@ -2,18 +2,21 @@
 //!
 //! The verdict XML this crate emits is validated against the vendored copy
 //! of the published family schema
-//! (`tests/conformance/interchange/verdict-1.7.xsd`, pinned per family
+//! (`tests/conformance/interchange/verdict-1.8.xsd`, pinned per family
 //! schema release) — not merely against this crate's own snapshots, which
 //! could drift together with the emitter. The records validated come from
 //! the production run path wherever the shape can be produced by a run: a
 //! decided record naming its rules, a record with a saturated latency
 //! evaluation, a record with an explicit latency requirement, and a refused
-//! configuration. The co-constraints XSD 1.0 cannot state (a refused record
-//! states codes and no value; a saturated evaluation has no threshold and no
-//! baseline rank; a criterion row's `required-pass` is the count its rule
-//! decided with, absent when no count can pass) are asserted here. Validation shells out to `xmllint`;
-//! when it is not installed the test skips, mirroring the HTML report tests'
-//! handling of `xsltproc`.
+//! configuration; a record whose functional dimension is advisory is
+//! assembled by hand, the switch being the run's environment. The
+//! co-constraints XSD 1.0 cannot state (a refused record states codes and no
+//! value; a saturated evaluation has no threshold and no baseline rank; the
+//! latency dimension states its mode exactly when it states its verdict; a
+//! criterion row's `required-pass` is the count its rule decided with,
+//! absent when no count can pass) are asserted here. Validation shells out
+//! to `xmllint`; when it is not installed the test skips, mirroring the HTML
+//! report tests' handling of `xsltproc`.
 
 use std::io::Write as _;
 use std::process::Command;
@@ -33,7 +36,8 @@ use feotest::reporting::VerdictXmlWriter;
 use feotest::service_contract::ServiceContract;
 use feotest::spec::SpecResolver;
 use feotest::verdict::{
-    CriterionRow, FunctionalAssessment, RuleEvidence, SpecProvenance, Verdict, VerdictRecord,
+    CriterionRow, EnforcementMode, FunctionalAssessment, RuleEvidence, SpecProvenance, Verdict,
+    VerdictRecord,
 };
 
 mod common;
@@ -41,7 +45,7 @@ mod common;
 /// The vendored published schema.
 const XSD: &str = concat!(
     env!("CARGO_MANIFEST_DIR"),
-    "/tests/conformance/interchange/verdict-1.7.xsd"
+    "/tests/conformance/interchange/verdict-1.8.xsd"
 );
 
 /// Validates a record against the published schema, returning the record's
@@ -143,6 +147,7 @@ struct ScriptedContract {
     passing: u32,
     requirement: Option<(f64, f64)>,
     p95_ceiling: Option<Duration>,
+    p99_against_baseline: bool,
 }
 
 impl ScriptedContract {
@@ -152,6 +157,7 @@ impl ScriptedContract {
             passing: u32::MAX,
             requirement: None,
             p95_ceiling: None,
+            p99_against_baseline: false,
         }
     }
 }
@@ -203,6 +209,9 @@ impl ServiceContract for ScriptedContract {
     }
 
     fn latency(&self) -> Option<LatencyCriterion> {
+        if self.p99_against_baseline {
+            return Some(LatencyCriterion::empirical().against_baseline(Percentile::P99));
+        }
         self.p95_ceiling
             .map(|ceiling| LatencyCriterion::meeting().at_most(Percentile::P95, ceiling))
     }
@@ -225,12 +234,7 @@ fn establish_baseline(id: &'static str, trials: u32) -> tempfile::TempDir {
 }
 
 /// Runs a scripted contract against its baseline, every planned sample.
-fn run(
-    contract: ScriptedContract,
-    baseline: &tempfile::TempDir,
-    samples: u32,
-    strict_latency: bool,
-) -> VerdictRecord {
+fn run(contract: ScriptedContract, baseline: &tempfile::TempDir, samples: u32) -> VerdictRecord {
     let inputs = vec!["input".to_string()];
     ProbabilisticTest::for_contract(contract)
         .inputs(&inputs)
@@ -240,7 +244,6 @@ fn run(
         })
         .threshold_origin(ThresholdOrigin::Sla)
         .spec_resolver(SpecResolver::with_dir(baseline.path()))
-        .enforce_baseline_latency(strict_latency)
         .disable_early_termination()
         .run()
         .verdict_record()
@@ -260,11 +263,12 @@ fn a_decided_record_naming_its_rules_validates() {
         },
         &baseline,
         100,
-        false,
     );
     assert!(!record.is_refused());
     let xml = assert_validates(&record);
-    assert!(xml.contains("methodology-version=\"1.5.0\""));
+    assert!(xml.contains("version=\"1.8\""));
+    assert!(xml.contains("methodology-version=\"1.6.0\""));
+    assert!(xml.contains("mode=\"enforced\"/>"));
     assert!(xml.contains("decision-rule=\"compliance/exact-binomial\""));
     assert!(xml.contains("decision-rule=\"regression/fisher\""));
 
@@ -323,10 +327,12 @@ fn a_record_with_a_saturated_latency_evaluation_validates() {
     // the no-degradation breach probability of p99 at or below alpha.
     let baseline = establish_baseline("xsd-saturated", 100);
     let record = run(
-        ScriptedContract::all_passing("xsd-saturated"),
+        ScriptedContract {
+            p99_against_baseline: true,
+            ..ScriptedContract::all_passing("xsd-saturated")
+        },
         &baseline,
         20,
-        true,
     );
     let latency = record
         .latency()
@@ -340,6 +346,7 @@ fn a_record_with_a_saturated_latency_evaluation_validates() {
         .filter(|line| line.contains("status=\"SATURATED\""))
         .collect();
     assert!(!saturated.is_empty(), "a saturated evaluation is emitted");
+    assert!(xml.contains("verdict=\"INCONCLUSIVE\" mode=\"enforced\">"));
     for line in saturated {
         assert!(!line.contains("threshold-ms"), "saturated: no threshold");
         assert!(!line.contains("baseline-rank"), "saturated: no rank");
@@ -358,7 +365,6 @@ fn a_record_with_an_explicit_latency_requirement_validates() {
         },
         &baseline,
         60,
-        false,
     );
     let xml = assert_validates(&record);
     assert!(xml.contains("decision-rule=\"latency/compliance-exact-binomial\""));
@@ -378,7 +384,6 @@ fn a_configuration_refused_on_both_parts_validates() {
         },
         &baseline,
         200,
-        false,
     );
     assert!(record.is_refused());
     assert_eq!(record.execution().samples_executed(), 0);
@@ -424,4 +429,42 @@ fn a_hand_assembled_record_validates() {
     .build();
 
     assert_validates(&record);
+}
+
+#[test]
+fn a_record_with_an_advisory_functional_dimension_validates() {
+    // The run made the functional dimension advisory: its FAIL is decided
+    // and reported on the composite, and the test verdict, composed over no
+    // enforced dimension, is PASS.
+    let execution = ExecutionSummary::new(
+        100,
+        100,
+        90,
+        10,
+        TerminationInfo::new(TerminationReason::Completed),
+        CostSummary::new(Duration::from_millis(500), 1000, 100),
+    );
+    let analysis = common::regression_analysis(90, 100, 951, 1000);
+    let record = VerdictRecord::builder(
+        TestIdentity::new("conformance-service"),
+        Verdict::Pass,
+        TestIntent::Verification,
+        execution,
+        FunctionalAssessment::single(CriterionRow::new(
+            "well-formed",
+            90,
+            10,
+            vec![],
+            Some(analysis.clone()),
+            Verdict::Fail,
+        ))
+        .with_mode(EnforcementMode::Advisory),
+    )
+    .statistical_analysis(analysis)
+    .build();
+
+    let xml = assert_validates(&record);
+    assert!(xml.contains("<composite value=\"FAIL\" mode=\"advisory\"/>"));
+    assert!(xml.contains("<verdict value=\"PASS\" reason="));
+    assert!(xml.contains("functional advisory"));
 }

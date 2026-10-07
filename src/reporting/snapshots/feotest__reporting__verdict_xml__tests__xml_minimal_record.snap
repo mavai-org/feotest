@@ -3,7 +3,7 @@ source: src/reporting/verdict_xml.rs
 expression: xml
 ---
 <?xml version="1.0" encoding="UTF-8"?>
-<verdict-record xmlns="http://mavai.org/verdict/1.0" version="1.7" methodology-version="1.5.0" timestamp="2026-04-01T12:00:00Z" generator="feotest/0.3.1">
+<verdict-record xmlns="http://mavai.org/verdict/1.0" version="1.8" methodology-version="1.6.0" timestamp="2026-04-01T12:00:00Z" generator="feotest/0.3.1">
   <identity use-case-id="minimal"/>
   <execution planned-samples="10" samples-executed="10" successes="10" failures="0" elapsed-ms="500" intent="VERIFICATION" confidence="0.95"/>
   <functional successes="10" failures="0" pass-rate="1.0000"/>
@@ -12,7 +12,7 @@ expression: xml
   <cost total-time-ms="500" total-tokens="1000" avg-time-per-sample-ms="50" avg-tokens-per-sample="100"/>
   <per-criterion>
     <criterion id="result" verdict="PASS" pass="10" fail="0" inconclusive="0" total="10" observed-rate="1.0000"/>
-    <composite value="PASS"/>
+    <composite value="PASS" mode="enforced"/>
   </per-criterion>
   <verdict value="PASS" reason="10 of 10 observed"/>
 </verdict-record>

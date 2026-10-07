@@ -9,6 +9,7 @@ use serde::Serialize;
 use serde::ser::SerializeMap;
 
 use crate::statistics::decision::structural_composite;
+use crate::statistics::rules::EnforcementMode;
 use crate::verdict::StatisticalAnalysis;
 use crate::verdict::Verdict;
 
@@ -145,18 +146,24 @@ impl CriterionRow {
 /// passes, FAIL if any fails, INCONCLUSIVE otherwise. With one criterion it
 /// equals that criterion's verdict. A refused configuration judged nothing
 /// and has no rows and no composite.
+///
+/// The assessment carries the run's mode for the functional dimension
+/// (§12.6): enforced, the default, when `V_rate` enters the test verdict;
+/// advisory when the run reports it beside the test verdict instead. The
+/// criteria are decided by their rules either way.
 // mavai-ref: JVI-60WEAWK — do not remove (resolves in mavai-orchestrator)
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FunctionalAssessment {
     #[serde(skip_serializing_if = "Option::is_none")]
     composite: Option<Verdict>,
+    mode: EnforcementMode,
     criteria: Vec<CriterionRow>,
 }
 
 impl FunctionalAssessment {
-    /// Builds an assessment from its rows; the composite is their structural
-    /// composite.
+    /// Builds an enforced assessment from its rows; the composite is their
+    /// structural composite.
     ///
     /// # Panics
     ///
@@ -171,8 +178,17 @@ impl FunctionalAssessment {
         );
         Self {
             composite,
+            mode: EnforcementMode::Enforced,
             criteria,
         }
+    }
+
+    /// The same assessment under the run's mode for the functional
+    /// dimension.
+    #[must_use]
+    pub const fn with_mode(mut self, mode: EnforcementMode) -> Self {
+        self.mode = mode;
+        self
     }
 
     /// Builds a single-criterion assessment — the composite is that row's
@@ -187,6 +203,7 @@ impl FunctionalAssessment {
     pub(crate) const fn refused() -> Self {
         Self {
             composite: None,
+            mode: EnforcementMode::Enforced,
             criteria: Vec::new(),
         }
     }
@@ -202,6 +219,13 @@ impl FunctionalAssessment {
     pub const fn composite(&self) -> Verdict {
         self.composite
             .expect("a refused configuration has no functional composite")
+    }
+
+    /// Whether the functional dimension binds the test (enforced) or is
+    /// reported only (advisory).
+    #[must_use]
+    pub const fn mode(&self) -> EnforcementMode {
+        self.mode
     }
 
     /// The per-criterion rows, in declaration order.
@@ -258,6 +282,16 @@ mod tests {
             CriterionRow::new("b", 0, 0, vec![], None, Verdict::Inconclusive),
         ]);
         assert_eq!(failed.composite(), Verdict::Fail);
+    }
+
+    #[test]
+    fn an_assessment_is_enforced_unless_the_run_makes_it_advisory() {
+        let row = CriterionRow::new("c", 5, 5, vec![], None, Verdict::Fail);
+        let enforced = FunctionalAssessment::single(row.clone());
+        assert_eq!(enforced.mode(), EnforcementMode::Enforced);
+        let advisory = FunctionalAssessment::single(row).with_mode(EnforcementMode::Advisory);
+        assert_eq!(advisory.mode(), EnforcementMode::Advisory);
+        assert_eq!(advisory.composite(), Verdict::Fail);
     }
 
     #[test]

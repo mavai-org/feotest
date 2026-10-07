@@ -21,9 +21,9 @@
 //! Both decisions are made after the run on the actual number of successful
 //! latencies. Before the run the same searches on the *expected* number
 //! give warnings and planning figures (§12.5.3), never a verdict. The raw
-//! comparison of the observed percentile with a threshold is an advisory
-//! figure: it decides nothing and is labelled as a raw percentile
-//! comparison.
+//! comparison of the observed percentile with a threshold is a labelled
+//! figure that decides nothing. A constraint is judged the same way whether
+//! the latency dimension is enforced or advisory (§12.6).
 
 use crate::statistics::compliance::{clopper_pearson_lower, minimum_passing_count};
 use crate::statistics::decision::Verdict;
@@ -547,26 +547,17 @@ impl ThresholdSource {
     }
 }
 
-/// How a latency constraint takes part in the verdict (§12.6).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum LatencyMode {
-    /// Decided by the rule for its threshold source; a FAIL fails the test.
-    Enforced,
-    /// A raw percentile comparison: a breach is a warning, never a verdict.
-    Advisory,
-}
-
 /// The post-run non-degeneracy decision (§12.5.2, §12.5.4).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NondegeneracyOutcome {
     /// The gate does not apply, or the percentile is not degenerate: the
     /// assertion is decided by its rule.
     Decided,
-    /// An enforced baseline-derived assertion under verification with too
-    /// few successful latencies.
+    /// A baseline-derived assertion under verification with too few
+    /// successful latencies.
     Inconclusive,
-    /// Too few successful latencies under smoke intent or in advisory mode:
-    /// evaluated, and marked as a directional signal only.
+    /// Too few successful latencies under smoke intent: evaluated, and
+    /// marked as a directional signal only.
     Indicative,
 }
 
@@ -614,9 +605,11 @@ impl NondegeneracyDecision {
 /// The non-degeneracy decision on the actual count of successful latencies.
 ///
 /// The gate applies where the decision statistic is the empirical
-/// percentile — a baseline-derived assertion and an advisory raw
-/// comparison — and not to an enforced explicit requirement, which decides
-/// on the within-threshold count and has its own feasibility condition.
+/// percentile — a baseline-derived assertion — and not to an explicit
+/// requirement, which decides on the within-threshold count and has its own
+/// feasibility condition. Whether the latency dimension is enforced or
+/// advisory does not enter (§12.6): an advisory assertion is gated exactly
+/// as an enforced one.
 ///
 /// # Panics
 ///
@@ -626,15 +619,14 @@ pub fn decide_nondegeneracy(
     percentile: f64,
     test_samples: u32,
     intent: TestIntent,
-    mode: LatencyMode,
     source: ThresholdSource,
 ) -> NondegeneracyDecision {
     percent(percentile);
-    let applies = !(source == ThresholdSource::Explicit && mode == LatencyMode::Enforced);
+    let applies = source == ThresholdSource::BaselineDerived;
     let degenerate = test_samples < min_samples_for(percentile);
     let outcome = if !applies || !degenerate {
         NondegeneracyOutcome::Decided
-    } else if intent == TestIntent::Verification && mode == LatencyMode::Enforced {
+    } else if intent == TestIntent::Verification {
         NondegeneracyOutcome::Inconclusive
     } else {
         NondegeneracyOutcome::Indicative
@@ -707,16 +699,17 @@ impl LatencyCompliance {
         self.clopper_pearson_lower
     }
 
-    /// The raw nearest-rank percentile — an advisory figure; `None` with no
-    /// latencies.
+    /// The raw nearest-rank percentile — a labelled figure that decides
+    /// nothing; `None` with no latencies.
     #[must_use]
     pub const fn observed_percentile_ms(&self) -> Option<f64> {
         self.observed_percentile_ms
     }
 
-    /// The raw percentile comparison `Q(p) ≤ τ`; it decides nothing.
+    /// The raw percentile comparison `Q(p) ≤ τ`; it decides nothing,
+    /// whether the requirement is enforced or advisory.
     #[must_use]
-    pub fn advisory_percentile_pass(&self, threshold_ms: f64) -> Option<bool> {
+    pub fn raw_percentile_pass(&self, threshold_ms: f64) -> Option<bool> {
         self.observed_percentile_ms
             .map(|observed| observed <= threshold_ms)
     }
@@ -762,47 +755,16 @@ pub fn evaluate_latency_compliance(
     }
 }
 
-/// The outcome of an advisory constraint; it never enters any verdict.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum AdvisoryOutcome {
-    /// The observed percentile is within the threshold.
-    AdvisoryPass,
-    /// The observed percentile exceeds the threshold, or cannot be compared.
-    AdvisoryWarn,
-}
-
-impl AdvisoryOutcome {
-    /// The outcome's name, as reports state it.
-    #[must_use]
-    pub const fn name(self) -> &'static str {
-        match self {
-            Self::AdvisoryPass => "ADVISORY_PASS",
-            Self::AdvisoryWarn => "ADVISORY_WARN",
-        }
-    }
-}
-
-/// How one latency constraint was judged: by its rule when enforced, by the
-/// raw comparison when advisory.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum LatencyOutcome {
-    /// An enforced constraint's verdict.
-    Decided(Verdict),
-    /// An advisory constraint's raw comparison.
-    Advisory(AdvisoryOutcome),
-}
-
 /// One latency constraint judged on a run's successful latencies.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct LatencyJudgement {
     source: ThresholdSource,
-    mode: LatencyMode,
     percentile: f64,
     alpha: f64,
     successful_latencies: u32,
     observed_ms: Option<f64>,
     threshold_ms: Option<f64>,
-    outcome: LatencyOutcome,
+    verdict: Verdict,
     compliance: Option<LatencyCompliance>,
     precedence: Option<PrecedenceThreshold>,
     nondegeneracy: Option<NondegeneracyDecision>,
@@ -813,12 +775,6 @@ impl LatencyJudgement {
     #[must_use]
     pub const fn source(&self) -> ThresholdSource {
         self.source
-    }
-
-    /// Enforced or advisory.
-    #[must_use]
-    pub const fn mode(&self) -> LatencyMode {
-        self.mode
     }
 
     /// The percentile level.
@@ -852,22 +808,13 @@ impl LatencyJudgement {
         self.threshold_ms
     }
 
-    /// The enforced verdict or the advisory outcome.
+    /// The constraint's verdict under its rule.
     #[must_use]
-    pub const fn outcome(&self) -> LatencyOutcome {
-        self.outcome
+    pub const fn verdict(&self) -> Verdict {
+        self.verdict
     }
 
-    /// The enforced constraint's verdict; `None` when advisory.
-    #[must_use]
-    pub const fn verdict(&self) -> Option<Verdict> {
-        match self.outcome {
-            LatencyOutcome::Decided(verdict) => Some(verdict),
-            LatencyOutcome::Advisory(_) => None,
-        }
-    }
-
-    /// The exact-binomial decision of an enforced explicit requirement.
+    /// The exact-binomial decision of an explicit requirement.
     #[must_use]
     pub const fn compliance(&self) -> Option<&LatencyCompliance> {
         self.compliance.as_ref()
@@ -886,17 +833,12 @@ impl LatencyJudgement {
         self.nondegeneracy.as_ref()
     }
 
-    /// The rule that decided an enforced constraint; `None` when advisory.
+    /// The rule that decided the constraint, by its threshold source.
     #[must_use]
-    pub const fn rule(&self) -> Option<DecisionRule> {
-        match (self.mode, self.source) {
-            (LatencyMode::Advisory, _) => None,
-            (LatencyMode::Enforced, ThresholdSource::Explicit) => {
-                Some(DecisionRule::LatencyComplianceExactBinomial)
-            }
-            (LatencyMode::Enforced, ThresholdSource::BaselineDerived) => {
-                Some(DecisionRule::LatencyPrecedence)
-            }
+    pub const fn rule(&self) -> DecisionRule {
+        match self.source {
+            ThresholdSource::Explicit => DecisionRule::LatencyComplianceExactBinomial,
+            ThresholdSource::BaselineDerived => DecisionRule::LatencyPrecedence,
         }
     }
 
@@ -918,7 +860,7 @@ pub enum ConstraintThreshold<'a> {
     BaselineDerived(&'a [f64]),
 }
 
-/// One latency constraint as declared: its percentile, level, mode and
+/// One latency constraint as declared: its percentile, level and
 /// threshold.
 #[derive(Debug, Clone, Copy)]
 pub struct LatencyConstraint<'a> {
@@ -926,24 +868,26 @@ pub struct LatencyConstraint<'a> {
     pub percentile: f64,
     /// The one-sided level.
     pub alpha: f64,
-    /// Enforced or advisory.
-    pub mode: LatencyMode,
     /// The threshold and where it comes from.
     pub threshold: ConstraintThreshold<'a>,
 }
 
-/// Judges one latency constraint on the run's successful latencies.
+/// Judges one latency constraint on the run's successful latencies by the
+/// rule for its threshold source.
 ///
-/// An enforced explicit requirement is decided by
-/// `latency/compliance-exact-binomial`; an enforced baseline-derived
-/// constraint by the non-degeneracy gate and `latency/precedence` (a test
-/// percentile equal to the threshold is not a breach). An advisory
-/// constraint compares the observed percentile with its threshold.
+/// An explicit requirement is decided by
+/// `latency/compliance-exact-binomial`; a baseline-derived constraint by the
+/// non-degeneracy gate and `latency/precedence` (a test percentile equal to
+/// the threshold is not a breach). The judgement is the same whether the
+/// latency dimension is enforced or advisory (§12.6); the mode decides only
+/// whether it binds.
+///
+/// A baseline-derived constraint with no baseline latencies has no
+/// threshold and is INCONCLUSIVE.
 ///
 /// # Panics
 ///
-/// Panics if the percentile is unsupported, `alpha` is not in `(0, 1)`, or
-/// a baseline-derived constraint has no baseline latencies.
+/// Panics if the percentile is unsupported or `alpha` is not in `(0, 1)`.
 #[must_use]
 pub fn judge_latency_constraint(
     latencies: &[f64],
@@ -953,127 +897,68 @@ pub fn judge_latency_constraint(
     let LatencyConstraint {
         percentile,
         alpha,
-        mode,
         threshold,
     } = *constraint;
     percent(percentile);
     let n_s = u32::try_from(latencies.len()).expect("latency count fits in u32");
     let observed = (n_s > 0).then(|| nearest_rank_percentile(latencies, percentile));
-    let source = match threshold {
-        ConstraintThreshold::Explicit(_) => ThresholdSource::Explicit,
-        ConstraintThreshold::BaselineDerived(_) => ThresholdSource::BaselineDerived,
+    match threshold {
+        ConstraintThreshold::Explicit(tau) => {
+            let compliance = evaluate_latency_compliance(latencies, tau, percentile, alpha);
+            LatencyJudgement {
+                source: ThresholdSource::Explicit,
+                percentile,
+                alpha,
+                successful_latencies: n_s,
+                observed_ms: observed,
+                threshold_ms: Some(tau),
+                verdict: compliance.verdict(),
+                compliance: Some(compliance),
+                precedence: None,
+                nondegeneracy: None,
+            }
+        }
+        ConstraintThreshold::BaselineDerived(baseline) => {
+            judge_baseline_derived(latencies, baseline, percentile, alpha, intent)
+        }
+    }
+}
+
+/// A baseline-derived threshold: the non-degeneracy gate, the precedence
+/// rank, and the comparison of the test percentile with the derived
+/// threshold.
+fn judge_baseline_derived(
+    latencies: &[f64],
+    baseline: &[f64],
+    percentile: f64,
+    alpha: f64,
+    intent: TestIntent,
+) -> LatencyJudgement {
+    let n_s = u32::try_from(latencies.len()).expect("latency count fits in u32");
+    let observed = (n_s > 0).then(|| nearest_rank_percentile(latencies, percentile));
+    let nondegeneracy =
+        decide_nondegeneracy(percentile, n_s, intent, ThresholdSource::BaselineDerived);
+    let precedence = (n_s > 0 && !baseline.is_empty())
+        .then(|| derive_precedence_threshold(baseline, n_s, percentile, alpha));
+    let threshold = precedence.and_then(|p| p.threshold());
+    let verdict = match (observed, threshold) {
+        _ if nondegeneracy.outcome() == NondegeneracyOutcome::Inconclusive => Verdict::Inconclusive,
+        (Some(observed), Some(threshold)) if observed <= threshold => Verdict::Pass,
+        (Some(_), Some(_)) => Verdict::Fail,
+        _ => Verdict::Inconclusive,
     };
-    let base = LatencyJudgement {
-        source,
-        mode,
+    LatencyJudgement {
+        source: ThresholdSource::BaselineDerived,
         percentile,
         alpha,
         successful_latencies: n_s,
         observed_ms: observed,
-        threshold_ms: None,
-        outcome: LatencyOutcome::Advisory(AdvisoryOutcome::AdvisoryWarn),
+        threshold_ms: threshold,
+        verdict,
         compliance: None,
-        precedence: None,
-        nondegeneracy: None,
-    };
-    let judged = match threshold {
-        ConstraintThreshold::Explicit(tau) => judge_explicit(base, latencies, tau, intent),
-        ConstraintThreshold::BaselineDerived(baseline) => {
-            judge_baseline_derived(base, baseline, intent)
-        }
-    };
-    if mode == LatencyMode::Advisory {
-        return with_advisory_outcome(judged);
+        precedence,
+        nondegeneracy: Some(nondegeneracy),
     }
-    judged
-}
-
-/// An explicit threshold: the exact binomial decision when enforced, the
-/// non-degeneracy gate when advisory.
-fn judge_explicit(
-    mut judgement: LatencyJudgement,
-    latencies: &[f64],
-    threshold_ms: f64,
-    intent: TestIntent,
-) -> LatencyJudgement {
-    judgement.threshold_ms = Some(threshold_ms);
-    if judgement.mode == LatencyMode::Enforced {
-        let compliance = evaluate_latency_compliance(
-            latencies,
-            threshold_ms,
-            judgement.percentile,
-            judgement.alpha,
-        );
-        judgement.outcome = LatencyOutcome::Decided(compliance.verdict());
-        judgement.compliance = Some(compliance);
-    } else {
-        judgement.nondegeneracy = Some(decide_nondegeneracy(
-            judgement.percentile,
-            judgement.successful_latencies,
-            intent,
-            judgement.mode,
-            ThresholdSource::Explicit,
-        ));
-    }
-    judgement
-}
-
-/// A baseline-derived threshold: the non-degeneracy gate, the precedence
-/// rank, and — when enforced — the comparison of the test percentile with
-/// the derived threshold.
-fn judge_baseline_derived(
-    mut judgement: LatencyJudgement,
-    baseline: &[f64],
-    intent: TestIntent,
-) -> LatencyJudgement {
-    assert!(
-        !baseline.is_empty(),
-        "a baseline-derived latency constraint needs baseline latencies"
-    );
-    let nondegeneracy = decide_nondegeneracy(
-        judgement.percentile,
-        judgement.successful_latencies,
-        intent,
-        judgement.mode,
-        ThresholdSource::BaselineDerived,
-    );
-    let precedence = (judgement.successful_latencies > 0).then(|| {
-        derive_precedence_threshold(
-            baseline,
-            judgement.successful_latencies,
-            judgement.percentile,
-            judgement.alpha,
-        )
-    });
-    judgement.threshold_ms = precedence.and_then(|p| p.threshold());
-    judgement.precedence = precedence;
-    judgement.nondegeneracy = Some(nondegeneracy);
-    if judgement.mode == LatencyMode::Enforced {
-        let verdict = match (judgement.observed_ms, judgement.threshold_ms) {
-            _ if nondegeneracy.outcome() == NondegeneracyOutcome::Inconclusive => {
-                Verdict::Inconclusive
-            }
-            (Some(observed), Some(threshold)) if observed <= threshold => Verdict::Pass,
-            (Some(_), Some(_)) => Verdict::Fail,
-            _ => Verdict::Inconclusive,
-        };
-        judgement.outcome = LatencyOutcome::Decided(verdict);
-    }
-    judgement
-}
-
-/// The raw comparison of an advisory constraint.
-fn with_advisory_outcome(mut judgement: LatencyJudgement) -> LatencyJudgement {
-    let within = matches!(
-        (judgement.observed_ms, judgement.threshold_ms),
-        (Some(observed), Some(threshold)) if observed <= threshold
-    );
-    judgement.outcome = LatencyOutcome::Advisory(if within {
-        AdvisoryOutcome::AdvisoryPass
-    } else {
-        AdvisoryOutcome::AdvisoryWarn
-    });
-    judgement
 }
 
 #[cfg(test)]
@@ -1191,25 +1076,19 @@ mod tests {
     }
 
     #[test]
-    fn the_gate_does_not_apply_to_an_enforced_explicit_requirement() {
-        let decision = decide_nondegeneracy(
-            0.5,
-            4,
-            TestIntent::Verification,
-            LatencyMode::Enforced,
-            ThresholdSource::Explicit,
-        );
+    fn the_gate_does_not_apply_to_an_explicit_requirement() {
+        let decision =
+            decide_nondegeneracy(0.5, 4, TestIntent::Verification, ThresholdSource::Explicit);
         assert!(!decision.applies());
         assert_eq!(decision.outcome(), NondegeneracyOutcome::Decided);
     }
 
     #[test]
-    fn a_degenerate_enforced_baseline_assertion_is_inconclusive_under_verification() {
+    fn a_degenerate_baseline_assertion_is_inconclusive_under_verification() {
         let decision = decide_nondegeneracy(
             0.99,
             99,
             TestIntent::Verification,
-            LatencyMode::Enforced,
             ThresholdSource::BaselineDerived,
         );
         assert!(decision.degenerate());
@@ -1218,7 +1097,6 @@ mod tests {
             0.99,
             99,
             TestIntent::Smoke,
-            LatencyMode::Enforced,
             ThresholdSource::BaselineDerived,
         );
         assert_eq!(smoke.outcome(), NondegeneracyOutcome::Indicative);
@@ -1242,68 +1120,75 @@ mod tests {
     }
 
     #[test]
-    fn an_enforced_explicit_constraint_is_decided_by_the_exact_binomial_rule() {
+    fn an_explicit_constraint_is_decided_by_the_exact_binomial_rule() {
         let latencies: Vec<f64> = (1..=100).map(f64::from).collect();
         let constraint = LatencyConstraint {
             percentile: 0.95,
             alpha: 0.05,
-            mode: LatencyMode::Enforced,
             threshold: ConstraintThreshold::Explicit(99.0),
         };
         let judged = judge_latency_constraint(&latencies, &constraint, TestIntent::Verification);
-        assert_eq!(
-            judged.rule(),
-            Some(DecisionRule::LatencyComplianceExactBinomial)
-        );
-        assert_eq!(judged.verdict(), Some(Verdict::Pass));
+        assert_eq!(judged.rule(), DecisionRule::LatencyComplianceExactBinomial);
+        assert_eq!(judged.verdict(), Verdict::Pass);
     }
 
     #[test]
-    fn an_advisory_constraint_never_carries_a_verdict() {
+    fn a_breached_explicit_constraint_fails_its_rule() {
         let latencies: Vec<f64> = (1..=100).map(f64::from).collect();
         let constraint = LatencyConstraint {
-            percentile: 0.99,
+            percentile: 0.95,
             alpha: 0.05,
-            mode: LatencyMode::Advisory,
             threshold: ConstraintThreshold::Explicit(50.0),
         };
         let judged = judge_latency_constraint(&latencies, &constraint, TestIntent::Verification);
-        assert_eq!(judged.rule(), None);
-        assert_eq!(judged.verdict(), None);
+        assert_eq!(judged.rule(), DecisionRule::LatencyComplianceExactBinomial);
+        assert_eq!(judged.verdict(), Verdict::Fail);
         assert_eq!(
-            judged.outcome(),
-            LatencyOutcome::Advisory(AdvisoryOutcome::AdvisoryWarn)
+            judged.compliance().unwrap().raw_percentile_pass(50.0),
+            Some(false)
         );
     }
 
     #[test]
-    fn a_saturated_enforced_constraint_is_inconclusive() {
+    fn a_saturated_constraint_is_inconclusive() {
         let baseline: Vec<f64> = (1..=100).map(f64::from).collect();
         let test: Vec<f64> = (1..=91).map(f64::from).collect();
         let constraint = LatencyConstraint {
             percentile: 0.99,
             alpha: 0.05,
-            mode: LatencyMode::Enforced,
             threshold: ConstraintThreshold::BaselineDerived(&baseline),
         };
         let judged = judge_latency_constraint(&test, &constraint, TestIntent::Smoke);
         assert!(judged.precedence().unwrap().saturated());
         assert_eq!(judged.threshold_ms(), None);
-        assert_eq!(judged.verdict(), Some(Verdict::Inconclusive));
+        assert_eq!(judged.verdict(), Verdict::Inconclusive);
     }
 
     #[test]
-    fn an_enforced_baseline_constraint_passes_at_the_threshold() {
+    fn a_baseline_constraint_passes_at_the_threshold() {
         let baseline: Vec<f64> = (1..=1000).map(f64::from).collect();
         let test: Vec<f64> = (1..=100).map(f64::from).collect();
         let constraint = LatencyConstraint {
             percentile: 0.95,
             alpha: 0.05,
-            mode: LatencyMode::Enforced,
             threshold: ConstraintThreshold::BaselineDerived(&baseline),
         };
         let judged = judge_latency_constraint(&test, &constraint, TestIntent::Verification);
-        assert_eq!(judged.rule(), Some(DecisionRule::LatencyPrecedence));
-        assert_eq!(judged.verdict(), Some(Verdict::Pass));
+        assert_eq!(judged.rule(), DecisionRule::LatencyPrecedence);
+        assert_eq!(judged.verdict(), Verdict::Pass);
+    }
+
+    #[test]
+    fn a_constraint_without_baseline_latencies_is_inconclusive() {
+        let test: Vec<f64> = (1..=100).map(f64::from).collect();
+        let constraint = LatencyConstraint {
+            percentile: 0.95,
+            alpha: 0.05,
+            threshold: ConstraintThreshold::BaselineDerived(&[]),
+        };
+        let judged = judge_latency_constraint(&test, &constraint, TestIntent::Verification);
+        assert_eq!(judged.precedence(), None);
+        assert_eq!(judged.threshold_ms(), None);
+        assert_eq!(judged.verdict(), Verdict::Inconclusive);
     }
 }

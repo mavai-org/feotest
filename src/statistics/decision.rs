@@ -10,11 +10,13 @@
 //!
 //! Criteria compose by one structural rule — PASS if every verdict passes,
 //! FAIL if any fails, INCONCLUSIVE otherwise — and the same rule composes
-//! the functional dimension `V_rate` with the latency dimension `V_latency`
-//! into the test's verdict `V_test`. A FAIL or an INCONCLUSIVE names what
-//! decided it. The Type-I envelopes are disclosed by procedure direction:
-//! the sum of alpha over the compliance decisions (false compliance) and
-//! over the regression decisions (false degradation signal).
+//! the enforced dimensions among the functional dimension `V_rate` and the
+//! latency dimension `V_latency` into the test's verdict `V_test` (§12.6):
+//! an advisory dimension is decided and reported but never enters it. A
+//! FAIL or an INCONCLUSIVE names what decided it. The Type-I envelopes are
+//! disclosed by procedure direction over the binding decisions: the sum of
+//! alpha over the compliance decisions (false compliance) and over the
+//! regression decisions (false degradation signal).
 
 use std::fmt;
 
@@ -23,7 +25,7 @@ use serde::{Serialize, Serializer};
 use crate::statistics::compliance::{clopper_pearson_lower, minimum_passing_count};
 use crate::statistics::distributions::binomial_upper_tail;
 use crate::statistics::regression::{RegressionDerivation, derive_regression_cutoff};
-use crate::statistics::rules::{DecisionRule, Direction};
+use crate::statistics::rules::{DecisionRule, Direction, EnforcementMode};
 
 /// The outcome of a criterion, a dimension, or a test.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -320,7 +322,7 @@ pub fn type_one_envelopes(decisions: impl IntoIterator<Item = (DecisionRule, f64
 pub enum TriggerKind {
     /// A functional criterion.
     Criterion,
-    /// An enforced latency constraint.
+    /// A latency constraint.
     Latency,
 }
 
@@ -335,8 +337,8 @@ impl TriggerKind {
     }
 }
 
-/// One functional criterion or enforced latency constraint that decided the
-/// test.
+/// One functional criterion or latency constraint, of an enforced
+/// dimension, that decided the test.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Trigger {
     #[serde(serialize_with = "serialize_trigger_kind")]
@@ -369,66 +371,122 @@ impl Trigger {
     }
 }
 
+/// One dimension's decisions as the test verdict composes them.
+#[derive(Debug, Clone, Copy)]
+pub struct DimensionDecisions<'a> {
+    /// The `(id, verdict)` pair of each criterion or constraint; empty for a
+    /// dimension the test does not carry.
+    pub decisions: &'a [(String, Verdict)],
+    /// Whether the run enforces the dimension or makes it advisory.
+    pub mode: EnforcementMode,
+}
+
+impl DimensionDecisions<'_> {
+    /// The dimension's composite verdict; `None` when the test does not
+    /// carry it.
+    fn verdict(&self) -> Option<Verdict> {
+        structural_composite(self.decisions.iter().map(|(_, v)| *v))
+    }
+
+    /// The dimension's mode; `None` when the test does not carry it.
+    fn present_mode(&self) -> Option<EnforcementMode> {
+        (!self.decisions.is_empty()).then_some(self.mode)
+    }
+
+    /// The dimension's verdict when it binds the test.
+    fn binding_verdict(&self) -> Option<Verdict> {
+        self.verdict().filter(|_| self.mode.is_enforced())
+    }
+}
+
 /// The test's verdict `V_test` and the two dimensions it composes.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OverallVerdict {
     rate_verdict: Option<Verdict>,
     latency_verdict: Option<Verdict>,
+    functional_mode: Option<EnforcementMode>,
+    latency_mode: Option<EnforcementMode>,
     verdict: Verdict,
     triggering: Vec<Trigger>,
 }
 
 impl OverallVerdict {
-    /// `V_rate`, the composite of the functional criteria; `None` for a test
-    /// with none.
+    /// `V_rate`, the composite of the functional criteria, enforced or
+    /// advisory; `None` for a test with none.
     #[must_use]
     pub const fn rate_verdict(&self) -> Option<Verdict> {
         self.rate_verdict
     }
 
-    /// `V_latency`, the composite of the enforced latency constraints;
-    /// `None` for a test that enforces none.
+    /// `V_latency`, the composite of the latency constraints, enforced or
+    /// advisory; `None` for a test with none.
     #[must_use]
     pub const fn latency_verdict(&self) -> Option<Verdict> {
         self.latency_verdict
     }
 
-    /// `V_test`, the composite of the dimensions present.
+    /// The functional dimension's mode; `None` for a test with no criteria.
+    #[must_use]
+    pub const fn functional_mode(&self) -> Option<EnforcementMode> {
+        self.functional_mode
+    }
+
+    /// The latency dimension's mode; `None` for a test with no latency
+    /// constraint.
+    #[must_use]
+    pub const fn latency_mode(&self) -> Option<EnforcementMode> {
+        self.latency_mode
+    }
+
+    /// `V_test`, the composite of the enforced dimensions; PASS when no
+    /// dimension is enforced.
     #[must_use]
     pub const fn verdict(&self) -> Verdict {
         self.verdict
     }
 
-    /// For a FAIL or an INCONCLUSIVE, the criteria and enforced constraints
-    /// whose verdict is the test's, criteria first.
+    /// For a FAIL or an INCONCLUSIVE, the criteria and constraints of the
+    /// enforced dimensions whose verdict is the test's, criteria first.
     #[must_use]
     pub fn triggering(&self) -> &[Trigger] {
         &self.triggering
     }
 }
 
-/// Composes `V_test` from `(id, verdict)` pairs of the functional criteria
-/// and of the enforced latency constraints (advisory ones never enter).
+/// Composes `V_test` over the enforced dimensions only (§12.6).
+///
+/// `V_test` is the structural composite of the enforced dimensions, PASS
+/// when none is enforced. An advisory dimension keeps its verdict, reported
+/// beside `V_test`, and never triggers it.
 ///
 /// # Panics
 ///
-/// Panics when there is neither a criterion nor an enforced latency
-/// constraint to compose.
+/// Panics when the test carries neither a criterion nor a latency
+/// constraint.
 #[must_use]
 pub fn compose_overall_verdict(
-    criteria: &[(String, Verdict)],
-    latency: &[(String, Verdict)],
+    functional: DimensionDecisions<'_>,
+    latency: DimensionDecisions<'_>,
 ) -> OverallVerdict {
-    let rate_verdict = structural_composite(criteria.iter().map(|(_, v)| *v));
-    let latency_verdict = structural_composite(latency.iter().map(|(_, v)| *v));
-    let verdict = structural_composite(rate_verdict.into_iter().chain(latency_verdict))
-        .expect("a test verdict needs a criterion or an enforced latency constraint");
+    assert!(
+        !(functional.decisions.is_empty() && latency.decisions.is_empty()),
+        "a test verdict needs a criterion or a latency constraint"
+    );
+    let verdict = structural_composite(
+        functional
+            .binding_verdict()
+            .into_iter()
+            .chain(latency.binding_verdict()),
+    )
+    .unwrap_or(Verdict::Pass);
     let triggering = if verdict == Verdict::Pass {
         Vec::new()
     } else {
-        let named = |kind: TriggerKind, pairs: &[(String, Verdict)]| -> Vec<Trigger> {
-            pairs
+        let named = |kind: TriggerKind, dimension: &DimensionDecisions<'_>| -> Vec<Trigger> {
+            dimension
+                .decisions
                 .iter()
+                .filter(|_| dimension.mode.is_enforced())
                 .filter(|(_, v)| *v == verdict)
                 .map(|(id, _)| Trigger {
                     kind,
@@ -436,13 +494,15 @@ pub fn compose_overall_verdict(
                 })
                 .collect()
         };
-        let mut triggers = named(TriggerKind::Criterion, criteria);
-        triggers.extend(named(TriggerKind::Latency, latency));
+        let mut triggers = named(TriggerKind::Criterion, &functional);
+        triggers.extend(named(TriggerKind::Latency, &latency));
         triggers
     };
     OverallVerdict {
-        rate_verdict,
-        latency_verdict,
+        rate_verdict: functional.verdict(),
+        latency_verdict: latency.verdict(),
+        functional_mode: functional.present_mode(),
+        latency_mode: latency.present_mode(),
         verdict,
         triggering,
     }
@@ -522,11 +582,20 @@ mod tests {
         assert_eq!(none.false_degradation_signal(), None);
     }
 
+    const ENFORCED: EnforcementMode = EnforcementMode::Enforced;
+    const ADVISORY: EnforcementMode = EnforcementMode::Advisory;
+
+    fn dimension(decisions: &[(String, Verdict)], mode: EnforcementMode) -> DimensionDecisions<'_> {
+        DimensionDecisions { decisions, mode }
+    }
+
     #[test]
     fn the_test_verdict_names_what_decided_it() {
+        let criteria = pairs(&[("c1", Verdict::Pass), ("c2", Verdict::Fail)]);
+        let latency = pairs(&[("p95", Verdict::Fail)]);
         let overall = compose_overall_verdict(
-            &pairs(&[("c1", Verdict::Pass), ("c2", Verdict::Fail)]),
-            &pairs(&[("p95", Verdict::Fail)]),
+            dimension(&criteria, ENFORCED),
+            dimension(&latency, ENFORCED),
         );
         assert_eq!(overall.verdict(), Verdict::Fail);
         let ids: Vec<(&str, TriggerKind)> = overall
@@ -545,26 +614,76 @@ mod tests {
 
     #[test]
     fn a_latency_only_test_takes_the_latency_verdict() {
-        let overall = compose_overall_verdict(&[], &pairs(&[("p95", Verdict::Pass)]));
+        let latency = pairs(&[("p95", Verdict::Pass)]);
+        let overall =
+            compose_overall_verdict(dimension(&[], ENFORCED), dimension(&latency, ENFORCED));
         assert_eq!(overall.rate_verdict(), None);
+        assert_eq!(overall.functional_mode(), None);
         assert_eq!(overall.latency_verdict(), Some(Verdict::Pass));
+        assert_eq!(overall.latency_mode(), Some(ENFORCED));
         assert_eq!(overall.verdict(), Verdict::Pass);
-        assert!(overall.triggering().is_empty());
+        assert_eq!(overall.triggering(), []);
     }
 
     #[test]
     fn functional_pass_and_latency_inconclusive_is_inconclusive() {
+        let criteria = pairs(&[("c", Verdict::Pass)]);
+        let latency = pairs(&[("p99", Verdict::Inconclusive)]);
         let overall = compose_overall_verdict(
-            &pairs(&[("c", Verdict::Pass)]),
-            &pairs(&[("p99", Verdict::Inconclusive)]),
+            dimension(&criteria, ENFORCED),
+            dimension(&latency, ENFORCED),
         );
         assert_eq!(overall.verdict(), Verdict::Inconclusive);
         assert_eq!(overall.triggering()[0].id(), "p99");
     }
 
     #[test]
+    fn an_advisory_dimension_is_reported_and_never_enters_the_verdict() {
+        let criteria = pairs(&[("c", Verdict::Pass)]);
+        let latency = pairs(&[("p95", Verdict::Fail)]);
+        let overall = compose_overall_verdict(
+            dimension(&criteria, ENFORCED),
+            dimension(&latency, ADVISORY),
+        );
+        assert_eq!(overall.verdict(), Verdict::Pass);
+        assert_eq!(overall.latency_verdict(), Some(Verdict::Fail));
+        assert_eq!(overall.latency_mode(), Some(ADVISORY));
+        assert_eq!(overall.triggering(), []);
+    }
+
+    #[test]
+    fn an_advisory_dimension_never_triggers_the_enforced_one() {
+        let criteria = pairs(&[("c", Verdict::Fail)]);
+        let latency = pairs(&[("p95", Verdict::Fail)]);
+        let overall = compose_overall_verdict(
+            dimension(&criteria, ADVISORY),
+            dimension(&latency, ENFORCED),
+        );
+        assert_eq!(overall.verdict(), Verdict::Fail);
+        assert_eq!(overall.rate_verdict(), Some(Verdict::Fail));
+        let ids: Vec<&str> = overall.triggering().iter().map(Trigger::id).collect();
+        assert_eq!(ids, ["p95"]);
+    }
+
+    #[test]
+    fn with_no_enforced_dimension_the_test_passes() {
+        let criteria = pairs(&[("c", Verdict::Fail)]);
+        let latency = pairs(&[("p95", Verdict::Inconclusive)]);
+        let overall = compose_overall_verdict(
+            dimension(&criteria, ADVISORY),
+            dimension(&latency, ADVISORY),
+        );
+        assert_eq!(overall.verdict(), Verdict::Pass);
+        assert_eq!(overall.triggering(), []);
+        let advisory_only =
+            compose_overall_verdict(dimension(&criteria, ADVISORY), dimension(&[], ENFORCED));
+        assert_eq!(advisory_only.verdict(), Verdict::Pass);
+        assert_eq!(advisory_only.latency_mode(), None);
+    }
+
+    #[test]
     #[should_panic(expected = "a test verdict needs")]
     fn composing_nothing_is_a_defect() {
-        let _ = compose_overall_verdict(&[], &[]);
+        let _ = compose_overall_verdict(dimension(&[], ENFORCED), dimension(&[], ENFORCED));
     }
 }

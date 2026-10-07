@@ -8,7 +8,7 @@ expression: "render_with(&compliance_record(TestIntent::Verification),\n&thresho
 ║ Test:        payment-gateway                                ║
 ║ Approach:    threshold-first                                ║
 ║ Intent:      VERIFICATION                                   ║
-║ Methodology: 1.5.0                                          ║
+║ Methodology: 1.6.0                                          ║
 ║ Origin:      SLA                                            ║
 ║ Contract:    API SLA v3.2 §2.1                              ║
 ║─────────────────────────────────────────────────────────────║

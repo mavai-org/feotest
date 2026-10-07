@@ -5,7 +5,7 @@ expression: output
 ═ VERDICT: FAIL (17 of 25 < cutoff 18 (regression/fisher)) ═
 Test:                degraded-service
 
-Methodology:         1.5.0
+Methodology:         1.6.0
 Pass rate:           0.6800 (17/25 samples)
 Rule:                regression/fisher (cutoff 18)
 Threshold:           0.7200

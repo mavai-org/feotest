@@ -220,6 +220,57 @@ mod tests {
         }
     }
 
+    /// Both dimensions advisory: the functional FAIL and the latency FAIL
+    /// are each decided and shown, labelled advisory, beside a PASS.
+    fn both_advisory_record() -> VerdictRecord {
+        use crate::latency::resolver::ThresholdProvenance;
+        use crate::latency::{EvaluationStatus, LatencyDimension, LatencyEvaluation, Percentile};
+        use crate::verdict::EnforcementMode;
+        let row = regression_row("worked_example_fail_deep_degradation", "result");
+        let latency = LatencyDimension::from_parts(
+            vec![LatencyEvaluation::new(
+                Percentile::P95,
+                Some(Duration::from_millis(690)),
+                Some(Duration::from_millis(600)),
+                ThresholdProvenance::Explicit,
+                EvaluationStatus::Fail,
+            )],
+            90,
+        )
+        .with_mode(EnforcementMode::Advisory);
+        VerdictRecord::builder(
+            TestIdentity::new("my-service").with_test_name("test_advisory"),
+            Verdict::Pass,
+            TestIntent::Verification,
+            sample_execution(100, 100, row.pass(), row.fail()),
+            FunctionalAssessment::single(row).with_mode(EnforcementMode::Advisory),
+        )
+        .latency(latency)
+        .build()
+    }
+
+    #[test]
+    fn an_advisory_dimension_is_labelled_beside_the_binding_verdict() {
+        match HtmlReportWriter::generate(&[both_advisory_record()], None) {
+            Ok(html) => {
+                assert!(html.contains("FAIL, advisory"));
+                assert!(
+                    html.contains("Functional verdict: FAIL (advisory; does not fail the test)")
+                );
+                assert!(
+                    html.contains("Latency (90 samples; FAIL, advisory; does not fail the test)")
+                );
+                assert!(html.contains("class=\"latency-advisory\""));
+                assert!(!html.contains("class=\"latency-fail\""));
+                assert!(html.contains("Pass: 1"));
+            }
+            Err(e) if e.kind() == io::ErrorKind::NotFound => {
+                eprintln!("skipping HTML report test: {e}");
+            }
+            Err(e) => panic!("unexpected error: {e}"),
+        }
+    }
+
     #[test]
     fn xslt_stylesheet_is_valid_xml() {
         // Verify the embedded XSLT is at least well-formed XML

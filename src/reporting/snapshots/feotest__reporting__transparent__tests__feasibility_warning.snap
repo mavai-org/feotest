@@ -8,7 +8,7 @@ expression: "render_with(&record, &threshold_first(477, 0.0))"
 ║ Test:        tiny-test                                      ║
 ║ Approach:    threshold-first                                ║
 ║ Intent:      SMOKE                                          ║
-║ Methodology: 1.5.0                                          ║
+║ Methodology: 1.6.0                                          ║
 ║ Origin:      SLA                                            ║
 ║─────────────────────────────────────────────────────────────║
 ║ WARNING                                                     ║

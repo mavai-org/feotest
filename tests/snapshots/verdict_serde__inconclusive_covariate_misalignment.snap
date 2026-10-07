@@ -43,14 +43,15 @@ expression: "serde_json::to_value(&record).unwrap()"
         "passRate": 0.85,
         "verdict": "INCONCLUSIVE"
       }
-    ]
+    ],
+    "mode": "enforced"
   },
   "identity": {
     "testName": "accurate_enough",
     "useCaseId": "classifier"
   },
   "intent": "VERIFICATION",
-  "methodologyVersion": "1.5.0",
+  "methodologyVersion": "1.6.0",
   "verdict": "INCONCLUSIVE",
   "verdictReason": "covariate misalignment"
 }

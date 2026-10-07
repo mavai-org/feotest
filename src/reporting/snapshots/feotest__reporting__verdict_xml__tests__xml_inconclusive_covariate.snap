@@ -3,7 +3,7 @@ source: src/reporting/verdict_xml.rs
 expression: xml
 ---
 <?xml version="1.0" encoding="UTF-8"?>
-<verdict-record xmlns="http://mavai.org/verdict/1.0" version="1.7" methodology-version="1.5.0" timestamp="2026-04-01T12:00:00Z" generator="feotest/0.3.1">
+<verdict-record xmlns="http://mavai.org/verdict/1.0" version="1.8" methodology-version="1.6.0" timestamp="2026-04-01T12:00:00Z" generator="feotest/0.3.1">
   <identity use-case-id="covariate-test"/>
   <execution planned-samples="100" samples-executed="100" successes="85" failures="15" elapsed-ms="500" intent="VERIFICATION" confidence="0.95"/>
   <functional successes="85" failures="15" pass-rate="0.8500"/>
@@ -14,7 +14,7 @@ expression: xml
   <cost total-time-ms="500" total-tokens="1000" avg-time-per-sample-ms="5" avg-tokens-per-sample="10"/>
   <per-criterion>
     <criterion id="result" verdict="INCONCLUSIVE" pass="85" fail="15" inconclusive="0" total="100" observed-rate="0.8500"/>
-    <composite value="INCONCLUSIVE"/>
+    <composite value="INCONCLUSIVE" mode="enforced"/>
   </per-criterion>
   <verdict value="INCONCLUSIVE" reason="covariate misalignment"/>
 </verdict-record>

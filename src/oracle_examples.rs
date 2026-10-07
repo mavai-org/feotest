@@ -10,9 +10,10 @@ use serde_json::Value;
 
 use crate::model::ThresholdOrigin;
 use crate::statistics::decision::{
-    Trigger, compose_overall_verdict, evaluate_compliance, evaluate_regression,
+    DimensionDecisions, Trigger, compose_overall_verdict, evaluate_compliance, evaluate_regression,
 };
 use crate::statistics::regression::{MDD_POWER, minimum_detectable_degradation};
+use crate::statistics::rules::EnforcementMode;
 use crate::verdict::{CriterionRow, DesignDisclosure, StatisticalAnalysis, Verdict};
 
 /// The vendored `regression_decision` suite.
@@ -182,7 +183,16 @@ pub fn two_criteria(name: &str) -> (Vec<CriterionRow>, Vec<Trigger>) {
         .iter()
         .map(|row| (row.name().to_owned(), row.verdict()))
         .collect();
-    let overall = compose_overall_verdict(&pairs, &[]);
+    let overall = compose_overall_verdict(
+        DimensionDecisions {
+            decisions: &pairs,
+            mode: EnforcementMode::Enforced,
+        },
+        DimensionDecisions {
+            decisions: &[],
+            mode: EnforcementMode::Enforced,
+        },
+    );
     assert_eq!(overall.verdict(), verdict(&case["expected"]["verdict"]));
     (rows, overall.triggering().to_vec())
 }

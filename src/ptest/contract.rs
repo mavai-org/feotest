@@ -21,7 +21,6 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use crate::controls::{ExecutionConfig, PacingConfig};
-use crate::latency::LatencyEnforcementMode;
 use crate::model::{BudgetExhaustedBehavior, TestIntent, ThresholdOrigin};
 use crate::ptest::ProbabilisticTest;
 use crate::ptest::builder::{ThresholdApproach, build_default_spec_resolver};
@@ -31,6 +30,7 @@ use crate::ptest::runner::{
 };
 use crate::service_contract::{CovariateContext, ServiceContract};
 use crate::spec::{BaselineSpec, SpecResolver};
+use crate::verdict::AssertionEnforcement;
 
 /// Default sampling plan when the caller does not set an approach.
 const DEFAULT_APPROACH: ThresholdApproach = ThresholdApproach::ThresholdFirst {
@@ -73,7 +73,6 @@ pub struct ContractTest<'a, C: ServiceContract> {
     token_budget: Option<u64>,
     pacing: Option<PacingConfig>,
     on_budget_exhausted: Option<BudgetExhaustedBehavior>,
-    baseline_latency_mode: Option<LatencyEnforcementMode>,
     baseline_latency_confidence: Option<f64>,
     fail_on_expired_baseline: bool,
     transparent_stats: bool,
@@ -99,7 +98,6 @@ impl<'a, C: ServiceContract> ContractTest<'a, C> {
             token_budget: None,
             pacing: None,
             on_budget_exhausted: None,
-            baseline_latency_mode: None,
             baseline_latency_confidence: None,
             fail_on_expired_baseline: false,
             transparent_stats: false,
@@ -225,18 +223,6 @@ impl<'a, C: ServiceContract> ContractTest<'a, C> {
         self
     }
 
-    /// Enforces baseline-derived latency thresholds strictly (fail) rather than
-    /// the default advisory (warn).
-    #[must_use]
-    pub const fn enforce_baseline_latency(mut self, strict: bool) -> Self {
-        self.baseline_latency_mode = Some(if strict {
-            LatencyEnforcementMode::Strict
-        } else {
-            LatencyEnforcementMode::Advisory
-        });
-        self
-    }
-
     /// Overrides the confidence used when deriving baseline latency thresholds.
     #[must_use]
     pub const fn baseline_latency_confidence(mut self, confidence: f64) -> Self {
@@ -275,10 +261,17 @@ impl<'a, C: ServiceContract> ContractTest<'a, C> {
 
     /// Executes the test and produces the verdict.
     ///
+    /// Every assertion is enforced unless the run's
+    /// [`FEOTEST_ADVISORY`](crate::verdict::enforcement::ENV_VAR) setting
+    /// makes its dimension advisory; an advisory dimension is decided and
+    /// reported but never fails the test.
+    ///
     /// # Panics
     ///
-    /// Panics if no inputs were set, if the configuration is infeasible under
-    /// verification intent, or if a service invocation yields a defect.
+    /// Panics if no inputs were set, if `FEOTEST_ADVISORY` names anything
+    /// but `functional` and `latency`, if a baseline the enforced
+    /// assertions need is missing, or if a service invocation yields a
+    /// defect.
     #[must_use]
     pub fn run(self) -> ProbabilisticTestResult
     where
@@ -295,7 +288,6 @@ impl<'a, C: ServiceContract> ContractTest<'a, C> {
             threshold_origin: self.threshold_origin,
             contract_ref: self.contract_ref,
             latency: LatencyConfig {
-                baseline_mode: self.baseline_latency_mode,
                 baseline_confidence: self
                     .baseline_latency_confidence
                     .unwrap_or(crate::latency::DEFAULT_LATENCY_CONFIDENCE),
@@ -303,6 +295,7 @@ impl<'a, C: ServiceContract> ContractTest<'a, C> {
             fail_on_expired_baseline: self.fail_on_expired_baseline,
             on_budget_exhausted: self.on_budget_exhausted,
             early_termination_disabled: self.early_termination_disabled,
+            enforcement: AssertionEnforcement::from_environment(),
         };
         // Covariates are part of the contract's identity, so the covariate
         // context is derived from the contract itself unless one was supplied

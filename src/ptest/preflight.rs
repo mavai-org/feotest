@@ -6,14 +6,16 @@
 //!
 //! - `TEST_LARGER_THAN_BASELINE` — the test is planned larger than the
 //!   baseline run it consumes; judged once on the two samplings, for every
-//!   baseline-derived criterion and every enforced baseline-derived latency
+//!   baseline-derived criterion and every baseline-derived latency
 //!   constraint, whatever the intent;
 //! - `COMPLIANCE_INFEASIBLE` — under verification intent, a normative design
 //!   (a pass-rate requirement, or an explicit latency requirement) too small
 //!   for any outcome to demonstrate compliance.
 //!
 //! When any part is invalid the whole configuration is refused: a run never
-//! proceeds half-valid. A normative test has no upper size limit.
+//! proceeds half-valid. A refusal applies whether the dimension it concerns
+//! is enforced or advisory (§12.6). A normative test has no upper size
+//! limit.
 
 use crate::criteria::CriterionTarget;
 use crate::latency::{ConstraintSource, ResolvedLatencyConstraint};
@@ -90,8 +92,8 @@ pub(super) fn refused_parts(
 }
 
 /// The `TEST_LARGER_THAN_BASELINE` parts: every baseline-derived criterion
-/// and enforced baseline-derived latency constraint whose baseline is
-/// smaller than the planned test.
+/// and baseline-derived latency constraint whose baseline is smaller than
+/// the planned test, whether its dimension is enforced or advisory.
 fn larger_than_baseline(configuration: &Configuration<'_>) -> Vec<RefusedPart> {
     let planned = configuration.planned_samples;
     let criteria = configuration
@@ -105,7 +107,7 @@ fn larger_than_baseline(configuration: &Configuration<'_>) -> Vec<RefusedPart> {
             configuration
                 .latency
                 .iter()
-                .filter(|c| c.is_enforced() && c.is_baseline_derived())
+                .filter(|c| c.is_baseline_derived())
                 .map(move |c| (format!("latency {}", c.percentile()), samples))
         });
     criteria
@@ -150,8 +152,10 @@ fn infeasible_part(requirement: &Requirement, check: &FeasibilityResult) -> Refu
 }
 
 /// The normative requirements of a configuration: each declared pass rate,
-/// at its criterion's level, and each enforced explicit latency ceiling, at
-/// the latency criterion's level.
+/// at its criterion's level, and each explicit latency ceiling, at the
+/// latency criterion's level — whether its dimension is enforced or
+/// advisory, since a design no outcome could decide is refused whatever
+/// binds.
 pub(super) fn requirements(
     targets: &[(&str, &CriterionTarget)],
     criterion_alpha: impl Fn(&str) -> f64,
@@ -167,7 +171,7 @@ pub(super) fn requirements(
     });
     let ceilings = latency
         .iter()
-        .filter(|c| c.is_enforced() && matches!(c.source(), ConstraintSource::Explicit { .. }))
+        .filter(|c| matches!(c.source(), ConstraintSource::Explicit { .. }))
         .map(|c| Requirement {
             subject: format!("latency {}", c.percentile()),
             rate: c.percentile().as_fraction(),

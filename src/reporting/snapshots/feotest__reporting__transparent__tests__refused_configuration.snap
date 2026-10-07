@@ -8,7 +8,7 @@ expression: buf
 ║ Test:        offer-extraction                               ║
 ║ Approach:    threshold-first                                ║
 ║ Intent:      VERIFICATION                                   ║
-║ Methodology: 1.5.0                                          ║
+║ Methodology: 1.6.0                                          ║
 ║─────────────────────────────────────────────────────────────║
 ║ CONFIGURATION REFUSED                                       ║
 ║                                                             ║

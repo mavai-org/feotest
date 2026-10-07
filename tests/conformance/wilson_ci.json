@@ -1,6 +1,6 @@
 {
   "suite": "wilson_ci",
-  "methodologyVersion": "1.5.0",
+  "methodologyVersion": "1.6.0",
   "fixtureSchemaVersion": 2,
   "decisionRules": [],
   "description": "Wilson score confidence intervals (two-sided)",

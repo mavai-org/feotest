@@ -34,14 +34,15 @@ expression: "serde_json::to_value(&record).unwrap()"
         "passRate": 0.8,
         "verdict": "FAIL"
       }
-    ]
+    ],
+    "mode": "enforced"
   },
   "identity": {
     "testName": "translates",
     "useCaseId": "basket"
   },
   "intent": "VERIFICATION",
-  "methodologyVersion": "1.5.0",
+  "methodologyVersion": "1.6.0",
   "statisticalAnalysis": {
     "alpha": 0.05,
     "confidenceLevel": 0.95,

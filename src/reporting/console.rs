@@ -7,7 +7,11 @@
 use std::fmt;
 
 use crate::model::TerminationReason;
-use crate::verdict::{CriterionRow, RuleEvidence, Verdict, VerdictRecord};
+use crate::verdict::{CriterionRow, EnforcementMode, RuleEvidence, Verdict, VerdictRecord};
+
+/// The label beside an advisory dimension's verdict: reported, never
+/// binding.
+const ADVISORY_LABEL: &str = "advisory; does not fail the test";
 
 /// Fixed label width for body section alignment.
 const LABEL_WIDTH: usize = 20;
@@ -201,7 +205,22 @@ fn render_pass_rate(record: &VerdictRecord, writer: &mut dyn fmt::Write) -> fmt:
             &format!("{:.4} (descriptive)", analysis.wilson_lower()),
         )?;
     }
-    render_further_criteria(record, writer)
+    render_further_criteria(record, writer)?;
+    render_advisory_functional(record, writer)
+}
+
+/// The functional dimension's verdict, labelled, when the run made it
+/// advisory: decided by its rules and shown beside the binding verdict.
+fn render_advisory_functional(record: &VerdictRecord, writer: &mut dyn fmt::Write) -> fmt::Result {
+    let assessment = record.functional_assessment();
+    if assessment.mode() != EnforcementMode::Advisory {
+        return Ok(());
+    }
+    label_value(
+        writer,
+        "Functional:",
+        &format!("{} ({ADVISORY_LABEL})", assessment.composite()),
+    )
 }
 
 /// The rule that decided a criterion row and the bar it compared against.
@@ -288,10 +307,14 @@ fn render_latency_summary(record: &VerdictRecord, writer: &mut dyn fmt::Write) -
     writeln!(writer)?;
     let verdict = latency
         .verdict()
-        .map_or_else(|| "advisory only".to_owned(), |v| v.to_string());
+        .map_or_else(|| "no constraint".to_owned(), |v| v.to_string());
+    let mode = match latency.mode() {
+        EnforcementMode::Enforced => String::new(),
+        EnforcementMode::Advisory => format!(", {ADVISORY_LABEL}"),
+    };
     writeln!(
         writer,
-        "Latency ({} successful samples; {verdict}):",
+        "Latency ({} successful samples; {verdict}{mode}):",
         latency.successful_samples()
     )?;
     for ev in latency.evaluations() {
@@ -303,13 +326,14 @@ fn render_latency_summary(record: &VerdictRecord, writer: &mut dyn fmt::Write) -
             || "no threshold".to_string(),
             |d| format!("{}ms", d.as_millis()),
         );
-        let rule = ev
-            .decision_rule()
-            .map_or_else(|| "raw percentile comparison".to_owned(), |r| r.to_string());
         label_value(
             writer,
             &format!("  {}:", ev.percentile()),
-            &format!("{obs} / {thr} [{}; {rule}]", ev.status().name()),
+            &format!(
+                "{obs} / {thr} [{}; {}]",
+                ev.status().name(),
+                ev.decision_rule()
+            ),
         )?;
     }
 
@@ -703,5 +727,49 @@ mod tests {
     fn verdict_reason_covariate_misalignment() {
         let record = misaligned_covariate_record();
         assert_eq!(record.verdict_reason(), "covariate misalignment");
+    }
+
+    /// Both dimensions advisory and failing: the test passes, and each
+    /// dimension's verdict is shown, labelled advisory.
+    fn both_advisory_record() -> VerdictRecord {
+        use crate::latency::resolver::ThresholdProvenance;
+        use crate::latency::{EvaluationStatus, LatencyDimension, LatencyEvaluation, Percentile};
+        let row = regression_row("worked_example_fail_deep_degradation", "result");
+        let latency = LatencyDimension::from_parts(
+            vec![LatencyEvaluation::new(
+                Percentile::P95,
+                Some(Duration::from_millis(690)),
+                Some(Duration::from_millis(600)),
+                ThresholdProvenance::Explicit,
+                EvaluationStatus::Fail,
+            )],
+            80,
+        )
+        .with_mode(EnforcementMode::Advisory);
+        VerdictRecord::builder(
+            TestIdentity::new("my-service"),
+            Verdict::Pass,
+            TestIntent::Verification,
+            sample_execution(100, 100, row.pass(), row.fail()),
+            FunctionalAssessment::single(row).with_mode(EnforcementMode::Advisory),
+        )
+        .latency(latency)
+        .build()
+    }
+
+    #[test]
+    fn advisory_dimensions_are_labelled_beside_the_binding_verdict() {
+        let output =
+            ConsoleRenderer::without_colour().render_verdict_to_string(&both_advisory_record());
+        assert!(output.starts_with(
+            "\u{2550} VERDICT: PASS (no assertion enforced; functional and latency advisory) \u{2550}"
+        ));
+        assert!(output.contains("Functional:          FAIL (advisory; does not fail the test)"));
+        assert!(
+            output.contains(
+                "Latency (80 successful samples; FAIL, advisory; does not fail the test):"
+            )
+        );
+        assert!(output.contains("[FAIL; latency/compliance-exact-binomial]"));
     }
 }

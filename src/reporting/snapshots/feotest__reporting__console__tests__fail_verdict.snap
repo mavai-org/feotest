@@ -5,7 +5,7 @@ expression: output
 ═ VERDICT: FAIL (80 of 100 < cutoff 91 (regression/fisher)) ═
 Test:                my-service
 
-Methodology:         1.5.0
+Methodology:         1.6.0
 Pass rate:           0.8000 (80/100 samples)
 Rule:                regression/fisher (cutoff 91)
 Threshold:           0.9100

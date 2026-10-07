@@ -1,6 +1,6 @@
 //! The methodology's decision rules, configuration errors and test intent.
 //!
-//! Statistical Companion 1.5.0 names four verdict-producing procedures, each
+//! Statistical Companion 1.6.0 names four verdict-producing procedures, each
 //! with a versioned identifier that travels with every verdict it decides:
 //!
 //! - `regression/fisher` — empirical regression: the one-sided Fisher exact
@@ -14,6 +14,11 @@
 //!
 //! Two configurations are refused before any sample runs, and a refusal
 //! names every applicable code in one fixed order (§5.7.1).
+//!
+//! Methodology 1.6.0 keeps the rules and changes only which verdicts bind:
+//! every assertion is enforced by default, and a run may make a whole
+//! dimension advisory — decided by the same rules, reported, never binding
+//! (§12.6).
 
 use std::fmt;
 
@@ -24,7 +29,7 @@ use crate::statistics::exact::exact_decimal;
 
 /// The Statistical Companion methodology whose decision rules this crate
 /// implements.
-pub const METHODOLOGY_VERSION: &str = "1.5.0";
+pub const METHODOLOGY_VERSION: &str = "1.6.0";
 
 /// A versioned decision rule of the methodology.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -61,7 +66,7 @@ impl DecisionRule {
     }
 
     /// The rule's version; every rule is at version 1 under methodology
-    /// 1.5.0.
+    /// 1.6.0.
     #[must_use]
     pub const fn version(self) -> u32 {
         1
@@ -94,12 +99,56 @@ impl Serialize for DecisionRule {
 /// The error event a decision's alpha bounds, for the Type-I envelopes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Direction {
-    /// A false claim of compliance: compliance criteria and enforced
-    /// explicit latency requirements.
+    /// A false claim of compliance: compliance criteria and explicit
+    /// latency requirements.
     Compliance,
-    /// A false degradation signal: regression criteria and enforced
-    /// baseline-derived latency constraints.
+    /// A false degradation signal: regression criteria and baseline-derived
+    /// latency constraints.
     Regression,
+}
+
+/// Whether a dimension's verdict binds the test (§12.6).
+///
+/// Every dimension is enforced unless the run makes it advisory. An
+/// advisory dimension is decided by the same rules on the same evidence and
+/// reported with its verdict, but it never enters the test verdict, the
+/// triggering list or the Type-I envelopes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum EnforcementMode {
+    /// The dimension's verdict enters the test verdict. The default.
+    #[default]
+    Enforced,
+    /// The dimension is decided and reported, and never fails the test.
+    Advisory,
+}
+
+impl EnforcementMode {
+    /// The mode's name, as reports and interchange records state it.
+    #[must_use]
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Enforced => "enforced",
+            Self::Advisory => "advisory",
+        }
+    }
+
+    /// Whether the dimension's verdict binds the test.
+    #[must_use]
+    pub const fn is_enforced(self) -> bool {
+        matches!(self, Self::Enforced)
+    }
+}
+
+impl fmt::Display for EnforcementMode {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.name())
+    }
+}
+
+impl Serialize for EnforcementMode {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(self.name())
+    }
 }
 
 /// A configuration refused before any sample runs.

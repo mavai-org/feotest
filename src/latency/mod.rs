@@ -2,7 +2,9 @@
 //!
 //! This module hosts the domain-level machinery for the latency dimension
 //! of a probabilistic test: threshold declaration, resolution against a
-//! baseline, enforcement policy, and the verdict dimension. The decision
+//! baseline, and the verdict dimension. Whether the dimension binds the
+//! test is the run's choice ([`AssertionEnforcement`](crate::verdict::AssertionEnforcement)),
+//! never a property of a constraint. The decision
 //! rules (`latency/compliance-exact-binomial` for an explicit requirement,
 //! `latency/precedence` for a baseline-derived threshold) and the latency
 //! gates live in `crate::statistics::latency` and are exercised by the
@@ -10,14 +12,12 @@
 
 pub mod criterion;
 pub mod dimension;
-pub mod enforcement;
 pub mod percentile;
 pub mod resolver;
 pub mod thresholds;
 
 pub use criterion::LatencyCriterion;
 pub use dimension::{EvaluationStatus, LatencyDimension, LatencyEvaluation};
-pub use enforcement::{LatencyEnforcementMode, resolved_mode_from_env};
 pub use percentile::Percentile;
 pub use resolver::{
     ConstraintConfidence, ConstraintSource, ResolvedLatencyConstraint, ThresholdProvenance, resolve,

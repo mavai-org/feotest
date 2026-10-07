@@ -8,7 +8,7 @@ expression: "render_with(&inconclusive_record(), &threshold_first(10, 0.80))"
 ║ Test:        flaky-service                                  ║
 ║ Approach:    threshold-first                                ║
 ║ Intent:      VERIFICATION                                   ║
-║ Methodology: 1.5.0                                          ║
+║ Methodology: 1.6.0                                          ║
 ║─────────────────────────────────────────────────────────────║
 ║ VERDICT                                                     ║
 ║                                                             ║

@@ -35,11 +35,10 @@ pub(super) struct CriterionContext<'a> {
 
 /// Builds one criterion's verdict row. A criterion with no in-scope trials
 /// is `Inconclusive`; a zero-failures criterion is observational — `Pass`
-/// iff it recorded no failures; otherwise its rule decides.
-///
-/// # Panics
-///
-/// Panics if a baseline-derived criterion has no baseline tally.
+/// iff it recorded no failures; otherwise its rule decides. A
+/// baseline-derived criterion with no baseline tally — reachable only when
+/// the run makes the functional dimension advisory — has no rule to decide
+/// it and is `Inconclusive`.
 pub(super) fn criterion_row(
     context: &CriterionContext<'_>,
     counts: &CriteriaCounts,
@@ -78,11 +77,12 @@ pub(super) fn criterion_row(
             (verdict, Some(analysis))
         }
         CriterionTarget::EmpiricalRate => {
-            let baseline = context
+            context
                 .baseline
-                .expect("a baseline-derived criterion requires a baseline");
-            let (verdict, analysis) = judge_regression(pass, total, baseline, context);
-            (verdict, Some(analysis))
+                .map_or((Verdict::Inconclusive, None), |baseline| {
+                    let (verdict, analysis) = judge_regression(pass, total, baseline, context);
+                    (verdict, Some(analysis))
+                })
         }
     };
     CriterionRow::new(context.name, pass, fail, distribution, analysis, verdict)
@@ -273,5 +273,13 @@ mod tests {
         let target = CriterionTarget::NormativeRate(0.9);
         let row = criterion_row(&context(&target, None), &CriteriaCounts::new());
         assert_eq!(row.verdict(), Verdict::Inconclusive);
+    }
+
+    #[test]
+    fn a_baseline_derived_criterion_without_a_baseline_is_inconclusive() {
+        let target = CriterionTarget::EmpiricalRate;
+        let row = criterion_row(&context(&target, None), &counts_of("c", 91, 9));
+        assert_eq!(row.verdict(), Verdict::Inconclusive);
+        assert!(row.statistical_analysis().is_none());
     }
 }

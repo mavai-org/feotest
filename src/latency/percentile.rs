@@ -34,6 +34,17 @@ impl Percentile {
         }
     }
 
+    /// The percentile's position in [`ALL`](Self::ALL).
+    #[must_use]
+    pub(crate) const fn index(self) -> usize {
+        match self {
+            Self::P50 => 0,
+            Self::P90 => 1,
+            Self::P95 => 2,
+            Self::P99 => 3,
+        }
+    }
+
     /// Short label (e.g. `p95`).
     #[must_use]
     pub const fn label(self) -> &'static str {

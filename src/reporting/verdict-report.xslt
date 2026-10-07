@@ -174,6 +174,13 @@
         <xsl:text> (</xsl:text>
         <xsl:value-of select="v:functional/@pass-rate"/>
         <xsl:text>)</xsl:text>
+        <xsl:if test="v:per-criterion/v:composite/@mode='advisory'">
+          <xsl:text> </xsl:text>
+          <span class="advisory-tag" title="advisory: decided and reported, does not fail the test">
+            <xsl:value-of select="v:per-criterion/v:composite/@value"/>
+            <xsl:text>, advisory</xsl:text>
+          </span>
+        </xsl:if>
       </td>
 
       <!-- Latency cells: p50, p95, p99 -->
@@ -213,15 +220,25 @@
     <xsl:choose>
       <xsl:when test="v:latency/v:evaluations/v:evaluation[@percentile=$label]">
         <xsl:variable name="eval" select="v:latency/v:evaluations/v:evaluation[@percentile=$label]"/>
+        <xsl:variable name="advisory" select="v:latency/@mode='advisory'"/>
+        <!-- An advisory dimension's FAIL is decided by its rule and shown,
+             but never in the colour of a failure that binds the test. -->
         <xsl:variable name="css">
           <xsl:choose>
             <xsl:when test="$eval/@status='PASS'">latency-pass</xsl:when>
-            <xsl:when test="$eval/@status='STRICT_FAIL'">latency-fail</xsl:when>
-            <xsl:when test="$eval/@status='ADVISORY_WARN'">latency-warn</xsl:when>
+            <xsl:when test="$eval/@status='FAIL' and $advisory">latency-advisory</xsl:when>
+            <xsl:when test="$eval/@status='FAIL'">latency-fail</xsl:when>
             <xsl:otherwise>latency-infeasible</xsl:otherwise>
           </xsl:choose>
         </xsl:variable>
         <td class="{$css}">
+          <xsl:if test="$advisory">
+            <xsl:attribute name="title">
+              <xsl:text>advisory: </xsl:text>
+              <xsl:value-of select="$eval/@status"/>
+              <xsl:text>, does not fail the test</xsl:text>
+            </xsl:attribute>
+          </xsl:if>
           <xsl:choose>
             <xsl:when test="$eval/@observed-ms">
               <xsl:value-of select="$eval/@observed-ms"/><xsl:text>ms</xsl:text>
@@ -271,10 +288,23 @@
         <xsl:text>&#10;Threshold: </xsl:text>
         <xsl:value-of select="v:statistics/@threshold"/>
       </xsl:if>
+      <xsl:if test="v:per-criterion/v:composite/@mode='advisory'">
+        <xsl:text>&#10;Functional verdict: </xsl:text>
+        <xsl:value-of select="v:per-criterion/v:composite/@value"/>
+        <xsl:text> (advisory; does not fail the test)</xsl:text>
+      </xsl:if>
       <xsl:if test="v:latency">
         <xsl:text>&#10;&#10;Latency (</xsl:text>
         <xsl:value-of select="v:latency/@successful-samples"/>
-        <xsl:text> samples):&#10;</xsl:text>
+        <xsl:text> samples</xsl:text>
+        <xsl:if test="v:latency/@verdict">
+          <xsl:text>; </xsl:text>
+          <xsl:value-of select="v:latency/@verdict"/>
+        </xsl:if>
+        <xsl:if test="v:latency/@mode='advisory'">
+          <xsl:text>, advisory; does not fail the test</xsl:text>
+        </xsl:if>
+        <xsl:text>):&#10;</xsl:text>
         <xsl:for-each select="v:latency/v:evaluations/v:evaluation">
           <xsl:text>  </xsl:text>
           <xsl:value-of select="@percentile"/>
@@ -293,9 +323,7 @@
             <xsl:otherwise>no threshold</xsl:otherwise>
           </xsl:choose>
           <xsl:text> [</xsl:text><xsl:value-of select="@status"/>
-          <xsl:if test="@decision-rule">
-            <xsl:text>; </xsl:text><xsl:value-of select="@decision-rule"/>
-          </xsl:if>
+          <xsl:text>; </xsl:text><xsl:value-of select="@decision-rule"/>
           <xsl:text>]</xsl:text>
           <xsl:text>&#10;</xsl:text>
         </xsl:for-each>
@@ -622,7 +650,8 @@
     .verdict-inconclusive { color: var(--inconclusive-color); font-weight: 600; }
     .latency-pass { color: var(--pass-color); }
     .latency-fail { color: var(--fail-color); }
-    .latency-warn { color: var(--advisory-color); }
+    .latency-advisory { color: var(--advisory-color); }
+    .advisory-tag { color: var(--advisory-color); font-size: 0.8rem; }
     .latency-infeasible { color: var(--text-muted); }
     .latency-na { color: var(--text-muted); }
     .detail-row td { padding: 0; border-top: none; }

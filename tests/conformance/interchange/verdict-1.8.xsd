@@ -48,12 +48,51 @@
       <xs:element name="postcondition-standings" type="tns:PostconditionStandingsType" minOccurs="0"/>
       <xs:element name="verdict"      type="tns:VerdictType"/>
     </xs:all>
-    <!-- version: "1.0", "1.2", "1.3", "1.4", "1.5", "1.6", or "1.7". 1.2 emitters set version="1.2"
+    <!-- version: "1.0", "1.2", "1.3", "1.4", "1.5", "1.6", "1.7" or "1.8". 1.2 emitters set version="1.2"
          when <per-criterion> content is populated; otherwise stay
          at "1.0" so consumers inspecting the version attribute
          remain correctly informed. 1.3 emitters set version="1.3":
          the <postcondition-standings> element is available (emitted
          whenever the run produced standings). -->
+    <!-- 1.8 changes (Statistical Companion 1.6.0, mavai-R 0.12.0), which
+         record whether each dimension was enforced or advisory. Under
+         methodology 1.6.0 every assertion is enforced by default, and a
+         run-time switch makes the functional dimension, the latency
+         dimension or both advisory for a run; the switch acts on a whole
+         dimension, never on one criterion or constraint. An advisory
+         dimension is decided by its proper rules and its verdicts recorded,
+         but it never enters the test verdict and never fails the test. A
+         clean break: a 1.7 record is not a 1.8 record.
+
+         @mode on <per-criterion>/<composite>, required — the functional
+         dimension's mode, enforced or advisory, beside its verdict V_rate.
+
+         @mode on <latency> — the latency dimension's mode, beside its
+         verdict V_latency; present exactly when @verdict is. @verdict is
+         now the composite of every evaluation, each decided by its rule,
+         whatever the mode. @strict-violations and @advisory-violations are
+         withdrawn: the evaluations state their own outcomes.
+
+         <evaluation>: @mode is withdrawn (the mode is the dimension's).
+         Every evaluation is decided by its rule, enforced or advisory, so
+         @decision-rule and @decision-rule-version are required, and
+         @status is that rule's outcome: PASS, FAIL, or one of the two
+         inconclusive outcomes INFEASIBLE and SATURATED. STRICT_FAIL is
+         renamed FAIL, and ADVISORY_WARN, the raw comparison of an advisory
+         evaluation, is withdrawn; the raw comparison of a SMOKE run is read
+         from @observed-ms beside @threshold-ms and decides nothing.
+
+         <verdict>/@value — the overall test verdict V_test, the structural
+         composite of the enforced dimensions only: PASS if every enforced
+         dimension passes, FAIL if any fails, INCONCLUSIVE otherwise. When
+         no dimension is enforced it is PASS, the composite over no
+         verdict, and the record states the advisory modes that make it so.
+         A reader names the dimensions that bound the verdict from the two
+         @mode attributes; it never shows an advisory dimension as deciding
+         the test.
+
+         EnforcementModeEnum is renamed from strict | advisory to
+         enforced | advisory, the companion's words. -->
     <!-- 1.7 additions (Statistical Companion 1.5.0), which name the
          decision behind the verdict:
 
@@ -69,7 +108,7 @@
          latency threshold) or latency/compliance-exact-binomial (an
          explicit latency requirement). Stated when one rule decided the
          whole test; when several did (functional criteria of different
-         directions, or enforced latency constraints beside functional
+         directions, or latency constraints beside functional
          criteria), each is stated where it decided — on the criterion rows
          and the latency evaluations — and <verdict> states none. A service
          judged against both a requirement and its
@@ -81,10 +120,11 @@
          @value on <verdict> — the overall test verdict V_test: the
          structural composite of the functional dimension (the criteria's
          composite, <per-criterion>/<composite>) and the latency dimension
-         (<latency>/@verdict, the composite of the strict evaluations) —
-         PASS if both pass, FAIL if either fails, INCONCLUSIVE otherwise; a
-         dimension the test does not carry is left out. Advisory latency
-         evaluations never enter it.
+         (<latency>/@verdict) — PASS if both pass, FAIL if either fails,
+         INCONCLUSIVE otherwise; a dimension the test does not carry is left
+         out. From 1.8 only the enforced dimensions are composed (see the
+         1.8 changes above), and @decision-rule is stated when one rule
+         decided every enforced dimension.
 
          @configuration-error on <verdict> — a configuration refused before
          any sample ran: every applicable code, as a space-separated list in
@@ -303,16 +343,19 @@
       <xs:element name="evaluations" type="tns:EvaluationsType"        minOccurs="0"/>
     </xs:sequence>
     <xs:attribute name="successful-samples"  type="xs:int" use="required"/>
-    <xs:attribute name="strict-violations"   type="xs:int" use="required"/>
-    <xs:attribute name="advisory-violations" type="xs:int" use="required"/>
-    <!-- 1.7: the latency dimension's verdict V_latency, the structural
-         composite of the strict (enforced) evaluations: PASS if every one
-         passes, FAIL if any is STRICT_FAIL, INCONCLUSIVE otherwise (an
+    <!-- 1.8: the latency dimension's verdict V_latency, the structural
+         composite of the evaluations, each decided by its rule: PASS if
+         every one passes, FAIL if any is FAIL, INCONCLUSIVE otherwise (an
          evaluation with status INFEASIBLE or SATURATED is inconclusive).
-         Absent when the
-         test enforces no latency constraint; advisory evaluations never
-         enter it. -->
+         Formed the same way whatever the mode. Absent when the test asserts
+         no latency constraint. -->
     <xs:attribute name="verdict"             type="tns:VerdictEnum" use="optional"/>
+    <!-- 1.8: the latency dimension's mode: enforced (the default; @verdict
+         enters the test verdict) or advisory (the run-time switch made the
+         dimension advisory; @verdict is reported and does not enter the
+         test verdict). Present exactly when @verdict is; XSD 1.0 cannot
+         state the co-constraint, so the worked-example tests enforce it. -->
+    <xs:attribute name="mode"                type="tns:EnforcementModeEnum" use="optional"/>
   </xs:complexType>
 
   <xs:complexType name="ObservedPercentilesType">
@@ -342,29 +385,30 @@
          state the co-constraint; the worked-example tests enforce it. -->
     <xs:attribute name="threshold-ms"        type="xs:long"                   use="optional"/>
     <xs:attribute name="provenance"          type="tns:LatencyProvenanceEnum" use="required"/>
-    <xs:attribute name="mode"                type="tns:EnforcementModeEnum"   use="required"/>
     <xs:attribute name="status"              type="tns:EvaluationStatusEnum"  use="required"/>
     <!-- Present only when provenance="baseline-derived" -->
     <xs:attribute name="baseline-confidence" type="xs:double"                 use="optional"/>
     <xs:attribute name="baseline-rank"       type="xs:int"                    use="optional"/>
     <xs:attribute name="baseline-n"          type="xs:int"                    use="optional"/>
-    <!-- 1.7: the rule that decided a strict evaluation. An explicit
-         requirement enforced in strict mode is decided by
-         latency/compliance-exact-binomial: @within-threshold is the count
-         of successful latencies at or below @threshold-ms, @required-within
-         the smallest count that demonstrates compliance; status PASS or
-         STRICT_FAIL, and INFEASIBLE when too few successful latencies
-         arrived for any count to pass (no @required-within). A
-         baseline-derived threshold is decided by latency/precedence; when no
-         baseline rank keeps the no-degradation breach probability at or
-         below alpha - not even the baseline's slowest latency - the
-         evaluation is SATURATED: it has no @threshold-ms and no
-         @baseline-rank, and is inconclusive (Statistical Companion
-         §12.4.2). An
-         advisory evaluation compares @observed-ms with @threshold-ms, is
-         decided by no rule and never enters the composite. -->
-    <xs:attribute name="decision-rule"         type="tns:DecisionRuleEnum" use="optional"/>
-    <xs:attribute name="decision-rule-version" type="xs:positiveInteger"   use="optional"/>
+    <!-- 1.8: the rule that decided the evaluation, enforced or advisory
+         (required: every evaluation is decided by its rule). An explicit
+         requirement is decided by latency/compliance-exact-binomial:
+         @within-threshold is the count of successful latencies at or below
+         @threshold-ms, @required-within the smallest count that
+         demonstrates compliance; status PASS or FAIL, and INFEASIBLE when
+         too few successful latencies arrived for any count to pass (no
+         @required-within). A baseline-derived threshold is decided by
+         latency/precedence; status PASS or FAIL, INFEASIBLE when the
+         successful latencies fall below the percentile's non-degeneracy
+         minimum under VERIFICATION, and SATURATED when no baseline rank
+         keeps the no-degradation breach probability at or below alpha -
+         not even the baseline's slowest latency: the evaluation then has
+         no @threshold-ms and no @baseline-rank, and is inconclusive
+         (Statistical Companion §12.4.2, §12.5.3). Whether the outcome
+         binds is the dimension's mode (<latency>/@mode), not the
+         evaluation's. -->
+    <xs:attribute name="decision-rule"         type="tns:DecisionRuleEnum" use="required"/>
+    <xs:attribute name="decision-rule-version" type="xs:positiveInteger"   use="required"/>
     <xs:attribute name="within-threshold"      type="xs:int"               use="optional"/>
     <xs:attribute name="required-within"       type="xs:int"               use="optional"/>
   </xs:complexType>
@@ -385,9 +429,14 @@
     </xs:restriction>
   </xs:simpleType>
 
+  <!-- 1.8: a dimension's mode (Statistical Companion §12.6). enforced: the
+       default; the dimension's verdict enters the test verdict and can fail
+       the test. advisory: set by the run-time switch; the dimension is
+       decided by its rules and reported, enters neither the test verdict
+       nor the Type-I envelopes, and never fails the test. -->
   <xs:simpleType name="EnforcementModeEnum">
     <xs:restriction base="xs:string">
-      <xs:enumeration value="strict"/>
+      <xs:enumeration value="enforced"/>
       <xs:enumeration value="advisory"/>
     </xs:restriction>
   </xs:simpleType>
@@ -395,8 +444,9 @@
   <xs:simpleType name="EvaluationStatusEnum">
     <xs:restriction base="xs:string">
       <xs:enumeration value="PASS"/>
-      <xs:enumeration value="STRICT_FAIL"/>
-      <xs:enumeration value="ADVISORY_WARN"/>
+      <!-- 1.8: STRICT_FAIL renamed; ADVISORY_WARN withdrawn. -->
+      <xs:enumeration value="FAIL"/>
+      <!-- Inconclusive: too few successful latencies to decide. -->
       <xs:enumeration value="INFEASIBLE"/>
       <!-- 1.7 (mavai-R 0.11.1): a baseline-derived evaluation for which no
            baseline rank achieves alpha; carries no @threshold-ms. -->
@@ -608,7 +658,9 @@
        =================================================================== -->
 
   <xs:complexType name="VerdictType">
-    <!-- 1.7: @value is absent exactly when @configuration-error is present. -->
+    <!-- 1.7: @value is absent exactly when @configuration-error is present.
+         1.8: @value composes the enforced dimensions only (PASS when none is
+         enforced); a refusal applies whatever the modes. -->
     <xs:attribute name="value"  type="tns:VerdictEnum" use="optional"/>
     <xs:attribute name="reason" type="xs:string"       use="optional"/>
     <xs:attribute name="decision-rule"         type="tns:DecisionRuleEnum"       use="optional"/>
@@ -623,7 +675,7 @@
     </xs:restriction>
   </xs:simpleType>
 
-  <!-- 1.7: the versioned decision rules of methodology 1.5.0. -->
+  <!-- 1.7: the versioned decision rules of methodology 1.5.0, unchanged in 1.6.0. -->
   <xs:simpleType name="DecisionRuleEnum">
     <xs:restriction base="xs:string">
       <xs:enumeration value="regression/fisher"/>
@@ -714,6 +766,12 @@
 
   <xs:complexType name="CompositeType">
     <xs:attribute name="value" type="tns:VerdictEnum" use="required"/>
+    <!-- 1.8: the functional dimension's mode: enforced (the default; @value,
+         V_rate, enters the test verdict) or advisory (the run-time switch
+         made the dimension advisory; every criterion is still decided by
+         its rule and @value reported, but it does not enter the test
+         verdict and its criteria add nothing to the Type-I envelopes). -->
+    <xs:attribute name="mode"  type="tns:EnforcementModeEnum" use="required"/>
   </xs:complexType>
 
   <!-- ===================================================================

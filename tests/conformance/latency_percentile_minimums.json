@@ -1,6 +1,6 @@
 {
   "suite": "latency_percentile_minimums",
-  "methodologyVersion": "1.5.0",
+  "methodologyVersion": "1.6.0",
   "fixtureSchemaVersion": 2,
   "decisionRules": [
     {
@@ -8,8 +8,8 @@
       "version": 1
     }
   ],
-  "description": "Minimum sample sizes and the existence gate for empirical latency percentiles (p50/p90/p95/p99). A successful latency is that of a sample that passed every functional criterion (companion §12.2.1); baseline_success_rate is the baseline run's fraction of such samples. Cases with approach 'emission_non_degeneracy' carry the Statistical Companion §12.5.2 minimums for emitting a percentile in experiment artefacts (baseline, exploration, optimization) and verdicts: below the minimum the percentile key is omitted entirely and renderers display a placeholder. Cases with approach 'precedence_existence' carry the §12.5.2.1 existence condition of latency/precedence from the baseline size, the test's number of successful latencies, the percentile and alpha: saturated (no rank achieves alpha) and otherwise the rank; on the actual count after the run it is the binding saturation decision, and saturated is INCONCLUSIVE. Cases with approach 'precedence_planning' carry the §12.5.3 pre-run check: the same search on the expected successful count floor(planned_samples * baseline_success_rate), an expectation and not a lower bound, giving a warning (no rank at the expected count), the planning rank and the smallest baseline at least as large as the expected count that supports a rank; it decides nothing. Cases with approach 'nondegeneracy_planning' carry the §12.5.3 pre-run non-degeneracy check: the expected successful count against the emission minimum, giving a warning and the planning figure planned_samples_needed, never a refusal. Cases with approach 'nondegeneracy_decision' carry the binding decision on the actual count after the run, where the decision statistic is the empirical percentile: the gate applies to a baseline-derived assertion and to an advisory raw comparison, not to an enforced explicit requirement (applies = false; decided by latency/compliance-exact-binomial). Below the minimum an enforced baseline-derived VERIFICATION assertion is INCONCLUSIVE, and a SMOKE or advisory one INDICATIVE; otherwise DECIDED by its rule. The p50 minimum of 5 is an engineering minimum; the mathematical one is 3. The withdrawn Wilks minimums are no longer published. Cases named exact_boundary have breach(n_b) = n_t / (n_b + n_t) = alpha exactly (the test percentile is the test maximum); the inclusive rule admits the rank, and double precision alone does not: implementations follow the exact-boundary convention (companion §10.6). Conformance is exact equality (tolerance: 0).",
-  "method": "Emission minimums per companion §12.5.2 (non-degeneracy: 5/10/20/100 for p50/p90/p95/p99); existence per §12.5.2.1: a rank exists iff breach(n_b) <= alpha, with breach(k) = sum_{j=0}^{r-1} C(n_t, j) B(k + j, n_b - k + 1 + n_t - j) / B(k, n_b - k + 1) and r = ceiling(P n_t / 100); rank = the smallest k with breach(k) <= alpha (latency/precedence v1). Planning: expected_test_samples = floor(planned_samples * baseline_success_rate); warning = no rank at that count; planning_rank = the rank at it (null under a warning); minimum_baseline_trials = the smallest n_b >= expected_test_samples with a rank. Non-degeneracy planning: warning = expected_test_samples < minimum_contributing_samples; planned_samples_needed = the smallest planned size with floor(planned * rate) >= the minimum. Non-degeneracy decision: applies = not (threshold_source explicit and enforced); degenerate = test_samples < the minimum; outcome = DECIDED when the gate does not apply or the percentile is not degenerate, else INCONCLUSIVE when intent is VERIFICATION and the assertion enforced, else INDICATIVE.",
+  "description": "Minimum sample sizes and the existence gate for empirical latency percentiles (p50/p90/p95/p99). A successful latency is that of a sample that passed every functional criterion (companion §12.2.1); baseline_success_rate is the baseline run's fraction of such samples. Cases with approach 'emission_non_degeneracy' carry the Statistical Companion §12.5.2 minimums for emitting a percentile in experiment artefacts (baseline, exploration, optimization) and verdicts: below the minimum the percentile key is omitted entirely and renderers display a placeholder. Cases with approach 'precedence_existence' carry the §12.5.2.1 existence condition of latency/precedence from the baseline size, the test's number of successful latencies, the percentile and alpha: saturated (no rank achieves alpha) and otherwise the rank; on the actual count after the run it is the binding saturation decision, and saturated is INCONCLUSIVE. Cases with approach 'precedence_planning' carry the §12.5.3 pre-run check: the same search on the expected successful count floor(planned_samples * baseline_success_rate), an expectation and not a lower bound, giving a warning (no rank at the expected count), the planning rank and the smallest baseline at least as large as the expected count that supports a rank; it decides nothing. Cases with approach 'nondegeneracy_planning' carry the §12.5.3 pre-run non-degeneracy check: the expected successful count against the emission minimum, giving a warning and the planning figure planned_samples_needed, never a refusal. Cases with approach 'nondegeneracy_decision' carry the binding decision on the actual count after the run, where the decision statistic is the empirical percentile: the gate applies to a baseline-derived assertion, not to an explicit requirement (applies = false; decided by latency/compliance-exact-binomial). Below the minimum a baseline-derived VERIFICATION assertion is INCONCLUSIVE and a SMOKE one INDICATIVE; otherwise DECIDED by its rule. The latency dimension's enforcement mode (companion §12.6) does not enter: an advisory assertion is decided by the same rule. The p50 minimum of 5 is an engineering minimum; the mathematical one is 3. The withdrawn Wilks minimums are no longer published. Cases named exact_boundary have breach(n_b) = n_t / (n_b + n_t) = alpha exactly (the test percentile is the test maximum); the inclusive rule admits the rank, and double precision alone does not: implementations follow the exact-boundary convention (companion §10.6). Conformance is exact equality (tolerance: 0).",
+  "method": "Emission minimums per companion §12.5.2 (non-degeneracy: 5/10/20/100 for p50/p90/p95/p99); existence per §12.5.2.1: a rank exists iff breach(n_b) <= alpha, with breach(k) = sum_{j=0}^{r-1} C(n_t, j) B(k + j, n_b - k + 1 + n_t - j) / B(k, n_b - k + 1) and r = ceiling(P n_t / 100); rank = the smallest k with breach(k) <= alpha (latency/precedence v1). Planning: expected_test_samples = floor(planned_samples * baseline_success_rate); warning = no rank at that count; planning_rank = the rank at it (null under a warning); minimum_baseline_trials = the smallest n_b >= expected_test_samples with a rank. Non-degeneracy planning: warning = expected_test_samples < minimum_contributing_samples; planned_samples_needed = the smallest planned size with floor(planned * rate) >= the minimum. Non-degeneracy decision: applies = (threshold_source is baseline-derived); degenerate = test_samples < the minimum; outcome = DECIDED when the gate does not apply or the percentile is not degenerate, else INCONCLUSIVE when intent is VERIFICATION, else INDICATIVE.",
   "tolerance": 0,
   "cases": [
     {
@@ -114,14 +114,13 @@
       }
     },
     {
-      "name": "p99_actual99_verification_enforced_inconclusive",
+      "name": "p99_actual99_verification_inconclusive",
       "approach": "nondegeneracy_decision",
-      "description": "One successful latency short of the p99 minimum after the run: the enforced assertion is INCONCLUSIVE.",
+      "description": "One successful latency short of the p99 minimum after the run: the assertion is INCONCLUSIVE, whether the latency dimension is enforced or advisory.",
       "inputs": {
         "percentile": 0.99,
         "test_samples": 99,
         "intent": "VERIFICATION",
-        "enforced": true,
         "threshold_source": "baseline-derived"
       },
       "expected": {
@@ -131,14 +130,13 @@
       }
     },
     {
-      "name": "p99_actual100_verification_enforced_decided",
+      "name": "p99_actual100_verification_decided",
       "approach": "nondegeneracy_decision",
       "description": "The pre-run warning at 110 planned (88 expected) does not bind: a run that returns 100 successful latencies is decided.",
       "inputs": {
         "percentile": 0.99,
         "test_samples": 100,
         "intent": "VERIFICATION",
-        "enforced": true,
         "threshold_source": "baseline-derived"
       },
       "expected": {
@@ -154,7 +152,6 @@
         "percentile": 0.99,
         "test_samples": 40,
         "intent": "SMOKE",
-        "enforced": true,
         "threshold_source": "baseline-derived"
       },
       "expected": {
@@ -164,29 +161,28 @@
       }
     },
     {
-      "name": "p95_actual19_verification_advisory_indicative",
+      "name": "p95_actual19_verification_inconclusive",
       "approach": "nondegeneracy_decision",
+      "description": "Below the p95 minimum of 20 under VERIFICATION: INCONCLUSIVE. Before methodology 1.6.0 an advisory assertion here was compared raw and marked indicative; it is now decided by its rule like any other, and the mode changes only whether the outcome binds.",
       "inputs": {
         "percentile": 0.95,
         "test_samples": 19,
         "intent": "VERIFICATION",
-        "enforced": false,
         "threshold_source": "baseline-derived"
       },
       "expected": {
         "applies": true,
         "degenerate": true,
-        "outcome": "INDICATIVE"
+        "outcome": "INCONCLUSIVE"
       }
     },
     {
-      "name": "p50_actual5_verification_enforced_decided",
+      "name": "p50_actual5_verification_decided",
       "approach": "nondegeneracy_decision",
       "inputs": {
         "percentile": 0.5,
         "test_samples": 5,
         "intent": "VERIFICATION",
-        "enforced": true,
         "threshold_source": "baseline-derived"
       },
       "expected": {
@@ -196,37 +192,19 @@
       }
     },
     {
-      "name": "explicit_p50_actual4_enforced_not_gated",
+      "name": "explicit_p50_actual4_not_gated",
       "approach": "nondegeneracy_decision",
-      "description": "An enforced explicit requirement is decided by latency/compliance-exact-binomial on the within-threshold count; the percentile non-degeneracy gate does not apply (at alpha 0.10, 4 of 4 can PASS: latency_compliance_decision/explicit_p50_n4_alpha010_pass).",
+      "description": "An explicit requirement is decided by latency/compliance-exact-binomial on the within-threshold count; the percentile non-degeneracy gate does not apply (at alpha 0.10, 4 of 4 can PASS: latency_compliance_decision/explicit_p50_n4_alpha010_pass).",
       "inputs": {
         "percentile": 0.5,
         "test_samples": 4,
         "intent": "VERIFICATION",
-        "enforced": true,
         "threshold_source": "explicit"
       },
       "expected": {
         "applies": false,
         "degenerate": true,
         "outcome": "DECIDED"
-      }
-    },
-    {
-      "name": "explicit_p50_actual4_advisory_indicative",
-      "approach": "nondegeneracy_decision",
-      "description": "The same percentile compared raw in advisory mode: the gate marks it indicative.",
-      "inputs": {
-        "percentile": 0.5,
-        "test_samples": 4,
-        "intent": "VERIFICATION",
-        "enforced": false,
-        "threshold_source": "explicit"
-      },
-      "expected": {
-        "applies": true,
-        "degenerate": true,
-        "outcome": "INDICATIVE"
       }
     },
     {

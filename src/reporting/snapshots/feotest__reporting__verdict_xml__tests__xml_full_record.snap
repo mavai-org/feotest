@@ -3,7 +3,7 @@ source: src/reporting/verdict_xml.rs
 expression: xml
 ---
 <?xml version="1.0" encoding="UTF-8"?>
-<verdict-record xmlns="http://mavai.org/verdict/1.0" version="1.7" methodology-version="1.5.0" timestamp="2026-04-19T10:00:00Z" correlation-id="suite-run-42" generator="feotest/0.3.1">
+<verdict-record xmlns="http://mavai.org/verdict/1.0" version="1.8" methodology-version="1.6.0" timestamp="2026-04-19T10:00:00Z" correlation-id="suite-run-42" generator="feotest/0.3.1">
   <identity use-case-id="full-service" test-name="test_everything"/>
   <execution planned-samples="1000" samples-executed="1000" successes="933" failures="67" elapsed-ms="500" intent="VERIFICATION" confidence="0.95"/>
   <functional successes="933" failures="67" pass-rate="0.9330">
@@ -30,7 +30,7 @@ expression: xml
   </environment>
   <per-criterion>
     <criterion id="result" verdict="PASS" pass="933" fail="67" inconclusive="0" total="1000" observed-rate="0.9330" threshold="0.9330" decision-rule="regression/fisher" decision-rule-version="1" required-pass="933"/>
-    <composite value="PASS"/>
+    <composite value="PASS" mode="enforced"/>
   </per-criterion>
   <verdict value="PASS" decision-rule="regression/fisher" decision-rule-version="1" reason="933 of 1000 &gt;= cutoff 933 (regression/fisher)"/>
 </verdict-record>
