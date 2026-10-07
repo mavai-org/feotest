@@ -5,6 +5,108 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.4.0] - 2026-10-07
+
+Every assertion a test declares is enforced by default — functional and
+latency, a stated requirement or a baseline — and one run-time setting,
+`FEOTEST_ADVISORY`, makes the functional dimension, the latency dimension or
+both advisory: decided by the same rules, reported, never failing the test
+(Statistical Companion 1.6.0). The decision rules, cutoffs and sizes of
+methodology 1.5.0 are unchanged; only which verdicts bind changes. A test
+that consumed baseline-derived latency thresholds as warnings now fails on
+them, and a test that relied on them being derived without asking must
+declare them. There is no compatibility switch.
+
+### Changed (breaking)
+
+- **Every assertion is enforced unless the run makes its dimension
+  advisory.** `FEOTEST_ADVISORY` takes `functional`, `latency`, or both as
+  `functional,latency` (comma-separated, case-insensitive); unset or empty,
+  everything is enforced, and any other value stops the test before a
+  sample runs. It applies to every test of the run, the
+  `#[probabilistic_test]` macro and sentinels included; there is no builder
+  method or attribute for it. An advisory dimension is decided by its rules
+  and recorded with its verdict, labelled advisory in the record, the
+  console, the transparent statistics and the HTML report. The test verdict
+  composes the enforced dimensions only (PASS when none is enforced), and an
+  advisory decision enters neither the triggering list, the Type-I
+  envelopes nor `single_decision_rule()`. `assert_contract()` and
+  `assert_latency()` never panic on an advisory dimension, `assert_all()`
+  checks the enforced ones, and every assertion still panics on a refused
+  configuration: `TEST_LARGER_THAN_BASELINE` and `COMPLIANCE_INFEASIBLE`
+  apply whatever the setting. Smoke intent is unaffected.
+
+- **Baseline-derived latency thresholds are asserted where the contract
+  declares them.** `LatencyCriterion::empirical().against_baseline(p)` (or
+  `.against_baseline(p)` beside explicit `at_most` ceilings) asserts a
+  percentile against the baseline the test consumes, decided by
+  `latency/precedence`. A baseline's recorded latencies no longer assert
+  every percentile the contract does not bound. A declared percentile
+  without baseline latencies stops an enforced run before any sample runs.
+
+- **An advisory latency constraint is decided by its rule.** It was a raw
+  percentile comparison; it is now judged exactly as an enforced one.
+  `EvaluationStatus` is `Pass`, `Fail` (was `StrictFail`), `Infeasible` or
+  `Saturated`; `AdvisoryWarn` is withdrawn. `LatencyEvaluation::decision_rule()`
+  and `verdict()` are no longer optional, and the evaluation has no mode;
+  `LatencyDimension` gains `mode()`, its `verdict()` composes every
+  evaluation, `enforced_verdicts()` becomes `constraint_verdicts()`, and
+  `strict_violations()` / `advisory_violations()` are withdrawn. In
+  `statistics::latency`, `LatencyMode`, `AdvisoryOutcome` and
+  `LatencyOutcome` are withdrawn, `decide_nondegeneracy` no longer takes a
+  mode (the gate follows the threshold source and the intent), and
+  `advisory_percentile_pass` is `raw_percentile_pass`, deciding nothing.
+
+- **Composition takes each dimension's mode.** `compose_overall_verdict`
+  takes two `DimensionDecisions` (the decisions and the mode), and
+  `OverallVerdict` gains `functional_mode()` and `latency_mode()`.
+  `FunctionalAssessment` carries the functional dimension's mode
+  (`mode()`, `with_mode()`); the JSON wire shape gains `mode` on the
+  functional assessment and on the latency dimension.
+
+- **Verdict XML moves to schema 1.8** and records state methodology 1.6.0:
+  `<composite @mode>` and `<latency @mode>` (`enforced` or `advisory`), an
+  evaluation's `status` is its rule's outcome with its rule always stated,
+  and the evaluation `mode`, `STRICT_FAIL`, `ADVISORY_WARN`,
+  `strict-violations` and `advisory-violations` are withdrawn. The verdict
+  states a rule only when one rule decided every enforced dimension.
+
+- **A missing baseline no longer stops a run in an advisory dimension.** A
+  baseline-derived criterion or latency constraint without its baseline is
+  INCONCLUSIVE there (a sized plan still needs a baseline to size the run),
+  and an advisory functional dimension never ends a run early while a
+  latency constraint still needs its samples. Planning warnings now cover
+  every latency constraint.
+
+### Removed
+
+- `FEOTEST_LATENCY_ENFORCE`, the advisory default for baseline-derived
+  latency thresholds, `ContractTest::enforce_baseline_latency`,
+  `LatencyEnforcementMode` and `resolved_mode_from_env`, without a
+  deprecation path.
+
+### Added
+
+- `feotest::verdict::AssertionEnforcement` (the run's mode per dimension,
+  resolved from `FEOTEST_ADVISORY`), `feotest::verdict::EnforcementMode`,
+  and `LatencyCriterion::empirical()` / `against_baseline()` /
+  `is_against_baseline()`.
+- **User guide**: "Enforced and advisory assertions" — the switch, what
+  advisory means, and when to use it (a development machine significantly
+  slower than the environment a latency requirement was written for).
+
+### Conformance
+
+- The vendored fixtures and interchange schema are re-pinned at mavai-R
+  **v0.12.0** from the `cases-v0.12.0.zip` and `interchange-v0.12.0.zip`
+  release assets; `verdict-1.8.xsd` replaces `verdict-1.7.xsd`. Every case
+  is adopted: the test verdict's switch cases (the `advisory` input and the
+  binding `functional_mode` and `latency_mode`), the non-degeneracy cases
+  without an enforcement input, and `raw_percentile_pass`. Records from real
+  runs and an advisory record validate against the schema. Conformance
+  stands at 495 of 495 family-mandatory binding assertions and 356 of 356 in
+  scope.
+
 ## [0.3.1] - 2026-09-30
 
 The verdict record now states, on each criterion, the smallest count that
