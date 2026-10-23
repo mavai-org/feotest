@@ -3,7 +3,7 @@ source: src/reporting/verdict_xml.rs
 expression: xml
 ---
 <?xml version="1.0" encoding="UTF-8"?>
-<verdict-record xmlns="http://mavai.org/verdict/1.0" version="1.8" methodology-version="1.7.1" timestamp="2026-04-01T12:00:00Z" generator="feotest/0.4.0">
+<verdict-record xmlns="http://mavai.org/verdict/1.0" version="1.10" methodology-version="1.7.1" timestamp="2026-04-01T12:00:00Z" generator="feotest/0.4.0">
   <identity use-case-id="warned-service"/>
   <execution planned-samples="10" samples-executed="10" successes="10" failures="0" elapsed-ms="500" intent="SMOKE" confidence="0.95"/>
   <functional successes="10" failures="0" pass-rate="1.0000"/>
@@ -11,8 +11,8 @@ expression: xml
   <termination reason="COMPLETED"/>
   <cost total-time-ms="500" total-tokens="1000" avg-time-per-sample-ms="50" avg-tokens-per-sample="100"/>
   <warnings>
-    <warning code="UNDERSIZED">Sample size 10 is insufficient for verification-grade evidence</warning>
-    <warning code="SMOKE_NORMATIVE">Smoke test against normative threshold</warning>
+    <warning code="UNDERSIZED">result: this size cannot demonstrate compliance with 90% (N = 10, need at least 29). A PASS at this size is not evidence of compliance; the smoke result reports only whether there is evidence of non-compliance.</warning>
+    <warning code="SMOKE_NORMATIVE">result: FAIL not possible at this size; this result carries no evidence about the service.</warning>
   </warnings>
   <per-criterion>
     <criterion id="result" verdict="PASS" pass="10" fail="0" inconclusive="0" total="10" observed-rate="1.0000"/>

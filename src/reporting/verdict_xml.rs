@@ -1,9 +1,11 @@
 //! Verdict XML serialisation (the verdict XML interchange format).
 //!
 //! Serialises a [`VerdictRecord`] to XML conforming to the
-//! `http://mavai.org/verdict/1.0` schema, version 1.8 (Statistical Companion
-//! 1.6.0): the record states the methodology version whose decision rules
-//! produced it, each decision names its versioned rule, each dimension
+//! `http://mavai.org/verdict/1.0` schema, version 1.10 (Statistical
+//! Companion 1.7.1): the record states the methodology version whose
+//! decision rules produced it, each decision names its versioned rule — a
+//! normative criterion under smoke intent the smoke rule, with the count it
+//! requires and the lower-tail p-value of the observed count — each dimension
 //! states whether the run enforced it or made it advisory, the record's
 //! verdict is the overall test verdict over the enforced dimensions, and a
 //! configuration refused before any sample ran carries its configuration
@@ -25,7 +27,7 @@ use crate::verdict::{RuleEvidence, StatisticalAnalysis, Verdict, VerdictRecord};
 const NAMESPACE: &str = "http://mavai.org/verdict/1.0";
 
 /// The schema version this emitter writes.
-const SCHEMA_VERSION: &str = "1.8";
+const SCHEMA_VERSION: &str = "1.10";
 
 /// Serialises verdict records to the verdict XML interchange format.
 // mavai-ref: JVI-DQWKY4Z — do not remove (resolves in mavai-orchestrator)
@@ -315,6 +317,9 @@ fn write_statistics(w: &mut String, record: &VerdictRecord) {
     write!(w, " wilson-lower=\"{:.4}\"", stats.wilson_lower()).unwrap();
     write!(w, " threshold=\"{:.4}\"", stats.threshold()).unwrap();
     write!(w, " threshold-origin=\"{}\"", stats.threshold_origin()).unwrap();
+    if let Some(p_value) = stats.evidence().p_value() {
+        write!(w, " p-value=\"{p_value}\"").unwrap();
+    }
     if let RuleEvidence::Regression(evidence) = stats.evidence() {
         let optional = [
             (
@@ -846,11 +851,14 @@ mod tests {
         )
         .warning(Warning::new(
             "UNDERSIZED",
-            "Sample size 10 is insufficient for verification-grade evidence",
+            "result: this size cannot demonstrate compliance with 90% (N = 10, need at least \
+             29). A PASS at this size is not evidence of compliance; the smoke result reports \
+             only whether there is evidence of non-compliance.",
         ))
         .warning(Warning::new(
             "SMOKE_NORMATIVE",
-            "Smoke test against normative threshold",
+            "result: FAIL not possible at this size; this result carries no evidence about \
+             the service.",
         ))
         .build()
     }
@@ -894,9 +902,9 @@ mod tests {
     }
 
     #[test]
-    fn a_record_states_schema_1_8_and_its_methodology() {
+    fn a_record_states_schema_1_10_and_its_methodology() {
         let xml = VerdictXmlWriter::write_record(&pass_record(), Some("2026-04-01T12:00:00Z"));
-        assert!(xml.contains("version=\"1.8\""));
+        assert!(xml.contains("version=\"1.10\""));
         assert!(xml.contains("methodology-version=\"1.7.1\""));
         assert!(xml.contains(
             "<criterion id=\"result\" verdict=\"PASS\" pass=\"97\" fail=\"3\" \
