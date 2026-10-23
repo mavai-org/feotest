@@ -12,7 +12,9 @@
 //!
 //! - an **explicit** threshold `τ` by `latency/compliance-exact-binomial`
 //!   (§12.3.4): the count of latencies at or below `τ` judged by the exact
-//!   one-sided binomial test of compliance with `p_req = p`;
+//!   one-sided binomial test of compliance with `p_req = p`; under smoke
+//!   intent by `latency/smoke-compliance-exact-binomial`, the reversed rule
+//!   of §5.7.3 on the same count;
 //! - a **baseline-derived** threshold by `latency/precedence` (§12.4): the
 //!   smallest baseline rank whose exact no-degradation breach probability
 //!   for the test's nearest-rank percentile is at most alpha, the threshold
@@ -30,6 +32,7 @@ use crate::statistics::decision::Verdict;
 use crate::statistics::distributions::binomial_upper_tail;
 use crate::statistics::exact::{at_most_alpha, breach_probability_exact};
 use crate::statistics::rules::{DecisionRule, TestIntent};
+use crate::statistics::smoke::{false_non_compliance, smoke_p_value, smoke_required_pass};
 
 /// Tolerance on the expected-count products of §12.5.3 (a planned size
 /// times a passing rate), so a product that is an integer in exact
@@ -639,19 +642,30 @@ pub fn decide_nondegeneracy(
 }
 
 /// An explicit latency requirement decided by
-/// `latency/compliance-exact-binomial`.
+/// `latency/compliance-exact-binomial` under verification, or by
+/// `latency/smoke-compliance-exact-binomial` under smoke.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct LatencyCompliance {
+    rule: DecisionRule,
     test_samples: u32,
     within_threshold: u32,
     minimum_within: Option<u32>,
+    required_within: Option<u32>,
     verdict: Verdict,
+    p_value: Option<f64>,
     false_compliance: Option<f64>,
+    false_non_compliance: Option<f64>,
     clopper_pearson_lower: Option<f64>,
     observed_percentile_ms: Option<f64>,
 }
 
 impl LatencyCompliance {
+    /// The rule that decided the requirement, by the test's intent.
+    #[must_use]
+    pub const fn rule(&self) -> DecisionRule {
+        self.rule
+    }
+
     /// The number of successful latencies `n_s`.
     #[must_use]
     pub const fn test_samples(&self) -> u32 {
@@ -665,31 +679,60 @@ impl LatencyCompliance {
         self.within_threshold
     }
 
-    /// `y_min`, the smallest count demonstrating compliance; `None` when no
-    /// count can pass at `n_s`.
+    /// `y_min` of `latency/compliance-exact-binomial`, the smallest count
+    /// demonstrating compliance; `None` when no count can pass at `n_s`.
+    /// Under smoke it is reported and decides nothing.
     #[must_use]
     pub const fn minimum_within(&self) -> Option<u32> {
         self.minimum_within
     }
 
-    /// Whether any count of the successful latencies could pass.
+    /// Whether any count of the successful latencies could demonstrate
+    /// compliance.
     #[must_use]
     pub const fn pass_possible(&self) -> bool {
         self.minimum_within.is_some()
     }
 
-    /// PASS iff `Y ≥ y_min`; INCONCLUSIVE when no count can pass — too few
-    /// successful latencies to decide.
+    /// The count the deciding rule requires within the threshold: `y_min`
+    /// under verification; under smoke one more than the largest count that
+    /// is evidence of non-compliance, 0 when none is. `None` when the rule
+    /// has no count to require — no count can pass under verification, or no
+    /// latency arrived under smoke.
+    #[must_use]
+    pub const fn required_within(&self) -> Option<u32> {
+        self.required_within
+    }
+
+    /// PASS iff `Y` reaches the required count. INCONCLUSIVE when there is
+    /// none: under verification too few successful latencies for any count
+    /// to pass, under smoke no successful latency at all.
     #[must_use]
     pub const fn verdict(&self) -> Verdict {
         self.verdict
     }
 
+    /// The p-value of the observed count: the upper tail `P_p(Y ≥ Y_obs)`
+    /// under verification, the lower tail `P_p(Y ≤ Y_obs)` under smoke;
+    /// `None` when the rule had no count to require.
+    #[must_use]
+    pub const fn p_value(&self) -> Option<f64> {
+        self.p_value
+    }
+
     /// `P_p(Y ≥ y_min)`, the false-compliance probability at the boundary;
-    /// `None` when no count can pass.
+    /// `None` under smoke, or when no count can pass.
     #[must_use]
     pub const fn false_compliance(&self) -> Option<f64> {
         self.false_compliance
+    }
+
+    /// `P_p(Y < required_within)` under smoke, the chance of a FAIL when
+    /// the requirement is exactly met; `None` under verification, or with
+    /// no latencies.
+    #[must_use]
+    pub const fn false_non_compliance(&self) -> Option<f64> {
+        self.false_non_compliance
     }
 
     /// The one-sided lower bound on `F(τ)`, reported beside the verdict;
@@ -715,7 +758,45 @@ impl LatencyCompliance {
     }
 }
 
-/// Decides an explicit latency requirement on the successful latencies.
+/// What the deciding rule computed from the count within the threshold.
+struct RuleOutcome {
+    required_within: Option<u32>,
+    p_value: Option<f64>,
+    false_compliance: Option<f64>,
+    false_non_compliance: Option<f64>,
+}
+
+/// `latency/compliance-exact-binomial` on `within` of `n_s`, given `y_min`.
+fn verification_outcome(
+    within: u32,
+    n_s: u32,
+    percentile: f64,
+    minimum_within: Option<u32>,
+) -> RuleOutcome {
+    RuleOutcome {
+        required_within: minimum_within,
+        p_value: minimum_within.map(|_| binomial_upper_tail(i64::from(within), n_s, percentile)),
+        false_compliance: minimum_within
+            .map(|y_min| binomial_upper_tail(i64::from(y_min), n_s, percentile)),
+        false_non_compliance: None,
+    }
+}
+
+/// `latency/smoke-compliance-exact-binomial` on `within` of `n_s`; it
+/// decides from one successful latency upward.
+fn smoke_outcome(within: u32, n_s: u32, percentile: f64, alpha: f64) -> RuleOutcome {
+    let required_within = (n_s > 0).then(|| smoke_required_pass(percentile, n_s, alpha));
+    RuleOutcome {
+        required_within,
+        p_value: required_within.map(|_| smoke_p_value(within, n_s, percentile)),
+        false_compliance: None,
+        false_non_compliance: required_within
+            .map(|required| false_non_compliance(required, n_s, percentile)),
+    }
+}
+
+/// Decides an explicit latency requirement on the successful latencies, by
+/// the rule `intent` selects.
 ///
 /// # Panics
 ///
@@ -726,6 +807,7 @@ pub fn evaluate_latency_compliance(
     threshold_ms: f64,
     percentile: f64,
     alpha: f64,
+    intent: TestIntent,
 ) -> LatencyCompliance {
     percent(percentile);
     assert!(
@@ -738,18 +820,25 @@ pub fn evaluate_latency_compliance(
     let minimum_within = (n_s > 0)
         .then(|| minimum_passing_count(percentile, n_s, alpha))
         .flatten();
-    let verdict = match minimum_within {
+    let outcome = match intent {
+        TestIntent::Verification => verification_outcome(within, n_s, percentile, minimum_within),
+        TestIntent::Smoke => smoke_outcome(within, n_s, percentile, alpha),
+    };
+    let verdict = match outcome.required_within {
         None => Verdict::Inconclusive,
-        Some(y_min) if within >= y_min => Verdict::Pass,
+        Some(required) if within >= required => Verdict::Pass,
         Some(_) => Verdict::Fail,
     };
     LatencyCompliance {
+        rule: DecisionRule::for_latency_requirement(intent),
         test_samples: n_s,
         within_threshold: within,
         minimum_within,
+        required_within: outcome.required_within,
         verdict,
-        false_compliance: minimum_within
-            .map(|y_min| binomial_upper_tail(i64::from(y_min), n_s, percentile)),
+        p_value: outcome.p_value,
+        false_compliance: outcome.false_compliance,
+        false_non_compliance: outcome.false_non_compliance,
         clopper_pearson_lower: (n_s > 0).then(|| clopper_pearson_lower(within, n_s, alpha)),
         observed_percentile_ms: (n_s > 0).then(|| nearest_rank_percentile(latencies, percentile)),
     }
@@ -759,6 +848,7 @@ pub fn evaluate_latency_compliance(
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct LatencyJudgement {
     source: ThresholdSource,
+    rule: DecisionRule,
     percentile: f64,
     alpha: f64,
     successful_latencies: u32,
@@ -833,13 +923,11 @@ impl LatencyJudgement {
         self.nondegeneracy.as_ref()
     }
 
-    /// The rule that decided the constraint, by its threshold source.
+    /// The rule that decided the constraint, by its threshold source and,
+    /// for an explicit requirement, the test's intent.
     #[must_use]
     pub const fn rule(&self) -> DecisionRule {
-        match self.source {
-            ThresholdSource::Explicit => DecisionRule::LatencyComplianceExactBinomial,
-            ThresholdSource::BaselineDerived => DecisionRule::LatencyPrecedence,
-        }
+        self.rule
     }
 
     /// Evaluated below the non-degeneracy minimum: a directional signal
@@ -876,7 +964,9 @@ pub struct LatencyConstraint<'a> {
 /// rule for its threshold source.
 ///
 /// An explicit requirement is decided by
-/// `latency/compliance-exact-binomial`; a baseline-derived constraint by the
+/// `latency/compliance-exact-binomial`, or under smoke intent by
+/// `latency/smoke-compliance-exact-binomial`; a baseline-derived constraint
+/// by the
 /// non-degeneracy gate and `latency/precedence` (a test percentile equal to
 /// the threshold is not a breach). The judgement is the same whether the
 /// latency dimension is enforced or advisory (§12.6); the mode decides only
@@ -904,9 +994,10 @@ pub fn judge_latency_constraint(
     let observed = (n_s > 0).then(|| nearest_rank_percentile(latencies, percentile));
     match threshold {
         ConstraintThreshold::Explicit(tau) => {
-            let compliance = evaluate_latency_compliance(latencies, tau, percentile, alpha);
+            let compliance = evaluate_latency_compliance(latencies, tau, percentile, alpha, intent);
             LatencyJudgement {
                 source: ThresholdSource::Explicit,
+                rule: compliance.rule(),
                 percentile,
                 alpha,
                 successful_latencies: n_s,
@@ -949,6 +1040,7 @@ fn judge_baseline_derived(
     };
     LatencyJudgement {
         source: ThresholdSource::BaselineDerived,
+        rule: DecisionRule::LatencyPrecedence,
         percentile,
         alpha,
         successful_latencies: n_s,
@@ -1105,7 +1197,8 @@ mod tests {
     #[test]
     fn latency_compliance_counts_a_tie_as_within() {
         let latencies = vec![100.0; 59];
-        let compliance = evaluate_latency_compliance(&latencies, 100.0, 0.95, 0.05);
+        let compliance =
+            evaluate_latency_compliance(&latencies, 100.0, 0.95, 0.05, TestIntent::Verification);
         assert_eq!(compliance.within_threshold(), 59);
         assert_eq!(compliance.verdict(), Verdict::Pass);
     }
@@ -1113,10 +1206,39 @@ mod tests {
     #[test]
     fn latency_compliance_is_inconclusive_when_no_count_can_pass() {
         let latencies = vec![100.0; 58];
-        let compliance = evaluate_latency_compliance(&latencies, 200.0, 0.95, 0.05);
+        let compliance =
+            evaluate_latency_compliance(&latencies, 200.0, 0.95, 0.05, TestIntent::Verification);
         assert!(!compliance.pass_possible());
         assert_eq!(compliance.verdict(), Verdict::Inconclusive);
         assert_eq!(compliance.false_compliance(), None);
+    }
+
+    #[test]
+    fn smoke_decides_an_undersized_latency_requirement_by_its_own_rule() {
+        // 58 latencies at p95: verification cannot pass; smoke requires 52.
+        let within = vec![100.0; 58];
+        let pass = evaluate_latency_compliance(&within, 200.0, 0.95, 0.05, TestIntent::Smoke);
+        assert_eq!(
+            pass.rule(),
+            DecisionRule::LatencySmokeComplianceExactBinomial
+        );
+        assert_eq!(pass.required_within(), Some(52));
+        assert_eq!(pass.verdict(), Verdict::Pass);
+        assert!(!pass.pass_possible());
+        let mut breached = vec![100.0; 51];
+        breached.extend([300.0; 7]);
+        let fail = evaluate_latency_compliance(&breached, 200.0, 0.95, 0.05, TestIntent::Smoke);
+        assert_eq!(fail.verdict(), Verdict::Fail);
+        assert_eq!(fail.false_compliance(), None);
+        assert!(fail.false_non_compliance().is_some());
+    }
+
+    #[test]
+    fn smoke_is_inconclusive_without_a_successful_latency() {
+        let none = evaluate_latency_compliance(&[], 200.0, 0.95, 0.05, TestIntent::Smoke);
+        assert_eq!(none.required_within(), None);
+        assert_eq!(none.p_value(), None);
+        assert_eq!(none.verdict(), Verdict::Inconclusive);
     }
 
     #[test]

@@ -12,8 +12,8 @@ use std::fmt;
 use crate::model::{TerminationReason, TestIntent};
 use crate::ptest::builder::ThresholdApproach;
 use crate::verdict::{
-    ComplianceEvidence, RegressionEvidence, RuleEvidence, StatisticalAnalysis, Verdict,
-    VerdictRecord,
+    ComplianceEvidence, RegressionEvidence, RuleEvidence, SmokeComplianceEvidence,
+    StatisticalAnalysis, Verdict, VerdictRecord,
 };
 
 /// Box width in characters (outer border inclusive).
@@ -272,6 +272,17 @@ fn write_hypotheses(analysis: &StatisticalAnalysis, w: &mut dyn fmt::Write) -> f
                 &format!("H1: p >  {requirement:.3}  (the requirement is met)"),
             )
         }
+        RuleEvidence::SmokeCompliance(evidence) => {
+            let requirement = evidence.requirement;
+            write_line(
+                w,
+                &format!("H0: p >= {requirement:.3}  (the requirement is met)"),
+            )?;
+            write_line(
+                w,
+                &format!("H1: p <  {requirement:.3}  (the service falls short of it)"),
+            )
+        }
         RuleEvidence::Regression(_) => {
             write_line(w, "H0: p_test = p_baseline  (no degradation)")?;
             write_line(w, "H1: p_test < p_baseline  (the service has degraded)")
@@ -316,6 +327,7 @@ fn write_observed_data(
 
     match analysis.evidence() {
         RuleEvidence::Compliance(evidence) => write_compliance_evidence(evidence, w)?,
+        RuleEvidence::SmokeCompliance(evidence) => write_smoke_compliance_evidence(evidence, w)?,
         RuleEvidence::Regression(evidence) => write_regression_evidence(evidence, w)?,
     }
 
@@ -341,6 +353,31 @@ fn write_compliance_evidence(evidence: &ComplianceEvidence, w: &mut dyn fmt::Wri
     write_line(
         w,
         &format!("False compliance:     {:.4}", evidence.false_compliance),
+    )?;
+    write_line(
+        w,
+        &format!(
+            "Clopper-Pearson lower: {:.3} (descriptive)",
+            evidence.clopper_pearson_lower
+        ),
+    )
+}
+
+fn write_smoke_compliance_evidence(
+    evidence: &SmokeComplianceEvidence,
+    w: &mut dyn fmt::Write,
+) -> fmt::Result {
+    write_line(
+        w,
+        &format!(
+            "Required pass:        {} of {} planned",
+            evidence.required_pass, evidence.planned_samples
+        ),
+    )?;
+    write_line(w, &format!("p-value (lower tail): {:.4}", evidence.p_value))?;
+    write_line(
+        w,
+        &format!("False non-compliance: {:.4}", evidence.false_non_compliance),
     )?;
     write_line(
         w,
@@ -720,12 +757,13 @@ mod tests {
         insta::assert_snapshot!(render_with(&record, &threshold_first(120, 0.90)));
     }
 
-    /// Oracle case `headline_995_n477_smoke_pass_not_possible`: 477 of 477
-    /// cannot demonstrate 0.995 at alpha 0.05, so a smoke run fails.
+    /// Oracle case `headline_995_n477_smoke_pass`: 477 of 477 cannot
+    /// demonstrate 0.995 at alpha 0.05, and under smoke show no evidence of
+    /// a shortfall, so the run passes with its caveat.
     #[test]
     fn feasibility_warning() {
         let row = compliance_row(
-            "headline_995_n477_smoke_pass_not_possible",
+            "headline_995_n477_smoke_pass",
             "result",
             ThresholdOrigin::Sla,
         );
@@ -733,7 +771,7 @@ mod tests {
         let analysis = analysis_of(&row);
         let record = VerdictRecord::builder(
             TestIdentity::new("tiny-test"),
-            Verdict::Fail,
+            Verdict::Pass,
             TestIntent::Smoke,
             execution(477, &row, TerminationReason::Completed),
             FunctionalAssessment::single(row),

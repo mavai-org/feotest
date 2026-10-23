@@ -232,6 +232,7 @@ fn decision_summary(row: &CriterionRow) -> String {
         RuleEvidence::Compliance(evidence) => evidence
             .minimum_passing_count
             .map_or_else(|| "no count can pass".to_owned(), |k| format!("k_min {k}")),
+        RuleEvidence::SmokeCompliance(evidence) => format!("required {}", evidence.required_pass),
         RuleEvidence::Regression(evidence) => format!("cutoff {}", evidence.cutoff),
     };
     format!("{} ({bar})", analysis.decision_rule())

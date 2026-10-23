@@ -37,7 +37,7 @@ expression: "serde_json::to_value(&record).unwrap()"
     "useCaseId": "basket.translates"
   },
   "intent": "VERIFICATION",
-  "methodologyVersion": "1.6.0",
+  "methodologyVersion": "1.7.1",
   "verdict": "PASS",
   "verdictReason": "95 of 100 observed"
 }

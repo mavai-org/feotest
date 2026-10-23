@@ -1,6 +1,6 @@
 {
   "suite": "wilson_lower",
-  "methodologyVersion": "1.6.0",
+  "methodologyVersion": "1.7.1",
   "fixtureSchemaVersion": 2,
   "decisionRules": [],
   "description": "Wilson score one-sided lower bound",

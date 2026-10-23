@@ -3,8 +3,9 @@
 //!
 //! Each exact rule compares a probability with alpha by an inclusive rule: a
 //! Fisher p-value at most alpha fails a test count, a binomial upper tail at
-//! most alpha admits a count, a precedence breach probability at most alpha
-//! admits a rank. At an exact boundary the probability *equals* alpha, and
+//! most alpha admits a count, a binomial lower tail at most alpha fails a
+//! count under smoke, a precedence breach probability at most alpha admits a
+//! rank. At an exact boundary the probability *equals* alpha, and
 //! double-precision evaluation can land on either side of it. The
 //! convention:
 //!
@@ -153,6 +154,19 @@ pub(crate) fn binomial_upper_tail_exact(count: u32, trials: u32, rate: f64) -> R
     Rational::new(numerator, b.pow(trials))
 }
 
+/// `P(K ≤ count)` for `K ~ Bin(trials, rate)` as a rational, the rate read
+/// as the exact decimal it was declared as.
+#[must_use]
+pub(crate) fn binomial_lower_tail_exact(count: u32, trials: u32, rate: f64) -> Rational {
+    let q = exact_decimal(rate);
+    let (a, b) = (q.numerator, q.denominator);
+    let complement = &b - &a;
+    let numerator = (0..=count.min(trials)).fold(BigUint::ZERO, |sum, j| {
+        sum + choose(u64::from(trials), u64::from(j)) * a.pow(j) * complement.pow(trials - j)
+    });
+    Rational::new(numerator, b.pow(trials))
+}
+
 /// The precedence breach probability of baseline rank `k` as a rational.
 ///
 /// `Σ_{j < r} C(n_t, j) B(k + j, n_b − k + 1 + n_t − j) / B(k, n_b − k + 1)`,
@@ -229,6 +243,19 @@ mod tests {
         assert!(equal(&binomial_upper_tail_exact(5, 5, 0.5), &ratio(1, 32)));
         assert!(equal(&binomial_upper_tail_exact(0, 5, 0.5), &ratio(1, 1)));
         assert!(equal(&binomial_upper_tail_exact(6, 5, 0.5), &ratio(0, 1)));
+    }
+
+    #[test]
+    fn binomial_exact_lower_tail_matches_the_closed_form() {
+        // P(K <= 0) for K ~ Bin(5, 0.5) = 1/32; P(K <= 5) = 1.
+        assert!(equal(&binomial_lower_tail_exact(0, 5, 0.5), &ratio(1, 32)));
+        assert!(equal(&binomial_lower_tail_exact(5, 5, 0.5), &ratio(1, 1)));
+        assert!(equal(&binomial_lower_tail_exact(9, 5, 0.5), &ratio(1, 1)));
+        // P(K <= 1) for K ~ Bin(2, 0.9) = 1 - 0.81.
+        assert!(equal(
+            &binomial_lower_tail_exact(1, 2, 0.9),
+            &ratio(19, 100)
+        ));
     }
 
     #[test]

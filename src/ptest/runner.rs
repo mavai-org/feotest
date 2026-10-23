@@ -30,6 +30,7 @@ use crate::spec::{BaselineSpec, SpecResolver};
 use crate::statistics::decision::{DimensionDecisions, compose_overall_verdict};
 use crate::statistics::latency::{plan_nondegeneracy, plan_precedence};
 use crate::statistics::rules::{EnforcementMode, alpha_from_confidence};
+use crate::statistics::smoke::smoke_required_pass;
 use crate::statistics::types::ConfidenceLevel;
 use crate::verdict::{
     AssertionEnforcement, BaselineProvenance, CriterionRow, FunctionalAssessment, SpecProvenance,
@@ -226,11 +227,26 @@ where
     }
     record_pre_run_warnings(criteria, &prepared, &requirements, &mut warnings);
 
+    let smoke_bar = smoke_success_bar(
+        criteria.intent,
+        &contract_criteria.targets(),
+        |name| criterion_confidence(&contract_criteria, name, prepared.plan.confidence).alpha(),
+        prepared.plan.samples,
+    );
+    let success_bar = smoke_bar.map_or_else(
+        || SuccessBar::Floor {
+            validity_floor: validity_floor(&prepared, &requirements),
+        },
+        |required| SuccessBar::RuleCount {
+            required,
+            validity_floor: latency_validity_floor(&prepared).unwrap_or(1),
+        },
+    );
     let config = resolve_execution_config(
         config_overrides,
         criteria,
         &prepared,
-        validity_floor(&prepared, &requirements),
+        success_bar,
         contract.warmup(),
     );
     let token_recorder = TokenRecorder::new();
@@ -592,13 +608,56 @@ fn build_baseline_provenance(spec: &BaselineSpec, rows: &[CriterionRow]) -> Base
 /// and — when the test carries a latency constraint, whose decision depends
 /// on how many successful latencies arrive — the whole plan.
 fn validity_floor(prepared: &Preparation, requirements: &[Requirement]) -> u32 {
-    if !prepared.latency_constraints.is_empty() {
-        return prepared.plan.samples;
+    latency_validity_floor(prepared).unwrap_or_else(|| {
+        requirements
+            .iter()
+            .map(|r| crate::statistics::compliance::minimum_feasible_samples(r.rate, r.alpha))
+            .fold(prepared.plan.validity_floor(), u32::max)
+    })
+}
+
+/// The whole plan when the test carries a latency constraint, whose
+/// decision depends on how many successful latencies arrive.
+fn latency_validity_floor(prepared: &Preparation) -> Option<u32> {
+    (!prepared.latency_constraints.is_empty()).then_some(prepared.plan.samples)
+}
+
+/// What the early-termination checks hold the run's successes to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SuccessBar {
+    /// The plan's floor rate, success guaranteed no sooner than the
+    /// validity floor.
+    Floor { validity_floor: u32 },
+    /// The count the deciding rule requires at the planned size, success
+    /// guaranteed no sooner than the validity floor.
+    RuleCount { required: u32, validity_floor: u32 },
+}
+
+/// The success bar of a smoke run whose criteria are all declared
+/// requirements: the largest count `compliance/smoke-exact-binomial`
+/// requires of any of them at the planned size (§5.7.3), so the run stops
+/// once its outcome is settled — the required count reached, or no longer
+/// reachable. `None` under verification, or when any criterion is decided
+/// by another rule, and the plan's floor governs.
+fn smoke_success_bar(
+    intent: TestIntent,
+    targets: &[(&str, &CriterionTarget)],
+    criterion_alpha: impl Fn(&str) -> f64,
+    planned: u32,
+) -> Option<u32> {
+    if intent != TestIntent::Smoke {
+        return None;
     }
-    requirements
+    let required: Option<Vec<u32>> = targets
         .iter()
-        .map(|r| crate::statistics::compliance::minimum_feasible_samples(r.rate, r.alpha))
-        .fold(prepared.plan.validity_floor(), u32::max)
+        .map(|(name, target)| match target {
+            CriterionTarget::NormativeRate(rate) => {
+                Some(smoke_required_pass(*rate, planned, criterion_alpha(name)))
+            }
+            CriterionTarget::EmpiricalRate | CriterionTarget::ZeroFailures => None,
+        })
+        .collect();
+    required?.into_iter().max()
 }
 
 /// Synthesises the execution config for a run: an explicit caller override is
@@ -612,7 +671,7 @@ fn resolve_execution_config(
     config_overrides: Option<&ExecutionConfig>,
     criteria: &AssessmentCriteria,
     prepared: &Preparation,
-    validity_floor: u32,
+    success_bar: SuccessBar,
     warmup: u32,
 ) -> ExecutionConfig {
     let plan = &prepared.plan;
@@ -627,9 +686,17 @@ fn resolve_execution_config(
         && !criteria.early_termination_disabled
         && functional_outcome_may_end_run(criteria.enforcement, &prepared.latency_constraints)
     {
-        config = config
-            .min_pass_rate(plan.floor)
-            .min_samples_for_validity(validity_floor.max(1));
+        config = match success_bar {
+            SuccessBar::Floor { validity_floor } => config
+                .min_pass_rate(plan.floor)
+                .min_samples_for_validity(validity_floor.max(1)),
+            SuccessBar::RuleCount {
+                required,
+                validity_floor,
+            } => config
+                .required_successes(required)
+                .min_samples_for_validity(validity_floor.max(1)),
+        };
     }
     config.with_warmup(warmup)
 }
@@ -657,6 +724,11 @@ fn build_criterion_rows<O: 'static>(
     } else {
         ThresholdOrigin::Unspecified
     };
+    let summary = exec_result.summary();
+    let samples_not_run = summary
+        .samples_planned()
+        .checked_sub(summary.samples_executed())
+        .expect("a run never executes more samples than it planned");
     contract_criteria
         .targets()
         .into_iter()
@@ -671,6 +743,8 @@ fn build_criterion_rows<O: 'static>(
                     .find(|tally| tally.criterion_name == name),
                 normative_origin,
                 design: prepared.plan.design,
+                intent: criteria.intent,
+                samples_not_run,
             };
             judge::criterion_row(&context, exec_result.criteria_counts())
         })
@@ -1032,6 +1106,36 @@ mod tests {
                 baseline: 0.95,
             },
         )
+    }
+
+    #[test]
+    fn a_smoke_run_of_requirements_ends_on_the_count_the_smoke_rule_requires() {
+        let strict = CriterionTarget::NormativeRate(0.99);
+        let lenient = CriterionTarget::NormativeRate(0.9);
+        let targets = [("strict", &strict), ("lenient", &lenient)];
+        assert_eq!(
+            smoke_success_bar(TestIntent::Smoke, &targets, |_| 0.05, 100),
+            Some(97)
+        );
+        assert_eq!(
+            smoke_success_bar(TestIntent::Verification, &targets, |_| 0.05, 100),
+            None
+        );
+    }
+
+    #[test]
+    fn a_criterion_decided_by_another_rule_leaves_the_floor_in_charge() {
+        let requirement = CriterionTarget::NormativeRate(0.99);
+        let baseline = CriterionTarget::EmpiricalRate;
+        let targets = [("requirement", &requirement), ("baseline", &baseline)];
+        assert_eq!(
+            smoke_success_bar(TestIntent::Smoke, &targets, |_| 0.05, 100),
+            None
+        );
+        assert_eq!(
+            smoke_success_bar(TestIntent::Smoke, &[], |_| 0.05, 100),
+            None
+        );
     }
 
     #[test]

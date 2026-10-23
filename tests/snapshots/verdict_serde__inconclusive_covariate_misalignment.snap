@@ -51,7 +51,7 @@ expression: "serde_json::to_value(&record).unwrap()"
     "useCaseId": "classifier"
   },
   "intent": "VERIFICATION",
-  "methodologyVersion": "1.6.0",
+  "methodologyVersion": "1.7.1",
   "verdict": "INCONCLUSIVE",
   "verdictReason": "covariate misalignment"
 }

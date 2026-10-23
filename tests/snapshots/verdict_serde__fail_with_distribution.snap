@@ -42,7 +42,7 @@ expression: "serde_json::to_value(&record).unwrap()"
     "useCaseId": "basket"
   },
   "intent": "VERIFICATION",
-  "methodologyVersion": "1.6.0",
+  "methodologyVersion": "1.7.1",
   "statisticalAnalysis": {
     "alpha": 0.05,
     "confidenceLevel": 0.95,

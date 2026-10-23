@@ -1,6 +1,6 @@
 {
   "suite": "power_analysis",
-  "methodologyVersion": "1.6.0",
+  "methodologyVersion": "1.7.1",
   "fixtureSchemaVersion": 2,
   "decisionRules": [
     {

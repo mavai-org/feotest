@@ -1,6 +1,6 @@
 {
   "suite": "verdict",
-  "methodologyVersion": "1.6.0",
+  "methodologyVersion": "1.7.1",
   "fixtureSchemaVersion": 2,
   "decisionRules": [
     {
@@ -17,6 +17,10 @@
     },
     {
       "id": "latency/compliance-exact-binomial",
+      "version": 1
+    },
+    {
+      "id": "compliance/smoke-exact-binomial",
       "version": 1
     }
   ],
@@ -142,8 +146,8 @@
     },
     {
       "name": "compliance_smoke_50_of_50_threshold_95",
-      "description": "SMOKE runs the undersized design; it cannot PASS.",
-      "decisionRule": "compliance/exact-binomial",
+      "description": "SMOKE runs the undersized design under compliance/smoke-exact-binomial: 50 of 50 PASSes.",
+      "decisionRule": "compliance/smoke-exact-binomial",
       "inputs": {
         "successes": 50,
         "trials": 50,
@@ -152,9 +156,26 @@
         "intent": "SMOKE"
       },
       "expected": {
-        "verdict": "FAIL",
+        "verdict": "PASS",
         "configuration_error": [],
         "observed_rate": 1
+      }
+    },
+    {
+      "name": "compliance_smoke_44_of_50_threshold_95",
+      "description": "Six misses in 50 are evidence that the rate falls short of 95%: SMOKE FAILs.",
+      "decisionRule": "compliance/smoke-exact-binomial",
+      "inputs": {
+        "successes": 44,
+        "trials": 50,
+        "threshold": 0.95,
+        "alpha": 0.05,
+        "intent": "SMOKE"
+      },
+      "expected": {
+        "verdict": "FAIL",
+        "configuration_error": [],
+        "observed_rate": 0.88
       }
     },
     {

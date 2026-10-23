@@ -897,7 +897,7 @@ mod tests {
     fn a_record_states_schema_1_8_and_its_methodology() {
         let xml = VerdictXmlWriter::write_record(&pass_record(), Some("2026-04-01T12:00:00Z"));
         assert!(xml.contains("version=\"1.8\""));
-        assert!(xml.contains("methodology-version=\"1.6.0\""));
+        assert!(xml.contains("methodology-version=\"1.7.1\""));
         assert!(xml.contains(
             "<criterion id=\"result\" verdict=\"PASS\" pass=\"97\" fail=\"3\" \
              inconclusive=\"0\" total=\"100\" observed-rate=\"0.9700\" threshold=\"0.9100\" \

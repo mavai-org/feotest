@@ -1,18 +1,23 @@
 //! Judgement: each criterion's tally becomes a decision under its rule.
 //!
-//! A declared requirement is decided by `compliance/exact-binomial`; a
-//! baseline-derived criterion by `regression/fisher`, its cutoff derived at
-//! the run's own size. The Wilson lower bound and the standard error are
+//! A declared requirement is decided by `compliance/exact-binomial` under
+//! verification and by `compliance/smoke-exact-binomial` under smoke, the
+//! latter at its trials plus the samples not run, so that a run stopped
+//! early is decided by what its plan settled; a baseline-derived criterion by
+//! `regression/fisher`, its cutoff derived at the run's own size. The Wilson lower bound and the standard error are
 //! descriptive context in both — they decide nothing. A zero-failures
 //! criterion is observational and decided by no rule.
 
 use crate::criteria::{CriteriaCounts, CriterionCounts, CriterionTarget};
 use crate::model::ThresholdOrigin;
 use crate::ptest::approach::{CriterionBaselineTally, SizingDesign};
-use crate::statistics::decision::{evaluate_compliance, evaluate_regression};
+use crate::statistics::decision::{
+    evaluate_compliance, evaluate_regression, evaluate_smoke_compliance,
+};
 use crate::statistics::regression::{
     MDD_POWER, design_power, minimum_detectable_degradation, resolved_power,
 };
+use crate::statistics::rules::TestIntent;
 use crate::statistics::types::ConfidenceLevel;
 use crate::verdict::{CriterionRow, DesignDisclosure, StatisticalAnalysis, Verdict};
 
@@ -31,6 +36,11 @@ pub(super) struct CriterionContext<'a> {
     pub(super) normative_origin: ThresholdOrigin,
     /// The design the run was sized for, when it was sized.
     pub(super) design: Option<SizingDesign>,
+    /// The test's intent, which selects a declared requirement's rule.
+    pub(super) intent: TestIntent,
+    /// The planned samples the run did not execute: zero unless it stopped
+    /// early.
+    pub(super) samples_not_run: u32,
 }
 
 /// Builds one criterion's verdict row. A criterion with no in-scope trials
@@ -88,20 +98,40 @@ pub(super) fn criterion_row(
     CriterionRow::new(context.name, pass, fail, distribution, analysis, verdict)
 }
 
-/// Decides a declared requirement by `compliance/exact-binomial`.
+/// Decides a declared requirement by the rule the intent selects:
+/// `compliance/exact-binomial` under verification,
+/// `compliance/smoke-exact-binomial` under smoke.
 fn judge_compliance(
     pass: u32,
     total: u32,
     requirement: f64,
     context: &CriterionContext<'_>,
 ) -> (Verdict, StatisticalAnalysis) {
-    let decision = evaluate_compliance(pass, total, requirement, context.confidence.alpha());
-    let analysis = StatisticalAnalysis::compliance(
-        &decision,
-        context.confidence.value(),
-        context.normative_origin,
-    );
-    (decision.verdict(), analysis)
+    let alpha = context.confidence.alpha();
+    let confidence = context.confidence.value();
+    match context.intent {
+        TestIntent::Verification => {
+            let decision = evaluate_compliance(pass, total, requirement, alpha);
+            let analysis =
+                StatisticalAnalysis::compliance(&decision, confidence, context.normative_origin);
+            (decision.verdict(), analysis)
+        }
+        TestIntent::Smoke => {
+            let decision = evaluate_smoke_compliance(
+                pass,
+                total,
+                total + context.samples_not_run,
+                requirement,
+                alpha,
+            );
+            let analysis = StatisticalAnalysis::smoke_compliance(
+                &decision,
+                confidence,
+                context.normative_origin,
+            );
+            (decision.verdict(), analysis)
+        }
+    }
 }
 
 /// Decides a baseline-derived criterion by `regression/fisher`, and states
@@ -199,6 +229,8 @@ mod tests {
             baseline,
             normative_origin: ThresholdOrigin::Sla,
             design: None,
+            intent: TestIntent::Verification,
+            samples_not_run: 0,
         }
     }
 
@@ -214,6 +246,40 @@ mod tests {
         );
         assert_eq!(analysis.threshold_origin(), ThresholdOrigin::Sla);
         assert!((analysis.threshold() - 0.90).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn under_smoke_a_requirement_is_decided_by_the_smoke_rule() {
+        let target = CriterionTarget::NormativeRate(0.95);
+        let mut smoke = context(&target, None);
+        smoke.intent = TestIntent::Smoke;
+        let row = criterion_row(&smoke, &counts_of("c", 50, 0));
+        assert_eq!(row.verdict(), Verdict::Pass);
+        let analysis = row.statistical_analysis().unwrap();
+        assert_eq!(
+            analysis.decision_rule(),
+            DecisionRule::ComplianceSmokeExactBinomial
+        );
+        assert_eq!(analysis.required_pass(), Some(45));
+        let short = criterion_row(&smoke, &counts_of("c", 44, 6));
+        assert_eq!(short.verdict(), Verdict::Fail);
+    }
+
+    #[test]
+    fn under_smoke_a_run_stopped_early_is_decided_at_its_planned_size() {
+        let target = CriterionTarget::NormativeRate(0.99);
+        let mut smoke = context(&target, None);
+        smoke.intent = TestIntent::Smoke;
+        smoke.samples_not_run = 3;
+        let row = criterion_row(&smoke, &counts_of("c", 97, 0));
+        assert_eq!(row.verdict(), Verdict::Pass);
+        assert_eq!(
+            row.statistical_analysis().unwrap().required_pass(),
+            Some(97)
+        );
+        smoke.samples_not_run = 70;
+        let short = criterion_row(&smoke, &counts_of("c", 26, 4));
+        assert_eq!(short.verdict(), Verdict::Fail);
     }
 
     #[test]

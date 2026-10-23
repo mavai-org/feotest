@@ -3,12 +3,17 @@
 
 mod common;
 
+use std::sync::atomic::{AtomicU32, Ordering};
+
+use feotest::criteria::{Criteria, Criterion};
 use feotest::experiment::MeasureExperiment;
-use feotest::model::{TerminationReason, ThresholdOrigin};
+use feotest::model::{ContractViolation, TerminationReason, ThresholdOrigin};
 use feotest::ptest::ProbabilisticTest;
 use feotest::ptest::builder::ThresholdApproach;
+use feotest::service_contract::ServiceContract;
 use feotest::spec::SpecResolver;
-use feotest::verdict::Verdict;
+use feotest::statistics::rules::DecisionRule;
+use feotest::verdict::{Verdict, VerdictRecord};
 
 // --- runner-driven failure-inevitable termination ---
 
@@ -137,6 +142,127 @@ fn validity_floor_delays_runner_success_guaranteed() {
         executed >= 450,
         "samples_executed={executed} should at least reach the unfloored threshold (450)"
     );
+}
+
+// --- smoke intent: the smoke rule's required count ends the run ---
+
+/// A contract with one requirement of 0.99 whose postcondition fails on
+/// exactly the listed (1-based) samples.
+struct RequirementContract {
+    id: &'static str,
+    misses: &'static [u32],
+}
+
+impl ServiceContract for RequirementContract {
+    type Input = String;
+    type Output = String;
+
+    fn id(&self) -> &str {
+        self.id
+    }
+
+    fn invoke(
+        &self,
+        input: &String,
+        _cost: &mut feotest::controls::Cost,
+    ) -> Result<String, feotest::model::Defect> {
+        Ok(input.clone())
+    }
+
+    fn criteria(&self) -> Criteria<String> {
+        let misses = self.misses;
+        let judged = AtomicU32::new(0);
+        Criteria::of([Criterion::meeting()
+            .pass_rate(0.99)
+            .name("harmful advice is rejected")
+            .satisfies("rejected", move |_: &String| {
+                let sample = judged.fetch_add(1, Ordering::SeqCst) + 1;
+                if misses.contains(&sample) {
+                    Err(ContractViolation::new("rejected", "harmful advice given"))
+                } else {
+                    Ok(())
+                }
+            })
+            .build()])
+    }
+}
+
+/// A smoke test of 100 samples at a 0.99 requirement and 95% confidence:
+/// a design verification would refuse (it needs 299).
+fn run_smoke_requirement(contract: RequirementContract) -> VerdictRecord {
+    let inputs = vec!["input".to_string()];
+    ProbabilisticTest::for_contract(contract)
+        .inputs(&inputs)
+        .approach(ThresholdApproach::ThresholdFirst {
+            samples: 100,
+            min_pass_rate: 0.99,
+        })
+        .smoke()
+        .threshold_origin(ThresholdOrigin::Policy)
+        .run()
+        .verdict_record()
+        .clone()
+}
+
+#[test]
+fn an_undersized_smoke_requirement_passes_once_its_required_count_is_reached() {
+    // compliance/smoke-exact-binomial requires 97 of 100: the 97th success
+    // settles the PASS, so the run stops there rather than running on or
+    // failing for want of a size it never claimed.
+    let record = run_smoke_requirement(RequirementContract {
+        id: "smoke-success-guaranteed",
+        misses: &[],
+    });
+    assert_eq!(record.verdict(), Some(Verdict::Pass));
+    assert_eq!(
+        record.execution().termination().reason(),
+        &TerminationReason::SuccessGuaranteed
+    );
+    assert_eq!(record.execution().samples_executed(), 97);
+    let analysis = record.statistical_analysis().unwrap();
+    assert_eq!(
+        analysis.decision_rule(),
+        DecisionRule::ComplianceSmokeExactBinomial
+    );
+    assert_eq!(analysis.required_pass(), Some(97));
+    assert!(record.warnings().iter().any(|w| w.code() == "UNDERSIZED"));
+    // A smoke decision enters neither Type-I envelope (§1.4.6).
+    assert_eq!(record.envelopes().false_compliance(), None);
+    assert_eq!(record.envelopes().false_degradation_signal(), None);
+}
+
+#[test]
+fn an_undersized_smoke_requirement_fails_once_its_required_count_is_out_of_reach() {
+    // The fourth miss arrives at sample 30: with more than 100 - 97 = 3
+    // misses no outcome can reach 97, so the FAIL is settled there.
+    let record = run_smoke_requirement(RequirementContract {
+        id: "smoke-failure-inevitable",
+        misses: &[6, 13, 21, 30],
+    });
+    assert_eq!(record.verdict(), Some(Verdict::Fail));
+    assert_eq!(
+        record.execution().termination().reason(),
+        &TerminationReason::FailureInevitable
+    );
+    assert_eq!(record.execution().samples_executed(), 30);
+    let analysis = record.statistical_analysis().unwrap();
+    assert_eq!(
+        analysis.decision_rule(),
+        DecisionRule::ComplianceSmokeExactBinomial
+    );
+    assert_eq!(analysis.required_pass(), Some(97));
+}
+
+#[test]
+fn three_misses_in_an_undersized_smoke_run_are_no_evidence_of_a_shortfall() {
+    // Three misses leave 97 within reach; the run continues until the 97th
+    // success, at sample 100, and passes.
+    let record = run_smoke_requirement(RequirementContract {
+        id: "smoke-three-misses",
+        misses: &[2, 50, 99],
+    });
+    assert_eq!(record.verdict(), Some(Verdict::Pass));
+    assert_eq!(record.execution().samples_executed(), 100);
 }
 
 // --- Regression: measure/explore/optimize are unaffected ---

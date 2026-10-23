@@ -14,7 +14,9 @@ use crate::spec::SpecResolver;
 /// detectable degradation are linked: the caller fixes some, the framework
 /// derives the rest. Every baseline-derived criterion is decided by
 /// `regression/fisher` at the test's own size, and every declared
-/// requirement by `compliance/exact-binomial` (Statistical Companion 1.6.0).
+/// requirement by `compliance/exact-binomial` under verification or
+/// `compliance/smoke-exact-binomial` under smoke (Statistical Companion
+/// 1.7.1).
 #[derive(Debug, Clone)]
 // mavai-ref: JVI-0FVFYBM — do not remove (resolves in mavai-orchestrator)
 // mavai-ref: JVI-5YJVXGF — do not remove (resolves in mavai-orchestrator)

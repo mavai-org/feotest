@@ -1,10 +1,13 @@
 //! Decisions: one criterion under its rule, and their composition
 //! (Statistical Companion §1.4.6, §12.3.2).
 //!
-//! A criterion is decided by the rule its threshold's origin selects:
+//! A criterion is decided by the rule its threshold's origin and the test's
+//! intent select:
 //!
-//! - a **given** (normative) requirement by `compliance/exact-binomial` —
-//!   [`evaluate_compliance`];
+//! - a **given** (normative) requirement under verification by
+//!   `compliance/exact-binomial` — [`evaluate_compliance`];
+//! - a given requirement under smoke by `compliance/smoke-exact-binomial` —
+//!   [`evaluate_smoke_compliance`];
 //! - a **baseline-derived** (empirical) bar by `regression/fisher` —
 //!   [`evaluate_regression`].
 //!
@@ -26,6 +29,7 @@ use crate::statistics::compliance::{clopper_pearson_lower, minimum_passing_count
 use crate::statistics::distributions::binomial_upper_tail;
 use crate::statistics::regression::{RegressionDerivation, derive_regression_cutoff};
 use crate::statistics::rules::{DecisionRule, Direction, EnforcementMode};
+use crate::statistics::smoke::{false_non_compliance, smoke_p_value, smoke_required_pass};
 
 /// The outcome of a criterion, a dimension, or a test.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -82,6 +86,7 @@ pub struct ComplianceDecision {
     requirement: f64,
     alpha: f64,
     minimum_passing: Option<u32>,
+    p_value: f64,
     false_compliance: f64,
     clopper_pearson_lower: f64,
 }
@@ -134,6 +139,12 @@ impl ComplianceDecision {
         self.minimum_passing.is_some()
     }
 
+    /// The p-value of the observed count, `P_{p_req}(K ≥ K_obs)`.
+    #[must_use]
+    pub const fn p_value(&self) -> f64 {
+        self.p_value
+    }
+
     /// `P_{p_req}(K ≥ k_min)`, 0 when no count can pass.
     #[must_use]
     pub const fn false_compliance(&self) -> f64 {
@@ -171,9 +182,172 @@ pub fn evaluate_compliance(
         requirement,
         alpha,
         minimum_passing,
+        p_value: binomial_upper_tail(i64::from(successes), trials, requirement),
         false_compliance: minimum_passing.map_or(0.0, |k_min| {
             binomial_upper_tail(i64::from(k_min), trials, requirement)
         }),
+        clopper_pearson_lower: clopper_pearson_lower(successes, trials, alpha),
+    }
+}
+
+/// A criterion decided by `compliance/smoke-exact-binomial`.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct SmokeComplianceDecision {
+    verdict: Verdict,
+    successes: u32,
+    trials: u32,
+    planned_samples: u32,
+    requirement: f64,
+    alpha: f64,
+    required_pass: u32,
+    minimum_passing: Option<u32>,
+    p_value: f64,
+    false_non_compliance: f64,
+    clopper_pearson_lower: f64,
+}
+
+impl SmokeComplianceDecision {
+    /// The rule that decided it.
+    pub const RULE: DecisionRule = DecisionRule::ComplianceSmokeExactBinomial;
+
+    /// PASS iff `K ≥ required_pass` — no evidence that the service falls
+    /// short of its requirement, which is not evidence of compliance; FAIL
+    /// once no outcome of the planned size can reach it — evidence of
+    /// non-compliance at level alpha. INCONCLUSIVE only when a run stopped
+    /// short of its plan before either was settled.
+    #[must_use]
+    pub const fn verdict(&self) -> Verdict {
+        self.verdict
+    }
+
+    /// `K`.
+    #[must_use]
+    pub const fn successes(&self) -> u32 {
+        self.successes
+    }
+
+    /// The trials observed; fewer than planned only when the run stopped
+    /// early.
+    #[must_use]
+    pub const fn trials(&self) -> u32 {
+        self.trials
+    }
+
+    /// `n`, the size the rule was applied at: the planned sample count.
+    #[must_use]
+    pub const fn planned_samples(&self) -> u32 {
+        self.planned_samples
+    }
+
+    /// `p_req`.
+    #[must_use]
+    pub const fn requirement(&self) -> f64 {
+        self.requirement
+    }
+
+    /// The one-sided level.
+    #[must_use]
+    pub const fn alpha(&self) -> f64 {
+        self.alpha
+    }
+
+    /// One more than the largest count that is evidence of non-compliance
+    /// at the planned size; 0 when no count can fail there.
+    #[must_use]
+    pub const fn required_pass(&self) -> u32 {
+        self.required_pass
+    }
+
+    /// Whether any outcome of the planned size could have failed.
+    #[must_use]
+    pub const fn fail_possible(&self) -> bool {
+        self.required_pass > 0
+    }
+
+    /// `k_min` of `compliance/exact-binomial` at the planned size: the count
+    /// a verification test of this size would need to demonstrate
+    /// compliance; `None` when this size cannot demonstrate it at all.
+    /// Reported; it decides nothing here.
+    #[must_use]
+    pub const fn minimum_passing(&self) -> Option<u32> {
+        self.minimum_passing
+    }
+
+    /// Whether a verification test of this size could demonstrate
+    /// compliance.
+    #[must_use]
+    pub const fn pass_possible(&self) -> bool {
+        self.minimum_passing.is_some()
+    }
+
+    /// The p-value of the observed count, the lower tail
+    /// `P_{p_req}(K ≤ K_obs)` over the observed trials.
+    #[must_use]
+    pub const fn p_value(&self) -> f64 {
+        self.p_value
+    }
+
+    /// `P_{p_req}(K < required_pass)` at the planned size: the chance of a
+    /// FAIL when the service exactly meets its requirement; 0 when no count
+    /// can fail.
+    #[must_use]
+    pub const fn false_non_compliance(&self) -> f64 {
+        self.false_non_compliance
+    }
+
+    /// The one-sided Clopper–Pearson lower bound at `1 − alpha`, reported
+    /// beside the verdict; it decides nothing.
+    #[must_use]
+    pub const fn clopper_pearson_lower(&self) -> f64 {
+        self.clopper_pearson_lower
+    }
+}
+
+/// Decides a criterion against a given requirement under smoke intent.
+///
+/// The rule is applied at `planned_samples`, the size the run was planned
+/// at, so a run that stopped early is decided by what its plan settled:
+/// PASS once `successes` reaches the required count, FAIL once the samples
+/// not run could no longer bring it there. A run of its full plan passes
+/// `trials == planned_samples`.
+///
+/// # Panics
+///
+/// Panics if `trials` is zero or exceeds `planned_samples`, `successes`
+/// exceeds `trials`, or the requirement or level is outside `(0, 1)`.
+#[must_use]
+pub fn evaluate_smoke_compliance(
+    successes: u32,
+    trials: u32,
+    planned_samples: u32,
+    requirement: f64,
+    alpha: f64,
+) -> SmokeComplianceDecision {
+    assert!(successes <= trials, "successes must not exceed trials");
+    assert!(
+        trials <= planned_samples,
+        "trials must not exceed the planned samples"
+    );
+    let required_pass = smoke_required_pass(requirement, planned_samples, alpha);
+    let not_run = planned_samples - trials;
+    let verdict = if successes >= required_pass {
+        Verdict::Pass
+    } else if successes + not_run < required_pass {
+        Verdict::Fail
+    } else {
+        Verdict::Inconclusive
+    };
+    SmokeComplianceDecision {
+        verdict,
+        successes,
+        trials,
+        planned_samples,
+        requirement,
+        alpha,
+        required_pass,
+        minimum_passing: minimum_passing_count(requirement, planned_samples, alpha),
+        p_value: smoke_p_value(successes, trials, requirement),
+        false_non_compliance: false_non_compliance(required_pass, planned_samples, requirement),
         clopper_pearson_lower: clopper_pearson_lower(successes, trials, alpha),
     }
 }
@@ -299,7 +473,8 @@ impl Envelopes {
     }
 }
 
-/// Sums each direction's alphas over the `(rule, alpha)` decisions made.
+/// Sums each direction's alphas over the `(rule, alpha)` decisions made; a
+/// decision whose rule enters neither envelope (a smoke rule) adds nothing.
 #[must_use]
 // mavai-ref: JVI-1PK1X9U — do not remove (resolves in mavai-orchestrator)
 pub fn type_one_envelopes(decisions: impl IntoIterator<Item = (DecisionRule, f64)>) -> Envelopes {
@@ -307,8 +482,11 @@ pub fn type_one_envelopes(decisions: impl IntoIterator<Item = (DecisionRule, f64
         false_compliance: None,
         false_degradation_signal: None,
     };
-    for (rule, alpha) in decisions {
-        let slot = match rule.direction() {
+    let directed = decisions
+        .into_iter()
+        .filter_map(|(rule, alpha)| rule.direction().map(|direction| (direction, alpha)));
+    for (direction, alpha) in directed {
+        let slot = match direction {
             Direction::Compliance => &mut envelopes.false_compliance,
             Direction::Regression => &mut envelopes.false_degradation_signal,
         };
@@ -558,6 +736,51 @@ mod tests {
     }
 
     #[test]
+    fn smoke_passes_an_undersized_design_without_evidence_of_shortfall() {
+        // 0.99 over 100 samples: verification needs 299; smoke requires 97.
+        let decision = evaluate_smoke_compliance(100, 100, 100, 0.99, 0.05);
+        assert_eq!(decision.verdict(), Verdict::Pass);
+        assert_eq!(decision.required_pass(), 97);
+        assert!(!decision.pass_possible());
+        assert_relative_eq!(decision.p_value(), 1.0);
+        let short = evaluate_smoke_compliance(96, 100, 100, 0.99, 0.05);
+        assert_eq!(short.verdict(), Verdict::Fail);
+        assert_relative_eq!(
+            short.p_value(),
+            0.018_374_036_444_649_7,
+            max_relative = 1e-10
+        );
+    }
+
+    #[test]
+    fn smoke_decides_a_run_stopped_early_by_its_plan() {
+        // 97 of 97 run: success is settled at the planned size.
+        let guaranteed = evaluate_smoke_compliance(97, 97, 100, 0.99, 0.05);
+        assert_eq!(guaranteed.verdict(), Verdict::Pass);
+        assert_eq!(guaranteed.required_pass(), 97);
+        // The fourth miss at sample 30: no outcome can reach 97.
+        let inevitable = evaluate_smoke_compliance(26, 30, 100, 0.99, 0.05);
+        assert_eq!(inevitable.verdict(), Verdict::Fail);
+        // Neither settled: a run cut short by its budget.
+        let unsettled = evaluate_smoke_compliance(28, 30, 100, 0.99, 0.05);
+        assert_eq!(unsettled.verdict(), Verdict::Inconclusive);
+    }
+
+    #[test]
+    fn smoke_cannot_fail_where_no_count_is_evidence() {
+        let decision = evaluate_smoke_compliance(0, 1, 1, 0.5, 0.05);
+        assert_eq!(decision.verdict(), Verdict::Pass);
+        assert!(!decision.fail_possible());
+        assert_relative_eq!(decision.false_non_compliance(), 0.0);
+    }
+
+    #[test]
+    #[should_panic(expected = "trials must not exceed the planned samples")]
+    fn smoke_rejects_more_trials_than_planned() {
+        let _ = evaluate_smoke_compliance(5, 6, 5, 0.9, 0.05);
+    }
+
+    #[test]
     fn regression_passes_at_the_cutoff() {
         let decision = evaluate_regression(91, 100, 951, 1000, 0.05);
         assert_eq!(decision.verdict(), Verdict::Pass);
@@ -566,6 +789,22 @@ mod tests {
             evaluate_regression(90, 100, 951, 1000, 0.05).verdict(),
             Verdict::Fail
         );
+    }
+
+    #[test]
+    fn smoke_decisions_enter_neither_envelope() {
+        let smoke_only = type_one_envelopes([
+            (DecisionRule::ComplianceSmokeExactBinomial, 0.05),
+            (DecisionRule::LatencySmokeComplianceExactBinomial, 0.05),
+        ]);
+        assert_eq!(smoke_only.false_compliance(), None);
+        assert_eq!(smoke_only.false_degradation_signal(), None);
+        let mixed = type_one_envelopes([
+            (DecisionRule::ComplianceSmokeExactBinomial, 0.05),
+            (DecisionRule::RegressionFisher, 0.01),
+        ]);
+        assert_eq!(mixed.false_compliance(), None);
+        assert_relative_eq!(mixed.false_degradation_signal().unwrap(), 0.01);
     }
 
     #[test]

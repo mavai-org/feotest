@@ -1,22 +1,30 @@
 //! The methodology's decision rules, configuration errors and test intent.
 //!
-//! Statistical Companion 1.6.0 names four verdict-producing procedures, each
+//! Statistical Companion 1.7.1 names six verdict-producing procedures, each
 //! with a versioned identifier that travels with every verdict it decides:
 //!
 //! - `regression/fisher` — empirical regression: the one-sided Fisher exact
 //!   test as an integer cutoff on the test's success count (§3.4);
-//! - `compliance/exact-binomial` — normative compliance: the exact one-sided
-//!   binomial test as the smallest passing count (§3.6);
+//! - `compliance/exact-binomial` — normative compliance under verification:
+//!   the exact one-sided binomial test as the smallest passing count (§3.6);
 //! - `latency/precedence` — latency regression: the smallest baseline rank
 //!   whose no-degradation breach probability is at most alpha (§12.4);
-//! - `latency/compliance-exact-binomial` — an explicit latency requirement:
-//!   the exact binomial test on the count of latencies within it (§12.3.4).
+//! - `latency/compliance-exact-binomial` — an explicit latency requirement
+//!   under verification: the exact binomial test on the count of latencies
+//!   within it (§12.3.4);
+//! - `compliance/smoke-exact-binomial` — normative compliance under smoke,
+//!   at every size: the burden of proof reversed, FAIL only on evidence that
+//!   the rate falls short of the requirement (§5.7.3);
+//! - `latency/smoke-compliance-exact-binomial` — an explicit latency
+//!   requirement under smoke, by the same reversed rule on the count of
+//!   latencies within it (§12.3.4).
 //!
+//! The intent selects the rule of a normative criterion: verification
+//! decides it by the compliance rule, smoke by its smoke counterpart.
 //! Two configurations are refused before any sample runs, and a refusal
 //! names every applicable code in one fixed order (§5.7.1).
 //!
-//! Methodology 1.6.0 keeps the rules and changes only which verdicts bind:
-//! every assertion is enforced by default, and a run may make a whole
+//! Every assertion is enforced by default, and a run may make a whole
 //! dimension advisory — decided by the same rules, reported, never binding
 //! (§12.6).
 
@@ -29,30 +37,58 @@ use crate::statistics::exact::exact_decimal;
 
 /// The Statistical Companion methodology whose decision rules this crate
 /// implements.
-pub const METHODOLOGY_VERSION: &str = "1.6.0";
+pub const METHODOLOGY_VERSION: &str = "1.7.1";
 
 /// A versioned decision rule of the methodology.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum DecisionRule {
     /// Empirical regression: the one-sided Fisher exact test (§3.4).
     RegressionFisher,
-    /// Normative compliance: the exact one-sided binomial test (§3.6).
+    /// Normative compliance under verification: the exact one-sided
+    /// binomial test (§3.6).
     ComplianceExactBinomial,
     /// A baseline-derived latency threshold: the precedence rank (§12.4).
     LatencyPrecedence,
-    /// An explicit latency requirement: the exact binomial test on the
-    /// count of latencies within it (§12.3.4).
+    /// An explicit latency requirement under verification: the exact
+    /// binomial test on the count of latencies within it (§12.3.4).
     LatencyComplianceExactBinomial,
+    /// Normative compliance under smoke: FAIL iff the binomial lower tail
+    /// at the requirement is at most alpha (§5.7.3).
+    ComplianceSmokeExactBinomial,
+    /// An explicit latency requirement under smoke: the smoke rule on the
+    /// count of latencies within it (§12.3.4).
+    LatencySmokeComplianceExactBinomial,
 }
 
 impl DecisionRule {
     /// Every rule, in the order the methodology lists them.
-    pub const ALL: [Self; 4] = [
+    pub const ALL: [Self; 6] = [
         Self::RegressionFisher,
         Self::ComplianceExactBinomial,
         Self::LatencyPrecedence,
         Self::LatencyComplianceExactBinomial,
+        Self::ComplianceSmokeExactBinomial,
+        Self::LatencySmokeComplianceExactBinomial,
     ];
+
+    /// The rule that decides a normative pass-rate criterion under `intent`.
+    #[must_use]
+    pub const fn for_pass_rate_requirement(intent: TestIntent) -> Self {
+        match intent {
+            TestIntent::Verification => Self::ComplianceExactBinomial,
+            TestIntent::Smoke => Self::ComplianceSmokeExactBinomial,
+        }
+    }
+
+    /// The rule that decides an explicit latency requirement under
+    /// `intent`.
+    #[must_use]
+    pub const fn for_latency_requirement(intent: TestIntent) -> Self {
+        match intent {
+            TestIntent::Verification => Self::LatencyComplianceExactBinomial,
+            TestIntent::Smoke => Self::LatencySmokeComplianceExactBinomial,
+        }
+    }
 
     /// The rule's identifier, as reports and interchange records state it.
     #[must_use]
@@ -62,24 +98,31 @@ impl DecisionRule {
             Self::ComplianceExactBinomial => "compliance/exact-binomial",
             Self::LatencyPrecedence => "latency/precedence",
             Self::LatencyComplianceExactBinomial => "latency/compliance-exact-binomial",
+            Self::ComplianceSmokeExactBinomial => "compliance/smoke-exact-binomial",
+            Self::LatencySmokeComplianceExactBinomial => "latency/smoke-compliance-exact-binomial",
         }
     }
 
     /// The rule's version; every rule is at version 1 under methodology
-    /// 1.6.0.
+    /// 1.7.1.
     #[must_use]
     pub const fn version(self) -> u32 {
         1
     }
 
-    /// The error event this rule's alpha bounds (§1.4.6).
+    /// The envelope this rule's alpha enters (§1.4.6): a verification
+    /// decision on a requirement enters the false-compliance envelope, a
+    /// baseline-derived one the false-degradation-signal envelope. A smoke
+    /// decision enters neither (`None`): its alpha bounds a false FAIL, and
+    /// its PASS claims no compliance.
     #[must_use]
-    pub const fn direction(self) -> Direction {
+    pub const fn direction(self) -> Option<Direction> {
         match self {
             Self::ComplianceExactBinomial | Self::LatencyComplianceExactBinomial => {
-                Direction::Compliance
+                Some(Direction::Compliance)
             }
-            Self::RegressionFisher | Self::LatencyPrecedence => Direction::Regression,
+            Self::RegressionFisher | Self::LatencyPrecedence => Some(Direction::Regression),
+            Self::ComplianceSmokeExactBinomial | Self::LatencySmokeComplianceExactBinomial => None,
         }
     }
 }
@@ -228,7 +271,9 @@ pub enum TestIntent {
     Verification,
 
     /// A lightweight early-warning check. Undersized configurations run,
-    /// and their verdicts are labelled as not evidential.
+    /// and a normative criterion is decided with the burden of proof
+    /// reversed: it fails only on evidence that the service falls short of
+    /// its requirement, and a pass is never evidence of compliance (§5.7.3).
     Smoke,
 }
 
@@ -290,7 +335,9 @@ mod tests {
                 "regression/fisher",
                 "compliance/exact-binomial",
                 "latency/precedence",
-                "latency/compliance-exact-binomial"
+                "latency/compliance-exact-binomial",
+                "compliance/smoke-exact-binomial",
+                "latency/smoke-compliance-exact-binomial"
             ]
         );
         assert!(DecisionRule::ALL.iter().all(|r| r.version() == 1));
@@ -298,21 +345,38 @@ mod tests {
 
     #[test]
     fn rules_enter_the_envelope_of_their_direction() {
+        let directions: Vec<Option<Direction>> =
+            DecisionRule::ALL.iter().map(|r| r.direction()).collect();
         assert_eq!(
-            DecisionRule::ComplianceExactBinomial.direction(),
-            Direction::Compliance
+            directions,
+            [
+                Some(Direction::Regression),
+                Some(Direction::Compliance),
+                Some(Direction::Regression),
+                Some(Direction::Compliance),
+                None,
+                None
+            ]
+        );
+    }
+
+    #[test]
+    fn the_intent_selects_the_rule_of_a_requirement() {
+        assert_eq!(
+            DecisionRule::for_pass_rate_requirement(TestIntent::Verification),
+            DecisionRule::ComplianceExactBinomial
         );
         assert_eq!(
-            DecisionRule::LatencyComplianceExactBinomial.direction(),
-            Direction::Compliance
+            DecisionRule::for_pass_rate_requirement(TestIntent::Smoke),
+            DecisionRule::ComplianceSmokeExactBinomial
         );
         assert_eq!(
-            DecisionRule::RegressionFisher.direction(),
-            Direction::Regression
+            DecisionRule::for_latency_requirement(TestIntent::Verification),
+            DecisionRule::LatencyComplianceExactBinomial
         );
         assert_eq!(
-            DecisionRule::LatencyPrecedence.direction(),
-            Direction::Regression
+            DecisionRule::for_latency_requirement(TestIntent::Smoke),
+            DecisionRule::LatencySmokeComplianceExactBinomial
         );
     }
 

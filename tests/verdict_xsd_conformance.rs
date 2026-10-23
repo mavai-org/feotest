@@ -111,6 +111,7 @@ fn assert_required_pass_is_the_rules_count(record: &VerdictRecord, xml: &str) ->
         let decided_with = match analysis.evidence() {
             RuleEvidence::Regression(evidence) => Some(evidence.cutoff),
             RuleEvidence::Compliance(evidence) => evidence.minimum_passing_count,
+            RuleEvidence::SmokeCompliance(evidence) => Some(evidence.required_pass),
         };
         assert_eq!(
             emitted,
@@ -267,7 +268,7 @@ fn a_decided_record_naming_its_rules_validates() {
     assert!(!record.is_refused());
     let xml = assert_validates(&record);
     assert!(xml.contains("version=\"1.8\""));
-    assert!(xml.contains("methodology-version=\"1.6.0\""));
+    assert!(xml.contains("methodology-version=\"1.7.1\""));
     assert!(xml.contains("mode=\"enforced\"/>"));
     assert!(xml.contains("decision-rule=\"compliance/exact-binomial\""));
     assert!(xml.contains("decision-rule=\"regression/fisher\""));
@@ -279,44 +280,6 @@ fn a_decided_record_naming_its_rules_validates() {
     assert_eq!(
         criterion_attribute(&xml, "well-formed-compliance", "required-pass").as_deref(),
         Some("97")
-    );
-    assert!(criterion_attribute(&xml, "well-formed-regression", "required-pass").is_some());
-}
-
-#[test]
-fn a_criterion_no_count_can_pass_states_no_required_pass() {
-    // Under smoke intent an infeasible requirement runs: no count of 20 can
-    // demonstrate 0.999 at alpha 0.05, so the compliance row carries no
-    // required-pass, while the regression row beside it still does.
-    let baseline = establish_baseline("xsd-no-count", 100);
-    let inputs = vec!["input".to_string()];
-    let record = ProbabilisticTest::for_contract(ScriptedContract {
-        requirement: Some((0.999, 0.95)),
-        ..ScriptedContract::all_passing("xsd-no-count")
-    })
-    .inputs(&inputs)
-    .approach(ThresholdApproach::SampleSizeFirst {
-        samples: 20,
-        confidence: 0.95,
-    })
-    .smoke()
-    .threshold_origin(ThresholdOrigin::Sla)
-    .spec_resolver(SpecResolver::with_dir(baseline.path()))
-    .disable_early_termination()
-    .run()
-    .verdict_record()
-    .clone();
-    assert!(!record.is_refused());
-
-    let xml = assert_validates(&record);
-    assert_eq!(assert_required_pass_is_the_rules_count(&record, &xml), 1);
-    assert_eq!(
-        criterion_attribute(&xml, "well-formed-compliance", "required-pass"),
-        None
-    );
-    assert!(
-        criterion_attribute(&xml, "well-formed-compliance", "decision-rule").is_some(),
-        "the rule decided the row; only the count is absent"
     );
     assert!(criterion_attribute(&xml, "well-formed-regression", "required-pass").is_some());
 }

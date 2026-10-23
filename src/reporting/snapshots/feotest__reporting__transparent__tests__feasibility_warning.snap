@@ -8,7 +8,7 @@ expression: "render_with(&record, &threshold_first(477, 0.0))"
 ║ Test:        tiny-test                                      ║
 ║ Approach:    threshold-first                                ║
 ║ Intent:      SMOKE                                          ║
-║ Methodology: 1.6.0                                          ║
+║ Methodology: 1.7.1                                          ║
 ║ Origin:      SLA                                            ║
 ║─────────────────────────────────────────────────────────────║
 ║ WARNING                                                     ║
@@ -18,26 +18,29 @@ expression: "render_with(&record, &threshold_first(477, 0.0))"
 ║─────────────────────────────────────────────────────────────║
 ║ HYPOTHESES                                                  ║
 ║                                                             ║
-║ H0: p <= 0.995  (compliance not demonstrated)               ║
-║ H1: p >  0.995  (the requirement is met)                    ║
+║ H0: p >= 0.995  (the requirement is met)                    ║
+║ H1: p <  0.995  (the service falls short of it)             ║
 ║─────────────────────────────────────────────────────────────║
 ║ OBSERVED DATA AND INFERENCE                                 ║
 ║                                                             ║
 ║ Successes / Total:    477 / 477                             ║
 ║ Observed pass rate:   1.000                                 ║
-║ Decision rule:        compliance/exact-binomial v1          ║
+║ Decision rule:        compliance/smoke-exact-binomial v1    ║
 ║ Threshold:            0.995                                 ║
 ║   (declared floor; each criterion decided by its rule)      ║
-║ Smallest passing:     none (no count can pass)              ║
-║ False compliance:     0.0000                                ║
+║ Required pass:        472 of 477 planned                    ║
+║ p-value (lower tail): 1.0000                                ║
+║ False non-compliance: 0.0344                                ║
 ║ Clopper-Pearson lower: 0.994 (descriptive)                  ║
 ║ Wilson lower [95%]: 0.994 (descriptive)                     ║
 ║ Standard error:       0.000                                 ║
 ║─────────────────────────────────────────────────────────────║
 ║ VERDICT                                                     ║
 ║                                                             ║
-║ FAIL (non-evidential — Smoke intent)                        ║
+║ PASS (non-evidential — Smoke intent)                        ║
 ║                                                             ║
-║ The test failed: 477 of 477: no count of 477 can pass       ║
-║ (compliance/exact-binomial).                                ║
+║ Every criterion passed under its rule                       ║
+║ (compliance/smoke-exact-binomial for the first) and every   ║
+║ enforced latency constraint passed: 477 of 477 >= required  ║
+║ 472 (compliance/smoke-exact-binomial).                      ║
 ║═════════════════════════════════════════════════════════════║
