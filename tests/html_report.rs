@@ -353,4 +353,5 @@ fn a_smoke_requirement_reads_as_evidence_of_a_shortfall_or_none() {
     assert!(html.contains("compliance/smoke-exact-binomial v1, required pass 97"));
     assert!(html.contains("no evidence it falls short of its requirement"));
     assert!(html.contains("\u{2014} falls short of its requirement"));
+    assert!(html.contains("p-value: "));
 }

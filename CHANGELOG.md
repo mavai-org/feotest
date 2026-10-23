@@ -29,12 +29,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   the size, or points to verification where the size could demonstrate
   compliance. The transparent statistics and the HTML report read a smoke
   PASS as no evidence of a shortfall and a smoke FAIL as one.
+- **Verdict XML moves to schema 1.10**: the smoke rules are named with their
+  required counts, and `<statistics>` carries a smoke criterion's lower-tail
+  `@p-value`. Schema 1.9's optional run-control content is not emitted.
 
 ### Conformance
 
 - The vendored fixtures are re-pinned at mavai-R **v0.15.0**, adopting the
   smoke cases of `compliance_decision`, `latency_compliance_decision` and
-  `verdict`.
+  `verdict`; `verdict-1.10.xsd` replaces `verdict-1.8.xsd`, and records of
+  real smoke runs validate against it.
 
 - The vendored oracle catches up to mavai-R **v0.13.1**: the low-rate
   `regression/fisher` and `threshold_derivation` cases, which pass unchanged,

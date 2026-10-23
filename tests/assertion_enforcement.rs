@@ -229,7 +229,7 @@ fn assert_validates(xml: &str) {
     std::fs::write(file.path(), xml).unwrap();
     let schema = concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/tests/conformance/interchange/verdict-1.8.xsd"
+        "/tests/conformance/interchange/verdict-1.10.xsd"
     );
     match Command::new("xmllint")
         .args(["--noout", "--schema", schema])

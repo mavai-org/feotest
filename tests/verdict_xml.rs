@@ -79,9 +79,9 @@ fn full_verdict_contains_all_rp07_elements() {
     let xml = VerdictXmlWriter::write_record(&full_record(), Some("2026-04-19T10:00:00Z"));
 
     // Root structure. The namespace is stable across schema revisions; the
-    // record is schema 1.8 and names the methodology whose rules decided it.
+    // record is schema 1.10 and names the methodology whose rules decided it.
     assert!(xml.contains("xmlns=\"http://mavai.org/verdict/1.0\""));
-    assert!(xml.contains("version=\"1.8\""));
+    assert!(xml.contains("version=\"1.10\""));
     assert!(xml.contains("methodology-version=\"1.7.1\""));
     assert!(xml.contains("generator=\"feotest/"));
 

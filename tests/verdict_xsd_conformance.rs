@@ -2,7 +2,7 @@
 //!
 //! The verdict XML this crate emits is validated against the vendored copy
 //! of the published family schema
-//! (`tests/conformance/interchange/verdict-1.8.xsd`, pinned per family
+//! (`tests/conformance/interchange/verdict-1.10.xsd`, pinned per family
 //! schema release) — not merely against this crate's own snapshots, which
 //! could drift together with the emitter. The records validated come from
 //! the production run path wherever the shape can be produced by a run: a
@@ -14,7 +14,8 @@
 //! value; a saturated evaluation has no threshold and no baseline rank; the
 //! latency dimension states its mode exactly when it states its verdict; a
 //! criterion row's `required-pass` is the count its rule decided with,
-//! absent when no count can pass) are asserted here. Validation shells out
+//! absent when no count can pass, and under smoke the smoke rule's count)
+//! are asserted here. Validation shells out
 //! to `xmllint`; when it is not installed the test skips, mirroring the HTML
 //! report tests' handling of `xsltproc`.
 
@@ -45,7 +46,7 @@ mod common;
 /// The vendored published schema.
 const XSD: &str = concat!(
     env!("CARGO_MANIFEST_DIR"),
-    "/tests/conformance/interchange/verdict-1.8.xsd"
+    "/tests/conformance/interchange/verdict-1.10.xsd"
 );
 
 /// Validates a record against the published schema, returning the record's
@@ -95,8 +96,9 @@ fn criterion_attribute(xml: &str, id: &str, attribute: &str) -> Option<String> {
 }
 
 /// Every decided criterion row states as `required-pass` exactly the count
-/// its rule decided with — the Fisher cutoff or `k_min` from the engine's
-/// evidence, never a count derived from the threshold rate — and the row's
+/// its rule decided with — the Fisher cutoff, `k_min`, or the smoke rule's
+/// required count from the engine's evidence, never a count derived from
+/// the threshold rate — and the row's
 /// verdict is PASS iff its success count reaches it. A row no count can
 /// pass carries no `required-pass`. Returns how many rows stated one.
 fn assert_required_pass_is_the_rules_count(record: &VerdictRecord, xml: &str) -> usize {
@@ -267,7 +269,7 @@ fn a_decided_record_naming_its_rules_validates() {
     );
     assert!(!record.is_refused());
     let xml = assert_validates(&record);
-    assert!(xml.contains("version=\"1.8\""));
+    assert!(xml.contains("version=\"1.10\""));
     assert!(xml.contains("methodology-version=\"1.7.1\""));
     assert!(xml.contains("mode=\"enforced\"/>"));
     assert!(xml.contains("decision-rule=\"compliance/exact-binomial\""));
@@ -282,6 +284,80 @@ fn a_decided_record_naming_its_rules_validates() {
         Some("97")
     );
     assert!(criterion_attribute(&xml, "well-formed-regression", "required-pass").is_some());
+}
+
+#[test]
+fn a_smoke_requirement_states_the_smoke_rules_count_and_p_value() {
+    // Under smoke intent an undersized requirement runs and is decided by
+    // compliance/smoke-exact-binomial: no count of 20 can demonstrate 0.999
+    // at alpha 0.05, but 19 of 20 would be evidence of a shortfall, so the
+    // row requires 20, and 20 of 20 pass. The regression row beside it
+    // keeps its own rule and count.
+    let baseline = establish_baseline("xsd-smoke", 100);
+    let inputs = vec!["input".to_string()];
+    let record = ProbabilisticTest::for_contract(ScriptedContract {
+        requirement: Some((0.999, 0.95)),
+        ..ScriptedContract::all_passing("xsd-smoke")
+    })
+    .inputs(&inputs)
+    .approach(ThresholdApproach::SampleSizeFirst {
+        samples: 20,
+        confidence: 0.95,
+    })
+    .smoke()
+    .threshold_origin(ThresholdOrigin::Sla)
+    .spec_resolver(SpecResolver::with_dir(baseline.path()))
+    .disable_early_termination()
+    .run()
+    .verdict_record()
+    .clone();
+    assert!(!record.is_refused());
+
+    let xml = assert_validates(&record);
+    assert_eq!(assert_required_pass_is_the_rules_count(&record, &xml), 2);
+    assert_eq!(
+        criterion_attribute(&xml, "well-formed-compliance", "decision-rule").as_deref(),
+        Some("compliance/smoke-exact-binomial")
+    );
+    assert_eq!(
+        criterion_attribute(&xml, "well-formed-compliance", "required-pass").as_deref(),
+        Some("20")
+    );
+    assert_eq!(
+        criterion_attribute(&xml, "well-formed-regression", "decision-rule").as_deref(),
+        Some("regression/fisher")
+    );
+    // The record's statistics are the first criterion's: the smoke rule's
+    // lower-tail p-value of 20 of 20.
+    assert!(xml.contains("p-value=\"1\""), "{xml}");
+}
+
+#[test]
+fn a_smoke_record_of_an_explicit_latency_requirement_validates() {
+    let baseline = establish_baseline("xsd-smoke-latency", 100);
+    let inputs = vec!["input".to_string()];
+    let record = ProbabilisticTest::for_contract(ScriptedContract {
+        p95_ceiling: Some(Duration::from_secs(5)),
+        ..ScriptedContract::all_passing("xsd-smoke-latency")
+    })
+    .inputs(&inputs)
+    .approach(ThresholdApproach::SampleSizeFirst {
+        samples: 20,
+        confidence: 0.95,
+    })
+    .smoke()
+    .threshold_origin(ThresholdOrigin::Sla)
+    .spec_resolver(SpecResolver::with_dir(baseline.path()))
+    .disable_early_termination()
+    .run()
+    .verdict_record()
+    .clone();
+    let xml = assert_validates(&record);
+    assert!(
+        xml.contains("status=\"PASS\" decision-rule=\"latency/smoke-compliance-exact-binomial\"")
+    );
+    assert!(xml.contains("within-threshold=\"20\""));
+    assert!(xml.contains("required-within=\"17\""));
 }
 
 #[test]
