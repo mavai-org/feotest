@@ -63,10 +63,11 @@
         "bestIteration": {
           "type": "integer",
           "minimum": 0,
-          "description": "Index of the selected optimum in iterations. Must be internally consistent with that entry's score and factors (semantic obligation)."
+          "description": "Index of the best single observed iteration in iterations. Must be internally consistent with that entry's score and factors (semantic obligation). It is the run's optimum unless selection is present."
         },
         "bestScore": { "type": "number" },
-        "bestFactors": { "$ref": "#/$defs/factors" }
+        "bestFactors": { "$ref": "#/$defs/factors" },
+        "selection": { "$ref": "#/$defs/selection" }
       }
     }
   },
@@ -97,6 +98,44 @@
         "resultProjection": {
           "description": "Informational per-sample detail, emitter-formatted. Consumers must not require it."
         }
+      }
+    },
+    "selection": {
+      "type": "object",
+      "description": "The run's optimum as a selecting stepper names it (MAVAI-SERVICES-FORMAT.md SII.9, amendment 2026-10-13), with its evidence pooled across every iteration that measured the selected factors. Present only when the stepper selected; absent, the optimum is bestIteration. A search policy's record, never a verdict.",
+      "required": ["stepper", "factors", "successes", "trials", "rate", "intervalLow", "intervalHigh", "confidence", "stoppingReason", "confirmed"],
+      "additionalProperties": true,
+      "properties": {
+        "stepper": { "type": "string", "minLength": 1, "description": "The registered name of the selecting stepper." },
+        "factors": { "$ref": "#/$defs/factors" },
+        "successes": { "type": "integer", "minimum": 0 },
+        "trials": { "type": "integer", "minimum": 1 },
+        "rate": { "type": "number", "minimum": 0, "maximum": 1 },
+        "intervalLow": { "type": "number", "minimum": 0, "maximum": 1 },
+        "intervalHigh": { "type": "number", "minimum": 0, "maximum": 1 },
+        "confidence": { "type": "number", "exclusiveMinimum": 0, "exclusiveMaximum": 1, "description": "The two-sided interval's confidence (SC01 Wilson for refining-grid)." },
+        "stoppingReason": { "type": "string", "minLength": 1, "description": "Why the stepper stopped; refining-grid states min-step or no-plausible-challenger." },
+        "confirmed": { "type": "boolean", "description": "Whether the finalists were re-measured in confirmation epochs before the selection." },
+        "finalists": {
+          "type": "array",
+          "minItems": 1,
+          "description": "The finalists' standings over the pooled evidence, the selected one among them.",
+          "items": { "$ref": "#/$defs/selectionStanding" }
+        }
+      }
+    },
+    "selectionStanding": {
+      "type": "object",
+      "description": "One finalist's pooled evidence and two-sided interval, at the selection's confidence.",
+      "required": ["factors", "successes", "trials", "rate", "intervalLow", "intervalHigh"],
+      "additionalProperties": true,
+      "properties": {
+        "factors": { "$ref": "#/$defs/factors" },
+        "successes": { "type": "integer", "minimum": 0 },
+        "trials": { "type": "integer", "minimum": 1 },
+        "rate": { "type": "number", "minimum": 0, "maximum": 1 },
+        "intervalLow": { "type": "number", "minimum": 0, "maximum": 1 },
+        "intervalHigh": { "type": "number", "minimum": 0, "maximum": 1 }
       }
     },
     "factors": {

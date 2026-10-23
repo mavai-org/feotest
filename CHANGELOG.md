@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Conformance
+
+- The vendored oracle catches up to mavai-R **v0.13.1**: the low-rate
+  `regression/fisher` and `threshold_derivation` cases, which pass unchanged,
+  and the additive `convergence.selection` of `mavai-optimize-1.schema.json`.
+
 ## [0.4.0] - 2026-10-07
 
 Every assertion a test declares is enforced by default — functional and
