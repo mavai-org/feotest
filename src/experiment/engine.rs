@@ -330,31 +330,6 @@ fn build_cost_summary(
     )
 }
 
-/// Computes the integer number of successes needed to meet a minimum
-/// pass rate over the given sample count.
-///
-/// Uses ceiling so that `required_successes / samples >= min_pass_rate`
-/// is the tightest achievable ratio at or above the threshold. A rate of
-/// `0.0` yields zero required successes (the trivially-passing case).
-///
-/// # Panics
-///
-/// Panics if `min_pass_rate` is outside `[0, 1]` or not finite. These are
-/// precondition violations — a caller must never pass an invalid rate.
-#[allow(
-    clippy::cast_possible_truncation,
-    clippy::cast_sign_loss,
-    reason = "target <= samples (u32) since min_pass_rate is in [0, 1]"
-)]
-fn required_successes(samples: u32, min_pass_rate: f64) -> u32 {
-    assert!(
-        min_pass_rate.is_finite() && (0.0..=1.0).contains(&min_pass_rate),
-        "min_pass_rate must be in [0, 1], got {min_pass_rate}"
-    );
-    let target = f64::from(samples) * min_pass_rate;
-    target.ceil() as u32
-}
-
 /// Checks whether early termination is warranted.
 ///
 /// Returns `Some(reason)` when the engine can stop before running all
@@ -368,7 +343,7 @@ fn required_successes(samples: u32, min_pass_rate: f64) -> u32 {
 ///   the sample count required for a statistically valid verdict.
 ///
 /// Returns `None` when execution should continue, including when no
-/// `min_pass_rate` is configured (measure/explore/optimize callers).
+/// success bar is configured (measure/explore/optimize callers).
 // mavai-ref: JVI-BQTS77W — do not remove (resolves in mavai-orchestrator)
 // mavai-ref: JVI-GZFMZXV — do not remove (resolves in mavai-orchestrator)
 fn check_early_termination(
@@ -376,8 +351,7 @@ fn check_early_termination(
     remaining: u32,
     config: &ExecutionConfig,
 ) -> Option<TerminationReason> {
-    let min_pass_rate = config.configured_min_pass_rate()?;
-    let required = required_successes(config.samples(), min_pass_rate);
+    let required = config.configured_required_successes()?;
     let successes = aggregate.successes();
     let executed = aggregate.total();
 
@@ -615,6 +589,39 @@ mod tests {
         assert_eq!(
             summary.termination().reason(),
             &TerminationReason::SuccessGuaranteed
+        );
+    }
+
+    #[test]
+    fn a_required_count_ends_the_run_once_settled_either_way() {
+        // A rule requiring 97 of 100: the 97th success guarantees it, the
+        // fourth failure makes it unreachable.
+        let config = ExecutionConfig::new(100).required_successes(97);
+        let recorder = TokenRecorder::new();
+        let inputs = vec!["input".to_string()];
+        let passing = summary_of(ExecutionEngine::run_contract(
+            &config,
+            &inputs,
+            &recorder,
+            None,
+            pass_sample,
+        ));
+        assert_eq!(passing.samples_executed(), 97);
+        assert_eq!(
+            passing.termination().reason(),
+            &TerminationReason::SuccessGuaranteed
+        );
+        let failing = summary_of(ExecutionEngine::run_contract(
+            &config,
+            &inputs,
+            &recorder,
+            None,
+            fail_sample,
+        ));
+        assert_eq!(failing.samples_executed(), 4);
+        assert_eq!(
+            failing.termination().reason(),
+            &TerminationReason::FailureInevitable
         );
     }
 

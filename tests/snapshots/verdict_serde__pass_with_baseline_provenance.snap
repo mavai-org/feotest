@@ -49,7 +49,7 @@ expression: "serde_json::to_value(&record).unwrap()"
     "useCaseId": "service"
   },
   "intent": "VERIFICATION",
-  "methodologyVersion": "1.6.0",
+  "methodologyVersion": "1.7.1",
   "specProvenance": {
     "contractRef": "Baseline v1",
     "expiration": {

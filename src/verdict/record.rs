@@ -8,7 +8,8 @@ use crate::model::{
     Warning,
 };
 use crate::statistics::decision::{
-    ComplianceDecision, Envelopes, RegressionDecision, Trigger, TriggerKind, type_one_envelopes,
+    ComplianceDecision, Envelopes, RegressionDecision, SmokeComplianceDecision, Trigger,
+    TriggerKind, type_one_envelopes,
 };
 use crate::statistics::proportion;
 use crate::statistics::rules::{
@@ -675,6 +676,37 @@ impl StatisticalAnalysis {
         )
     }
 
+    /// The analysis of a criterion decided by
+    /// `compliance/smoke-exact-binomial`, with its descriptive Wilson
+    /// context.
+    #[must_use]
+    pub fn smoke_compliance(
+        decision: &SmokeComplianceDecision,
+        confidence_level: f64,
+        threshold_origin: ThresholdOrigin,
+    ) -> Self {
+        Self::new(
+            confidence_level,
+            proportion::standard_error(decision.successes(), decision.trials()),
+            proportion::lower_bound(
+                decision.successes(),
+                decision.trials(),
+                ConfidenceLevel::new(confidence_level),
+            ),
+            decision.requirement(),
+            threshold_origin,
+            RuleEvidence::SmokeCompliance(SmokeComplianceEvidence {
+                requirement: decision.requirement(),
+                planned_samples: decision.planned_samples(),
+                required_pass: decision.required_pass(),
+                minimum_passing_count: decision.minimum_passing(),
+                p_value: decision.p_value(),
+                false_non_compliance: decision.false_non_compliance(),
+                clopper_pearson_lower: decision.clopper_pearson_lower(),
+            }),
+        )
+    }
+
     /// The analysis of a criterion decided by `regression/fisher`, with its
     /// descriptive Wilson context and what the design can detect.
     #[must_use]
@@ -771,6 +803,8 @@ impl StatisticalAnalysis {
 pub enum RuleEvidence {
     /// `compliance/exact-binomial`.
     Compliance(ComplianceEvidence),
+    /// `compliance/smoke-exact-binomial`.
+    SmokeCompliance(SmokeComplianceEvidence),
     /// `regression/fisher`.
     Regression(RegressionEvidence),
 }
@@ -781,20 +815,34 @@ impl RuleEvidence {
     pub const fn rule(&self) -> DecisionRule {
         match self {
             Self::Compliance(_) => DecisionRule::ComplianceExactBinomial,
+            Self::SmokeCompliance(_) => DecisionRule::ComplianceSmokeExactBinomial,
             Self::Regression(_) => DecisionRule::RegressionFisher,
         }
     }
 
     /// The smallest passing count the rule decided with, so PASS iff the
     /// success count reaches it: the Fisher cutoff for `regression/fisher`,
-    /// `k_min` for `compliance/exact-binomial`. `None` when no count can
-    /// pass (a compliance design too small). The count is the rule's own,
-    /// never recomputed from the threshold rate.
+    /// `k_min` for `compliance/exact-binomial`, and for
+    /// `compliance/smoke-exact-binomial` one more than the largest count
+    /// that is evidence of non-compliance (0 when none is). `None` when no
+    /// count can pass (a verification design too small). The count is the
+    /// rule's own, never recomputed from the threshold rate.
     #[must_use]
     pub const fn required_pass(&self) -> Option<u32> {
         match self {
             Self::Compliance(evidence) => evidence.minimum_passing_count,
+            Self::SmokeCompliance(evidence) => Some(evidence.required_pass),
             Self::Regression(evidence) => Some(evidence.cutoff),
+        }
+    }
+
+    /// The p-value of the observed count, where the rule reports one: the
+    /// lower tail `P_{p_req}(K ≤ K_obs)` of `compliance/smoke-exact-binomial`.
+    #[must_use]
+    pub const fn p_value(&self) -> Option<f64> {
+        match self {
+            Self::SmokeCompliance(evidence) => Some(evidence.p_value),
+            Self::Compliance(_) | Self::Regression(_) => None,
         }
     }
 }
@@ -809,6 +857,31 @@ pub struct ComplianceEvidence {
     pub minimum_passing_count: Option<u32>,
     /// `P_{p_req}(K ≥ k_min)`, 0 when no count can pass.
     pub false_compliance: f64,
+    /// The one-sided Clopper–Pearson lower bound (descriptive).
+    pub clopper_pearson_lower: f64,
+}
+
+/// The evidence of `compliance/smoke-exact-binomial`.
+#[derive(Debug, Clone, Copy, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SmokeComplianceEvidence {
+    /// The requirement `p_req`.
+    pub requirement: f64,
+    /// The size the rule was applied at: the planned sample count.
+    pub planned_samples: u32,
+    /// One more than the largest count that is evidence of non-compliance
+    /// at the planned size; 0 when no count can fail. PASS iff the success
+    /// count reaches it.
+    pub required_pass: u32,
+    /// `k_min` of `compliance/exact-binomial` at the planned size — the
+    /// count a verification test of this size would need — `None` when this
+    /// size cannot demonstrate compliance. Reported; it decides nothing.
+    pub minimum_passing_count: Option<u32>,
+    /// The lower tail `P_{p_req}(K ≤ K_obs)` over the observed trials.
+    pub p_value: f64,
+    /// `P_{p_req}(K < required_pass)`: the chance of a FAIL when the service
+    /// exactly meets its requirement.
+    pub false_non_compliance: f64,
     /// The one-sided Clopper–Pearson lower bound (descriptive).
     pub clopper_pearson_lower: f64,
 }
@@ -1160,6 +1233,9 @@ fn judged_comparison(row: Option<&CriterionRow>) -> String {
                 );
             }
         },
+        RuleEvidence::SmokeCompliance(evidence) => {
+            format!("required {}", evidence.required_pass)
+        }
         RuleEvidence::Regression(evidence) => format!("cutoff {}", evidence.cutoff),
     };
     format!(
@@ -1304,7 +1380,7 @@ mod tests {
         .build();
 
         assert_eq!(record.verdict(), Some(Verdict::Pass));
-        assert_eq!(record.methodology_version(), "1.6.0");
+        assert_eq!(record.methodology_version(), "1.7.1");
         assert_eq!(record.configuration_errors().len(), 0);
         assert_eq!(record.intent(), TestIntent::Verification);
         assert_eq!(record.identity().service_contract_id(), "shopping-basket");

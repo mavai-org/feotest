@@ -82,7 +82,7 @@ fn full_verdict_contains_all_rp07_elements() {
     // record is schema 1.8 and names the methodology whose rules decided it.
     assert!(xml.contains("xmlns=\"http://mavai.org/verdict/1.0\""));
     assert!(xml.contains("version=\"1.8\""));
-    assert!(xml.contains("methodology-version=\"1.6.0\""));
+    assert!(xml.contains("methodology-version=\"1.7.1\""));
     assert!(xml.contains("generator=\"feotest/"));
 
     // All verdict XML elements present

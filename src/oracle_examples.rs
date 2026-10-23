@@ -11,6 +11,7 @@ use serde_json::Value;
 use crate::model::ThresholdOrigin;
 use crate::statistics::decision::{
     DimensionDecisions, Trigger, compose_overall_verdict, evaluate_compliance, evaluate_regression,
+    evaluate_smoke_compliance,
 };
 use crate::statistics::regression::{MDD_POWER, minimum_detectable_degradation};
 use crate::statistics::rules::EnforcementMode;
@@ -93,32 +94,45 @@ pub fn regression_row(name: &str, criterion: &str) -> CriterionRow {
 }
 
 /// The criterion row of a `compliance_decision` case, decided by this
-/// crate's `compliance/exact-binomial` and checked against the fixture.
+/// crate's `compliance/exact-binomial` under verification or
+/// `compliance/smoke-exact-binomial` under smoke, and checked against the
+/// fixture.
 pub fn compliance_row(name: &str, criterion: &str, origin: ThresholdOrigin) -> CriterionRow {
     let case = case(COMPLIANCE, name);
     let (inputs, expected) = (&case["inputs"], &case["expected"]);
     let successes = count(&inputs["observed_successes"]);
     let trials = count(&inputs["test_samples"]);
     let alpha = inputs["alpha"].as_f64().expect("alpha");
-    let decision = evaluate_compliance(
-        successes,
-        trials,
-        inputs["threshold"].as_f64().expect("threshold"),
-        alpha,
-    );
+    let requirement = inputs["threshold"].as_f64().expect("threshold");
     let k_min = expected["k_min"]
         .as_u64()
         .map(|k| u32::try_from(k).unwrap());
-    assert_eq!(decision.minimum_passing(), k_min);
-    assert_eq!(decision.verdict(), verdict(&expected["verdict"]));
-    let analysis = StatisticalAnalysis::compliance(&decision, 1.0 - alpha, origin);
+    let (verdict_reached, analysis) = if inputs["intent"] == "SMOKE" {
+        let decision = evaluate_smoke_compliance(successes, trials, trials, requirement, alpha);
+        assert_eq!(decision.minimum_passing(), k_min);
+        assert_eq!(decision.required_pass(), count(&expected["required_pass"]));
+        let analysis = StatisticalAnalysis::smoke_compliance(&decision, 1.0 - alpha, origin);
+        (decision.verdict(), analysis)
+    } else {
+        let decision = evaluate_compliance(successes, trials, requirement, alpha);
+        assert_eq!(decision.minimum_passing(), k_min);
+        let analysis = StatisticalAnalysis::compliance(&decision, 1.0 - alpha, origin);
+        (decision.verdict(), analysis)
+    };
+    assert_eq!(verdict_reached, verdict(&expected["verdict"]));
+    assert_eq!(
+        analysis.decision_rule().id(),
+        expected["decision_rule"]
+            .as_str()
+            .expect("a decided case names its rule")
+    );
     CriterionRow::new(
         criterion,
         successes,
         trials - successes,
         failure_distribution(trials - successes),
         Some(analysis),
-        decision.verdict(),
+        verdict_reached,
     )
 }
 

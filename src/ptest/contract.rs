@@ -131,7 +131,10 @@ impl<'a, C: ServiceContract> ContractTest<'a, C> {
         self
     }
 
-    /// Marks this as a smoke test rather than a verification.
+    /// Marks this as a smoke test rather than a verification: a declared
+    /// requirement runs at any size and is decided by
+    /// `compliance/smoke-exact-binomial`, failing only on evidence that the
+    /// service falls short of it (Statistical Companion §5.7.3).
     #[must_use]
     pub const fn smoke(mut self) -> Self {
         self.intent = TestIntent::Smoke;

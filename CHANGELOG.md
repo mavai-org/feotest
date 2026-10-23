@@ -7,7 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed (breaking)
+
+- **A requirement under smoke intent is decided by its own rule**
+  (Statistical Companion 1.7.1, §5.7.3): `compliance/smoke-exact-binomial`
+  fails only on evidence that the service falls short (`P(K ≤ k | n, p_req) ≤
+  alpha`) and passes once the count reaches the required pass, at every size;
+  an explicit latency ceiling under smoke by
+  `latency/smoke-compliance-exact-binomial`. An undersized smoke test no
+  longer fails for want of size. Verification is unchanged.
+- **Early termination reads the rule's required count**: a smoke run of
+  requirements stops at the required pass or once it is out of reach
+  (`ExecutionConfig::required_successes`).
+- **Smoke decisions enter neither Type-I envelope** (§1.4.6):
+  `DecisionRule::direction()` returns `Option<Direction>`, `None` for the
+  smoke rules. `METHODOLOGY_VERSION` is 1.7.1; `evaluate_latency_compliance`
+  takes the intent.
+
 ### Conformance
+
+- The vendored fixtures are re-pinned at mavai-R **v0.15.0**, adopting the
+  smoke cases of `compliance_decision`, `latency_compliance_decision` and
+  `verdict`.
 
 - The vendored oracle catches up to mavai-R **v0.13.1**: the low-rate
   `regression/fisher` and `threshold_derivation` cases, which pass unchanged,

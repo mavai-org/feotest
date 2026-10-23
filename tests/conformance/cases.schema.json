@@ -120,9 +120,11 @@
         "regression/fisher",
         "compliance/exact-binomial",
         "latency/precedence",
-        "latency/compliance-exact-binomial"
+        "latency/compliance-exact-binomial",
+        "compliance/smoke-exact-binomial",
+        "latency/smoke-compliance-exact-binomial"
       ],
-      "description": "A versioned decision rule of methodology 1.5.0."
+      "description": "A versioned decision rule: the four of methodology 1.5.0, and the two SMOKE rules of methodology 1.7.0 (1.7.1 states that their criteria enter neither Type-I envelope)."
     },
     "decisionRuleVersion": {
       "type": "object",

@@ -15,8 +15,8 @@ pub use assessment::{CriterionRow, FunctionalAssessment};
 pub use enforcement::AssertionEnforcement;
 pub use record::{
     BaselineProvenance, ComplianceEvidence, CovariateStatus, DesignDisclosure, Misalignment,
-    RegressionEvidence, RuleEvidence, SpecProvenance, StatisticalAnalysis, VerdictRecord,
-    VerdictRecordBuilder,
+    RegressionEvidence, RuleEvidence, SmokeComplianceEvidence, SpecProvenance, StatisticalAnalysis,
+    VerdictRecord, VerdictRecordBuilder,
 };
 
 pub use crate::statistics::decision::Verdict;

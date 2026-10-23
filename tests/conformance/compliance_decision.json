@@ -1,15 +1,19 @@
 {
   "suite": "compliance_decision",
-  "methodologyVersion": "1.6.0",
+  "methodologyVersion": "1.7.1",
   "fixtureSchemaVersion": 2,
   "decisionRules": [
     {
       "id": "compliance/exact-binomial",
       "version": 1
+    },
+    {
+      "id": "compliance/smoke-exact-binomial",
+      "version": 1
     }
   ],
-  "description": "Verdicts of normative compliance under compliance/exact-binomial (companion §3.6, §5.7): H0: p <= p_req against H1: p > p_req; PASS iff K >= k_min. PASS means the evidence supports compliance at the configured level; FAIL means compliance was not demonstrated. Under VERIFICATION intent a design too small to PASS is refused as COMPLIANCE_INFEASIBLE; under SMOKE it runs and reports pass_possible = false. Binding: k_min, pass_possible, verdict, configuration_error. Informational: false_compliance, clopper_pearson_lower. Frameworks MUST evaluate these cases through their production verdict path.",
-  "method": "compliance/exact-binomial v1: k_min = min{k : P_{p_req}(K >= k) <= alpha}, K ~ Bin(n, p_req) (null when no k <= n qualifies); PASS iff K >= k_min. COMPLIANCE_INFEASIBLE iff intent is VERIFICATION and n < ceiling(log(alpha) / log(p_req)). false_compliance = P_{p_req}(K >= k_min); clopper_pearson_lower = qbeta(alpha, K, n - K + 1) (0 at K = 0).",
+  "description": "Verdicts of normative compliance (companion §3.6, §5.7). Under VERIFICATION by compliance/exact-binomial: H0: p <= p_req against H1: p > p_req; PASS iff K >= k_min; a design too small to PASS is refused as COMPLIANCE_INFEASIBLE. Under SMOKE by compliance/smoke-exact-binomial at every size: H0: p >= p_req against H1: p < p_req; FAIL iff P(K <= k) <= alpha; PASS iff K >= required_pass, meaning no evidence of non-compliance, never evidence of compliance. Binding: decision_rule, k_min, pass_possible, required_pass, verdict, configuration_error. Informational: p_value, false_compliance, false_non_compliance, clopper_pearson_lower. Frameworks MUST evaluate these cases through their production verdict path.",
+  "method": "compliance/exact-binomial v1: k_min = min{k : P_{p_req}(K >= k) <= alpha}, K ~ Bin(n, p_req) (null when no k <= n qualifies); PASS iff K >= k_min; p_value = P_{p_req}(K >= K_obs). COMPLIANCE_INFEASIBLE iff intent is VERIFICATION and n < ceiling(log(alpha) / log(p_req)). compliance/smoke-exact-binomial v1: required_pass = 1 + max{k : P_{p_req}(K <= k) <= alpha} (0 when none); PASS iff K >= required_pass; p_value = P_{p_req}(K <= K_obs). required_pass is k_min under VERIFICATION. false_compliance = P_{p_req}(K >= k_min); false_non_compliance = P_{p_req}(K < required_pass); clopper_pearson_lower = qbeta(alpha, K, n - K + 1) (0 at K = 0). Exact boundaries are decided in rational arithmetic (R/exact_boundary.R).",
   "tolerance": 1e-10,
   "cases": [
     {
@@ -23,19 +27,24 @@
         "observed_successes": 477
       },
       "expected": {
+        "decision_rule": null,
         "k_min": null,
         "pass_possible": null,
+        "required_pass": null,
         "verdict": null,
         "configuration_error": [
           "COMPLIANCE_INFEASIBLE"
         ],
+        "p_value": null,
         "false_compliance": null,
+        "false_non_compliance": null,
         "clopper_pearson_lower": null
       }
     },
     {
-      "name": "headline_995_n477_smoke_pass_not_possible",
-      "description": "SMOKE runs the undersized design; even 477 of 477 cannot PASS.",
+      "name": "headline_995_n477_smoke_pass",
+      "description": "SMOKE runs the undersized design under its own rule: 477 of 477 shows no evidence of non-compliance.",
+      "decisionRule": "compliance/smoke-exact-binomial",
       "inputs": {
         "threshold": 0.995,
         "test_samples": 477,
@@ -44,16 +53,45 @@
         "observed_successes": 477
       },
       "expected": {
+        "decision_rule": "compliance/smoke-exact-binomial",
         "k_min": null,
         "pass_possible": false,
-        "verdict": "FAIL",
+        "required_pass": 472,
+        "verdict": "PASS",
         "configuration_error": [],
-        "false_compliance": 0,
+        "p_value": 1,
+        "false_compliance": null,
+        "false_non_compliance": 0.0343892476298948,
         "clopper_pearson_lower": 0.993739319086423
       }
     },
     {
+      "name": "headline_995_n477_smoke_fail_below_required",
+      "description": "One below the SMOKE rule's required_pass: evidence that the rate falls short of 99.5%.",
+      "decisionRule": "compliance/smoke-exact-binomial",
+      "inputs": {
+        "threshold": 0.995,
+        "test_samples": 477,
+        "alpha": 0.05,
+        "intent": "SMOKE",
+        "observed_successes": 471
+      },
+      "expected": {
+        "decision_rule": "compliance/smoke-exact-binomial",
+        "k_min": null,
+        "pass_possible": false,
+        "required_pass": 472,
+        "verdict": "FAIL",
+        "configuration_error": [],
+        "p_value": 0.0343892476298948,
+        "false_compliance": null,
+        "false_non_compliance": 0.0343892476298948,
+        "clopper_pearson_lower": 0.975325020953656
+      }
+    },
+    {
       "name": "p95_n150_pass_at_k_min",
+      "decisionRule": "compliance/exact-binomial",
       "inputs": {
         "threshold": 0.95,
         "test_samples": 150,
@@ -62,16 +100,21 @@
         "observed_successes": 148
       },
       "expected": {
+        "decision_rule": "compliance/exact-binomial",
         "k_min": 148,
         "pass_possible": true,
+        "required_pass": 148,
         "verdict": "PASS",
         "configuration_error": [],
+        "p_value": 0.0181540550219443,
         "false_compliance": 0.0181540550219443,
+        "false_non_compliance": null,
         "clopper_pearson_lower": 0.958625030106423
       }
     },
     {
       "name": "p95_n150_fail_below_k_min",
+      "decisionRule": "compliance/exact-binomial",
       "inputs": {
         "threshold": 0.95,
         "test_samples": 150,
@@ -80,17 +123,22 @@
         "observed_successes": 147
       },
       "expected": {
+        "decision_rule": "compliance/exact-binomial",
         "k_min": 148,
         "pass_possible": true,
+        "required_pass": 148,
         "verdict": "FAIL",
         "configuration_error": [],
+        "p_value": 0.0547698091308291,
         "false_compliance": 0.0181540550219443,
+        "false_non_compliance": null,
         "clopper_pearson_lower": 0.949122932021476
       }
     },
     {
       "name": "p95_n150_smoke_pass_at_k_min",
-      "description": "Above the feasibility minimum SMOKE and VERIFICATION decide alike.",
+      "description": "Above the feasibility minimum SMOKE still decides by its own rule; 148 PASSes under both.",
+      "decisionRule": "compliance/smoke-exact-binomial",
       "inputs": {
         "threshold": 0.95,
         "test_samples": 150,
@@ -99,16 +147,68 @@
         "observed_successes": 148
       },
       "expected": {
+        "decision_rule": "compliance/smoke-exact-binomial",
         "k_min": 148,
         "pass_possible": true,
+        "required_pass": 138,
         "verdict": "PASS",
         "configuration_error": [],
-        "false_compliance": 0.0181540550219443,
+        "p_value": 0.995947958384856,
+        "false_compliance": null,
+        "false_non_compliance": 0.0385156871615762,
         "clopper_pearson_lower": 0.958625030106423
       }
     },
     {
+      "name": "p95_n150_smoke_pass_below_k_min",
+      "description": "147 FAILs under VERIFICATION (not demonstrated) but PASSes under SMOKE (no evidence of non-compliance).",
+      "decisionRule": "compliance/smoke-exact-binomial",
+      "inputs": {
+        "threshold": 0.95,
+        "test_samples": 150,
+        "alpha": 0.05,
+        "intent": "SMOKE",
+        "observed_successes": 147
+      },
+      "expected": {
+        "decision_rule": "compliance/smoke-exact-binomial",
+        "k_min": 148,
+        "pass_possible": true,
+        "required_pass": 138,
+        "verdict": "PASS",
+        "configuration_error": [],
+        "p_value": 0.981845944978056,
+        "false_compliance": null,
+        "false_non_compliance": 0.0385156871615762,
+        "clopper_pearson_lower": 0.949122932021476
+      }
+    },
+    {
+      "name": "p95_n150_smoke_fail_below_required",
+      "decisionRule": "compliance/smoke-exact-binomial",
+      "inputs": {
+        "threshold": 0.95,
+        "test_samples": 150,
+        "alpha": 0.05,
+        "intent": "SMOKE",
+        "observed_successes": 137
+      },
+      "expected": {
+        "decision_rule": "compliance/smoke-exact-binomial",
+        "k_min": 148,
+        "pass_possible": true,
+        "required_pass": 138,
+        "verdict": "FAIL",
+        "configuration_error": [],
+        "p_value": 0.0385156871615762,
+        "false_compliance": null,
+        "false_non_compliance": 0.0385156871615762,
+        "clopper_pearson_lower": 0.865742992008876
+      }
+    },
+    {
       "name": "p99_n793_pass_at_k_min",
+      "decisionRule": "compliance/exact-binomial",
       "inputs": {
         "threshold": 0.99,
         "test_samples": 793,
@@ -117,16 +217,21 @@
         "observed_successes": 790
       },
       "expected": {
+        "decision_rule": "compliance/exact-binomial",
         "k_min": 790,
         "pass_possible": true,
+        "required_pass": 790,
         "verdict": "PASS",
         "configuration_error": [],
+        "p_value": 0.0436918455235539,
         "false_compliance": 0.0436918455235539,
+        "false_non_compliance": null,
         "clopper_pearson_lower": 0.990251646536255
       }
     },
     {
       "name": "p99_n793_fail_below_k_min",
+      "decisionRule": "compliance/exact-binomial",
       "inputs": {
         "threshold": 0.99,
         "test_samples": 793,
@@ -135,17 +240,22 @@
         "observed_successes": 789
       },
       "expected": {
+        "decision_rule": "compliance/exact-binomial",
         "k_min": 790,
         "pass_possible": true,
+        "required_pass": 790,
         "verdict": "FAIL",
         "configuration_error": [],
+        "p_value": 0.102543576282831,
         "false_compliance": 0.0436918455235539,
+        "false_non_compliance": null,
         "clopper_pearson_lower": 0.988494568131714
       }
     },
     {
       "name": "p999_n2995_zero_failures_pass",
       "description": "The zero-failure minimum: k_min = n.",
+      "decisionRule": "compliance/exact-binomial",
       "inputs": {
         "threshold": 0.999,
         "test_samples": 2995,
@@ -154,16 +264,21 @@
         "observed_successes": 2995
       },
       "expected": {
+        "decision_rule": "compliance/exact-binomial",
         "k_min": 2995,
         "pass_possible": true,
+        "required_pass": 2995,
         "verdict": "PASS",
         "configuration_error": [],
+        "p_value": 0.0499617033973562,
         "false_compliance": 0.0499617033973562,
+        "false_non_compliance": null,
         "clopper_pearson_lower": 0.999000255579099
       }
     },
     {
       "name": "p999_n2995_one_failure_fail",
+      "decisionRule": "compliance/exact-binomial",
       "inputs": {
         "threshold": 0.999,
         "test_samples": 2995,
@@ -172,11 +287,15 @@
         "observed_successes": 2994
       },
       "expected": {
+        "decision_rule": "compliance/exact-binomial",
         "k_min": 2995,
         "pass_possible": true,
+        "required_pass": 2995,
         "verdict": "FAIL",
         "configuration_error": [],
+        "p_value": 0.1997467901592,
         "false_compliance": 0.0499617033973562,
+        "false_non_compliance": null,
         "clopper_pearson_lower": 0.998417061587935
       }
     },
@@ -191,18 +310,23 @@
         "observed_successes": 2994
       },
       "expected": {
+        "decision_rule": null,
         "k_min": null,
         "pass_possible": null,
+        "required_pass": null,
         "verdict": null,
         "configuration_error": [
           "COMPLIANCE_INFEASIBLE"
         ],
+        "p_value": null,
         "false_compliance": null,
+        "false_non_compliance": null,
         "clopper_pearson_lower": null
       }
     },
     {
       "name": "compliance_pass_clear_margin",
+      "decisionRule": "compliance/exact-binomial",
       "inputs": {
         "threshold": 0.8,
         "test_samples": 100,
@@ -211,17 +335,22 @@
         "observed_successes": 95
       },
       "expected": {
+        "decision_rule": "compliance/exact-binomial",
         "k_min": 87,
         "pass_possible": true,
+        "required_pass": 87,
         "verdict": "PASS",
         "configuration_error": [],
+        "p_value": 1.86800663003244e-05,
         "false_compliance": 0.046912237160786,
+        "false_non_compliance": null,
         "clopper_pearson_lower": 0.897746622356726
       }
     },
     {
       "name": "compliance_fail_not_demonstrated",
       "description": "The observed rate exceeds the requirement, yet compliance is not demonstrated.",
+      "decisionRule": "compliance/exact-binomial",
       "inputs": {
         "threshold": 0.9,
         "test_samples": 100,
@@ -230,16 +359,21 @@
         "observed_successes": 92
       },
       "expected": {
+        "decision_rule": "compliance/exact-binomial",
         "k_min": 96,
         "pass_possible": true,
+        "required_pass": 96,
         "verdict": "FAIL",
         "configuration_error": [],
+        "p_value": 0.320873888362839,
         "false_compliance": 0.0237110826634767,
+        "false_non_compliance": null,
         "clopper_pearson_lower": 0.860282880786954
       }
     },
     {
       "name": "alpha001_p90_n60_pass_at_k_min",
+      "decisionRule": "compliance/exact-binomial",
       "inputs": {
         "threshold": 0.9,
         "test_samples": 60,
@@ -248,16 +382,21 @@
         "observed_successes": 60
       },
       "expected": {
+        "decision_rule": "compliance/exact-binomial",
         "k_min": 60,
         "pass_possible": true,
+        "required_pass": 60,
         "verdict": "PASS",
         "configuration_error": [],
+        "p_value": 0.00179701029991443,
         "false_compliance": 0.00179701029991443,
+        "false_non_compliance": null,
         "clopper_pearson_lower": 0.926118728128793
       }
     },
     {
       "name": "alpha001_p90_n60_fail_below_k_min",
+      "decisionRule": "compliance/exact-binomial",
       "inputs": {
         "threshold": 0.9,
         "test_samples": 60,
@@ -266,16 +405,21 @@
         "observed_successes": 59
       },
       "expected": {
+        "decision_rule": "compliance/exact-binomial",
         "k_min": 60,
         "pass_possible": true,
+        "required_pass": 60,
         "verdict": "FAIL",
         "configuration_error": [],
+        "p_value": 0.0137770789660107,
         "false_compliance": 0.00179701029991443,
+        "false_non_compliance": null,
         "clopper_pearson_lower": 0.894418404595422
       }
     },
     {
       "name": "alpha0001_p98_n800_fail",
+      "decisionRule": "compliance/exact-binomial",
       "inputs": {
         "threshold": 0.98,
         "test_samples": 800,
@@ -284,17 +428,22 @@
         "observed_successes": 788
       },
       "expected": {
+        "decision_rule": "compliance/exact-binomial",
         "k_min": 796,
         "pass_possible": true,
+        "required_pass": 796,
         "verdict": "FAIL",
         "configuration_error": [],
+        "p_value": 0.190452456430229,
         "false_compliance": 0.000364706287636343,
+        "false_non_compliance": null,
         "clopper_pearson_lower": 0.966533937381507
       }
     },
     {
       "name": "exact_boundary_p50_n5",
       "description": "P(K >= 5) = 1/32 = alpha exactly: the design is feasible and 5 of 5 PASSes.",
+      "decisionRule": "compliance/exact-binomial",
       "inputs": {
         "threshold": 0.5,
         "test_samples": 5,
@@ -303,17 +452,22 @@
         "observed_successes": 5
       },
       "expected": {
+        "decision_rule": "compliance/exact-binomial",
         "k_min": 5,
         "pass_possible": true,
+        "required_pass": 5,
         "verdict": "PASS",
         "configuration_error": [],
+        "p_value": 0.03125,
         "false_compliance": 0.03125,
+        "false_non_compliance": null,
         "clopper_pearson_lower": 0.5
       }
     },
     {
       "name": "exact_boundary_p60_n10",
       "description": "P(K >= 9) = 0.0463574016 = alpha exactly: k_min = 9.",
+      "decisionRule": "compliance/exact-binomial",
       "inputs": {
         "threshold": 0.6,
         "test_samples": 10,
@@ -322,16 +476,21 @@
         "observed_successes": 9
       },
       "expected": {
+        "decision_rule": "compliance/exact-binomial",
         "k_min": 9,
         "pass_possible": true,
+        "required_pass": 9,
         "verdict": "PASS",
         "configuration_error": [],
+        "p_value": 0.0463574016,
         "false_compliance": 0.0463574016,
+        "false_non_compliance": null,
         "clopper_pearson_lower": 0.6
       }
     },
     {
       "name": "conflation_detector_compliance_fail",
+      "decisionRule": "compliance/exact-binomial",
       "inputs": {
         "threshold": 0.91,
         "test_samples": 100,
@@ -340,12 +499,252 @@
         "observed_successes": 91
       },
       "expected": {
+        "decision_rule": "compliance/exact-binomial",
         "k_min": 96,
         "pass_possible": true,
+        "required_pass": 96,
         "verdict": "FAIL",
         "configuration_error": [],
+        "p_value": 0.587505920584364,
         "false_compliance": 0.0473866792465057,
+        "false_non_compliance": null,
         "clopper_pearson_lower": 0.848204571386406
+      }
+    },
+    {
+      "name": "smoke_p99_n100_perfect_pass",
+      "description": "100 of 100 against a 99% requirement: VERIFICATION would refuse the design (299 needed); SMOKE PASSes.",
+      "decisionRule": "compliance/smoke-exact-binomial",
+      "inputs": {
+        "threshold": 0.99,
+        "test_samples": 100,
+        "alpha": 0.05,
+        "intent": "SMOKE",
+        "observed_successes": 100
+      },
+      "expected": {
+        "decision_rule": "compliance/smoke-exact-binomial",
+        "k_min": null,
+        "pass_possible": false,
+        "required_pass": 97,
+        "verdict": "PASS",
+        "configuration_error": [],
+        "p_value": 1,
+        "false_compliance": null,
+        "false_non_compliance": 0.0183740364446497,
+        "clopper_pearson_lower": 0.97048695039296
+      }
+    },
+    {
+      "name": "smoke_p99_n100_pass_at_required",
+      "decisionRule": "compliance/smoke-exact-binomial",
+      "inputs": {
+        "threshold": 0.99,
+        "test_samples": 100,
+        "alpha": 0.05,
+        "intent": "SMOKE",
+        "observed_successes": 97
+      },
+      "expected": {
+        "decision_rule": "compliance/smoke-exact-binomial",
+        "k_min": null,
+        "pass_possible": false,
+        "required_pass": 97,
+        "verdict": "PASS",
+        "configuration_error": [],
+        "p_value": 0.0793732022521803,
+        "false_compliance": null,
+        "false_non_compliance": 0.0183740364446497,
+        "clopper_pearson_lower": 0.92428920625017
+      }
+    },
+    {
+      "name": "smoke_p99_n100_fail_below_required",
+      "description": "Four misses in 100 are evidence that the rate falls short of 99%.",
+      "decisionRule": "compliance/smoke-exact-binomial",
+      "inputs": {
+        "threshold": 0.99,
+        "test_samples": 100,
+        "alpha": 0.05,
+        "intent": "SMOKE",
+        "observed_successes": 96
+      },
+      "expected": {
+        "decision_rule": "compliance/smoke-exact-binomial",
+        "k_min": null,
+        "pass_possible": false,
+        "required_pass": 97,
+        "verdict": "FAIL",
+        "configuration_error": [],
+        "p_value": 0.0183740364446497,
+        "false_compliance": null,
+        "false_non_compliance": 0.0183740364446497,
+        "clopper_pearson_lower": 0.91080374984112
+      }
+    },
+    {
+      "name": "smoke_p99_n30_two_misses_fail",
+      "description": "P(K <= 28) = 0.036 at 99%: two misses in 30 are evidence of non-compliance.",
+      "decisionRule": "compliance/smoke-exact-binomial",
+      "inputs": {
+        "threshold": 0.99,
+        "test_samples": 30,
+        "alpha": 0.05,
+        "intent": "SMOKE",
+        "observed_successes": 28
+      },
+      "expected": {
+        "decision_rule": "compliance/smoke-exact-binomial",
+        "k_min": null,
+        "pass_possible": false,
+        "required_pass": 29,
+        "verdict": "FAIL",
+        "configuration_error": [],
+        "p_value": 0.0361479983122407,
+        "false_compliance": null,
+        "false_non_compliance": 0.0361479983122407,
+        "clopper_pearson_lower": 0.804673956345074
+      }
+    },
+    {
+      "name": "smoke_p99_n30_one_miss_pass",
+      "decisionRule": "compliance/smoke-exact-binomial",
+      "inputs": {
+        "threshold": 0.99,
+        "test_samples": 30,
+        "alpha": 0.05,
+        "intent": "SMOKE",
+        "observed_successes": 29
+      },
+      "expected": {
+        "decision_rule": "compliance/smoke-exact-binomial",
+        "k_min": null,
+        "pass_possible": false,
+        "required_pass": 29,
+        "verdict": "PASS",
+        "configuration_error": [],
+        "p_value": 0.26029962661172,
+        "false_compliance": null,
+        "false_non_compliance": 0.0361479983122407,
+        "clopper_pearson_lower": 0.851403931340887
+      }
+    },
+    {
+      "name": "smoke_p99_n5_one_miss_fail",
+      "description": "At the five-sample SMOKE default against 99%, any miss FAILs: P(K <= 4) = 0.049.",
+      "decisionRule": "compliance/smoke-exact-binomial",
+      "inputs": {
+        "threshold": 0.99,
+        "test_samples": 5,
+        "alpha": 0.05,
+        "intent": "SMOKE",
+        "observed_successes": 4
+      },
+      "expected": {
+        "decision_rule": "compliance/smoke-exact-binomial",
+        "k_min": null,
+        "pass_possible": false,
+        "required_pass": 5,
+        "verdict": "FAIL",
+        "configuration_error": [],
+        "p_value": 0.0490099501,
+        "false_compliance": null,
+        "false_non_compliance": 0.0490099501,
+        "clopper_pearson_lower": 0.342591681998861
+      }
+    },
+    {
+      "name": "smoke_p90_n5_pass_at_required",
+      "decisionRule": "compliance/smoke-exact-binomial",
+      "inputs": {
+        "threshold": 0.9,
+        "test_samples": 5,
+        "alpha": 0.05,
+        "intent": "SMOKE",
+        "observed_successes": 3
+      },
+      "expected": {
+        "decision_rule": "compliance/smoke-exact-binomial",
+        "k_min": null,
+        "pass_possible": false,
+        "required_pass": 3,
+        "verdict": "PASS",
+        "configuration_error": [],
+        "p_value": 0.0814599999999999,
+        "false_compliance": null,
+        "false_non_compliance": 0.00855999999999999,
+        "clopper_pearson_lower": 0.189255377437771
+      }
+    },
+    {
+      "name": "smoke_p90_n5_fail_below_required",
+      "decisionRule": "compliance/smoke-exact-binomial",
+      "inputs": {
+        "threshold": 0.9,
+        "test_samples": 5,
+        "alpha": 0.05,
+        "intent": "SMOKE",
+        "observed_successes": 2
+      },
+      "expected": {
+        "decision_rule": "compliance/smoke-exact-binomial",
+        "k_min": null,
+        "pass_possible": false,
+        "required_pass": 3,
+        "verdict": "FAIL",
+        "configuration_error": [],
+        "p_value": 0.00855999999999999,
+        "false_compliance": null,
+        "false_non_compliance": 0.00855999999999999,
+        "clopper_pearson_lower": 0.0764403914123289
+      }
+    },
+    {
+      "name": "smoke_p50_n1_fail_not_possible",
+      "description": "No count can FAIL at this size (P(K <= 0) = 0.5): required_pass is 0 and the run PASSes, carrying no evidence.",
+      "decisionRule": "compliance/smoke-exact-binomial",
+      "inputs": {
+        "threshold": 0.5,
+        "test_samples": 1,
+        "alpha": 0.05,
+        "intent": "SMOKE",
+        "observed_successes": 0
+      },
+      "expected": {
+        "decision_rule": "compliance/smoke-exact-binomial",
+        "k_min": null,
+        "pass_possible": false,
+        "required_pass": 0,
+        "verdict": "PASS",
+        "configuration_error": [],
+        "p_value": 0.5,
+        "false_compliance": null,
+        "false_non_compliance": 0,
+        "clopper_pearson_lower": 0
+      }
+    },
+    {
+      "name": "smoke_exact_boundary_p50_n5",
+      "description": "P(K <= 0) = 1/32 = alpha exactly: the inclusive rule FAILs 0 of 5, so required_pass = 1.",
+      "decisionRule": "compliance/smoke-exact-binomial",
+      "inputs": {
+        "threshold": 0.5,
+        "test_samples": 5,
+        "alpha": 0.03125,
+        "intent": "SMOKE",
+        "observed_successes": 0
+      },
+      "expected": {
+        "decision_rule": "compliance/smoke-exact-binomial",
+        "k_min": 5,
+        "pass_possible": true,
+        "required_pass": 1,
+        "verdict": "FAIL",
+        "configuration_error": [],
+        "p_value": 0.03125,
+        "false_compliance": null,
+        "false_non_compliance": 0.03125,
+        "clopper_pearson_lower": 0
       }
     }
   ]

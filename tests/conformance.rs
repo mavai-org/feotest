@@ -2,7 +2,7 @@
 //!
 //! Validates feotest's decision rules against the canonical reference values
 //! published by [mavai-R](https://github.com/mavai-org/mavai-R), the
-//! statistical oracle of the Statistical Companion (methodology 1.5.0).
+//! statistical oracle of the Statistical Companion (methodology 1.7.1).
 //!
 //! Pinned mavai-R version: see `tests/conformance/VERSION`.
 //!
@@ -64,7 +64,10 @@ use feotest::statistics::rules::{
     ConfigurationError, DecisionRule, METHODOLOGY_VERSION, check_test_size,
 };
 use feotest::statistics::types::ConfidenceLevel;
-use feotest::verdict::{AssertionEnforcement, EnforcementMode, RuleEvidence, VerdictRecord};
+use feotest::verdict::{
+    AssertionEnforcement, ComplianceEvidence, EnforcementMode, RuleEvidence,
+    SmokeComplianceEvidence, VerdictRecord,
+};
 
 // ---------------------------------------------------------------------------
 // The coverage ledger
@@ -893,46 +896,147 @@ fn check_compliance_decision(ledger: &mut Ledger) {
         check_json(ledger, suite, case, "configuration_error", &errors);
         check_json(ledger, suite, case, "verdict", &record_verdict(&record));
         if record.is_refused() {
-            for field in ["k_min", "pass_possible"] {
+            for field in ["decision_rule", "k_min", "pass_possible", "required_pass"] {
                 check_json(ledger, suite, case, field, &Value::Null);
             }
             return;
         }
-        let RuleEvidence::Compliance(evidence) = evidence_of(&record, criterion) else {
-            panic!("a declared requirement is decided by compliance/exact-binomial");
-        };
+        let evidence = evidence_of(&record, criterion);
         check_json(
             ledger,
             suite,
             case,
-            "k_min",
-            &opt_u32(evidence.minimum_passing_count),
+            "decision_rule",
+            &json!(evidence.rule().id()),
         );
         check_json(
             ledger,
             suite,
             case,
-            "pass_possible",
-            &json!(evidence.minimum_passing_count.is_some()),
+            "required_pass",
+            &opt_u32(evidence.required_pass()),
         );
-        // Zero when no count can pass: nothing can falsely comply.
-        check_close(
-            ledger,
-            suite,
-            case,
-            "false_compliance",
-            Some(evidence.false_compliance),
-            tolerance,
-        );
-        check_close(
-            ledger,
-            suite,
-            case,
-            "clopper_pearson_lower",
-            Some(evidence.clopper_pearson_lower),
-            tolerance,
-        );
+        match evidence {
+            RuleEvidence::Compliance(evidence) => {
+                check_verification_compliance(ledger, case, evidence, tolerance);
+            }
+            RuleEvidence::SmokeCompliance(evidence) => {
+                check_smoke_compliance(ledger, case, evidence, tolerance);
+            }
+            RuleEvidence::Regression(_) => {
+                panic!("a declared requirement is decided by a compliance rule")
+            }
+        }
     });
+}
+
+/// The fields of a `compliance_decision` case decided by
+/// `compliance/exact-binomial`.
+fn check_verification_compliance(
+    ledger: &mut Ledger,
+    case: &Value,
+    evidence: &ComplianceEvidence,
+    tolerance: f64,
+) {
+    let suite = "compliance_decision";
+    check_json(
+        ledger,
+        suite,
+        case,
+        "k_min",
+        &opt_u32(evidence.minimum_passing_count),
+    );
+    check_json(
+        ledger,
+        suite,
+        case,
+        "pass_possible",
+        &json!(evidence.minimum_passing_count.is_some()),
+    );
+    // The p-value, the upper tail at the observed count, is computed by the
+    // decision; the verdict record does not carry it.
+    let decision = feotest::statistics::decision::evaluate_compliance(
+        input_u32(case, "observed_successes"),
+        input_u32(case, "test_samples"),
+        input_f64(case, "threshold"),
+        input_f64(case, "alpha"),
+    );
+    check_close(
+        ledger,
+        suite,
+        case,
+        "p_value",
+        Some(decision.p_value()),
+        tolerance,
+    );
+    // Zero when no count can pass: nothing can falsely comply.
+    check_close(
+        ledger,
+        suite,
+        case,
+        "false_compliance",
+        Some(evidence.false_compliance),
+        tolerance,
+    );
+    check_close(ledger, suite, case, "false_non_compliance", None, tolerance);
+    check_close(
+        ledger,
+        suite,
+        case,
+        "clopper_pearson_lower",
+        Some(evidence.clopper_pearson_lower),
+        tolerance,
+    );
+}
+
+/// The fields of a `compliance_decision` case decided by
+/// `compliance/smoke-exact-binomial`.
+fn check_smoke_compliance(
+    ledger: &mut Ledger,
+    case: &Value,
+    evidence: &SmokeComplianceEvidence,
+    tolerance: f64,
+) {
+    let suite = "compliance_decision";
+    check_json(
+        ledger,
+        suite,
+        case,
+        "k_min",
+        &opt_u32(evidence.minimum_passing_count),
+    );
+    check_json(
+        ledger,
+        suite,
+        case,
+        "pass_possible",
+        &json!(evidence.minimum_passing_count.is_some()),
+    );
+    check_close(
+        ledger,
+        suite,
+        case,
+        "p_value",
+        Some(evidence.p_value),
+        tolerance,
+    );
+    check_close(ledger, suite, case, "false_compliance", None, tolerance);
+    check_close(
+        ledger,
+        suite,
+        case,
+        "false_non_compliance",
+        Some(evidence.false_non_compliance),
+        tolerance,
+    );
+    check_close(
+        ledger,
+        suite,
+        case,
+        "clopper_pearson_lower",
+        Some(evidence.clopper_pearson_lower),
+        tolerance,
+    );
 }
 
 #[test]
@@ -1600,10 +1704,12 @@ fn check_latency_compliance_decision(ledger: &mut Ledger) {
         );
         if infeasible {
             for field in [
+                "decision_rule",
                 "test_samples",
                 "within_threshold",
                 "y_min",
                 "pass_possible",
+                "required_within",
                 "verdict",
             ] {
                 check_json(ledger, suite, case, field, &Value::Null);
@@ -1623,7 +1729,14 @@ fn check_latency_compliance_decision(ledger: &mut Ledger) {
         );
         assert_eq!(
             judgement.rule(),
-            DecisionRule::LatencyComplianceExactBinomial
+            DecisionRule::for_latency_requirement(intent)
+        );
+        check_json(
+            ledger,
+            suite,
+            case,
+            "decision_rule",
+            &json!(judgement.rule().id()),
         );
         let compliance = judgement
             .compliance()
@@ -1646,37 +1759,82 @@ fn check_latency_compliance_decision(ledger: &mut Ledger) {
         );
         let possible = json!(compliance.pass_possible());
         check_json(ledger, suite, case, "pass_possible", &possible);
+        check_latency_rule_figures(ledger, case, compliance, tolerance);
         let verdict = verdict_name(judgement.verdict());
         check_json(ledger, suite, case, "verdict", &verdict);
-        check_close(
-            ledger,
-            suite,
-            case,
-            "false_compliance",
-            compliance.false_compliance(),
-            tolerance,
-        );
-        check_close(
-            ledger,
-            suite,
-            case,
-            "clopper_pearson_lower",
-            compliance.clopper_pearson_lower(),
-            tolerance,
-        );
-        check_close(
-            ledger,
-            suite,
-            case,
-            "observed_percentile_ms",
-            compliance.observed_percentile_ms(),
-            tolerance,
-        );
-        let raw = compliance
-            .raw_percentile_pass(threshold_ms)
-            .map_or(Value::Null, |pass| json!(pass));
-        check_json(ledger, suite, case, "raw_percentile_pass", &raw);
+        check_latency_descriptive_figures(ledger, case, compliance, threshold_ms, tolerance);
     });
+}
+
+/// The descriptive figures of a `latency_compliance_decision` case, which
+/// decide nothing: the false-compliance probability, the Clopper–Pearson
+/// bound and the raw percentile comparison.
+fn check_latency_descriptive_figures(
+    ledger: &mut Ledger,
+    case: &Value,
+    compliance: &latency::LatencyCompliance,
+    threshold_ms: f64,
+    tolerance: f64,
+) {
+    let suite = "latency_compliance_decision";
+    check_close(
+        ledger,
+        suite,
+        case,
+        "false_compliance",
+        compliance.false_compliance(),
+        tolerance,
+    );
+    check_close(
+        ledger,
+        suite,
+        case,
+        "clopper_pearson_lower",
+        compliance.clopper_pearson_lower(),
+        tolerance,
+    );
+    check_close(
+        ledger,
+        suite,
+        case,
+        "observed_percentile_ms",
+        compliance.observed_percentile_ms(),
+        tolerance,
+    );
+    let raw = compliance
+        .raw_percentile_pass(threshold_ms)
+        .map_or(Value::Null, |pass| json!(pass));
+    check_json(ledger, suite, case, "raw_percentile_pass", &raw);
+}
+
+/// The figures of a `latency_compliance_decision` case that its deciding
+/// rule computes: the required count, the p-value, and the chance of a
+/// false FAIL under smoke.
+fn check_latency_rule_figures(
+    ledger: &mut Ledger,
+    case: &Value,
+    compliance: &latency::LatencyCompliance,
+    tolerance: f64,
+) {
+    let suite = "latency_compliance_decision";
+    let required = opt_u32(compliance.required_within());
+    check_json(ledger, suite, case, "required_within", &required);
+    check_close(
+        ledger,
+        suite,
+        case,
+        "p_value",
+        compliance.p_value(),
+        tolerance,
+    );
+    check_close(
+        ledger,
+        suite,
+        case,
+        "false_non_compliance",
+        compliance.false_non_compliance(),
+        tolerance,
+    );
 }
 
 #[test]
@@ -1765,7 +1923,7 @@ fn criterion_rows(record: &VerdictRecord) -> Value {
                 .statistical_analysis()
                 .expect("a judged criterion is decided by a rule");
             let procedure = match analysis.evidence() {
-                RuleEvidence::Compliance(_) => "COMPLIANCE",
+                RuleEvidence::Compliance(_) | RuleEvidence::SmokeCompliance(_) => "COMPLIANCE",
                 RuleEvidence::Regression(_) => "REGRESSION",
             };
             json!({

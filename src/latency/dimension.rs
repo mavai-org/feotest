@@ -126,7 +126,8 @@ impl LatencyEvaluation {
         self.confidence
     }
 
-    /// The rule that decided the evaluation, by its threshold source.
+    /// The rule that decided the evaluation, by its threshold source and,
+    /// for an explicit requirement, the test's intent.
     #[must_use]
     pub const fn decision_rule(&self) -> DecisionRule {
         self.decision_rule
@@ -145,8 +146,11 @@ impl LatencyEvaluation {
         self.within_threshold
     }
 
-    /// An explicit requirement's smallest count that demonstrates
-    /// compliance; `None` when no count can.
+    /// The count an explicit requirement's rule requires within the
+    /// threshold: under verification the smallest count that demonstrates
+    /// compliance, `None` when no count can; under smoke one more than the
+    /// largest count that is evidence of non-compliance, `None` when no
+    /// latency arrived.
     #[must_use]
     pub const fn required_within(&self) -> Option<u32> {
         self.required_within
@@ -262,7 +266,7 @@ impl LatencyEvaluation {
                 .map(LatencyCompliance::within_threshold),
             required_within: judgement
                 .compliance()
-                .and_then(LatencyCompliance::minimum_within),
+                .and_then(LatencyCompliance::required_within),
             indicative: judgement.indicative(),
         }
     }
@@ -524,6 +528,27 @@ mod tests {
         assert_eq!(evaluation.status(), EvaluationStatus::Pass);
         assert_eq!(dimension.verdict(), Some(Verdict::Pass));
         assert!(dimension.passed());
+    }
+
+    #[test]
+    fn under_smoke_an_explicit_requirement_is_decided_by_the_smoke_rule() {
+        // Ten latencies at p95 cannot demonstrate compliance, but none is
+        // evidence of a shortfall: the smoke rule passes them.
+        let latencies: Vec<f64> = (1..=10).map(f64::from).collect();
+        let dimension = LatencyDimension::build(
+            &latencies,
+            &[explicit(Percentile::P95, 1000)],
+            TestIntent::Smoke,
+            EnforcementMode::Enforced,
+        );
+        let evaluation = &dimension.evaluations()[0];
+        assert_eq!(
+            evaluation.decision_rule(),
+            DecisionRule::LatencySmokeComplianceExactBinomial
+        );
+        assert_eq!(evaluation.within_threshold(), Some(10));
+        assert_eq!(evaluation.required_within(), Some(8));
+        assert_eq!(evaluation.status(), EvaluationStatus::Pass);
     }
 
     #[test]

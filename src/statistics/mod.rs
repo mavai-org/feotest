@@ -1,7 +1,7 @@
 //! Statistical inference for Bernoulli trial outcomes and latencies.
 //!
 //! This module holds the decision rules of the Statistical Companion,
-//! methodology 1.6.0 — each an exact finite computation, named by a
+//! methodology 1.7.1 — each an exact finite computation, named by a
 //! versioned identifier that travels with every verdict it decides — and the
 //! descriptive statistics reported beside them.
 //!
@@ -12,8 +12,12 @@
 //!   size and powers, and the threshold-first inversion
 //! - [`compliance`] — `compliance/exact-binomial`: the smallest passing
 //!   count, feasibility and compliance sizing
-//! - [`latency`] — `latency/precedence` and
-//!   `latency/compliance-exact-binomial`, percentiles and the latency gates
+//! - [`smoke`] — `compliance/smoke-exact-binomial`: the required count of
+//!   the reversed rule a normative criterion is decided by under smoke
+//! - [`latency`] — `latency/precedence`,
+//!   `latency/compliance-exact-binomial` and
+//!   `latency/smoke-compliance-exact-binomial`, percentiles and the latency
+//!   gates
 //! - [`decision`] — verdicts, one criterion under its rule, and the
 //!   structural composition into the test verdict
 //! - [`risk_driven_sizing`] — design and resolved sizing of a regression
@@ -36,4 +40,5 @@ pub mod proportion;
 pub mod regression;
 pub mod risk_driven_sizing;
 pub mod rules;
+pub mod smoke;
 pub mod types;

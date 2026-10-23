@@ -19,8 +19,17 @@ pub struct ExecutionConfig {
     on_budget_exhausted: BudgetExhaustedBehavior,
     max_example_failures: u32,
     pacing: Option<PacingConfig>,
-    min_pass_rate: Option<f64>,
+    success_bar: Option<SuccessBar>,
     min_samples_for_validity: Option<u32>,
+}
+
+/// The bar the early-termination checks hold the run's successes to.
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum SuccessBar {
+    /// A minimum pass rate over the planned samples.
+    PassRate(f64),
+    /// A count of successes, as a decision rule requires it.
+    Count(u32),
 }
 
 impl ExecutionConfig {
@@ -47,7 +56,7 @@ impl ExecutionConfig {
             on_budget_exhausted: BudgetExhaustedBehavior::Fail,
             max_example_failures: 5,
             pacing: None,
-            min_pass_rate: None,
+            success_bar: None,
             min_samples_for_validity: None,
         }
     }
@@ -139,7 +148,27 @@ impl ExecutionConfig {
             (0.0..=1.0).contains(&rate),
             "min_pass_rate must be in [0, 1], got {rate}"
         );
-        self.min_pass_rate = Some(rate);
+        self.success_bar = Some(SuccessBar::PassRate(rate));
+        self
+    }
+
+    /// Sets the number of successes the early-termination checks require,
+    /// in place of a minimum pass rate: the count a decision rule requires
+    /// at the planned size. Success is guaranteed once the successes reach
+    /// it, and failure inevitable once the samples left cannot bring them
+    /// there.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `count` exceeds the sample count.
+    #[must_use]
+    pub fn required_successes(mut self, count: u32) -> Self {
+        assert!(
+            count <= self.samples,
+            "required successes ({count}) must not exceed the sample count ({})",
+            self.samples
+        );
+        self.success_bar = Some(SuccessBar::Count(count));
         self
     }
 
@@ -251,10 +280,24 @@ impl ExecutionConfig {
     }
 
     /// The configured minimum pass rate for early-termination checks,
-    /// if any.
+    /// if the bar was set as a rate.
     #[must_use]
     pub const fn configured_min_pass_rate(&self) -> Option<f64> {
-        self.min_pass_rate
+        match self.success_bar {
+            Some(SuccessBar::PassRate(rate)) => Some(rate),
+            Some(SuccessBar::Count(_)) | None => None,
+        }
+    }
+
+    /// The successes the early-termination checks require, if a bar is
+    /// set: the count itself, or `⌈samples · rate⌉` for a minimum pass
+    /// rate. `None` disables early termination.
+    #[must_use]
+    pub fn configured_required_successes(&self) -> Option<u32> {
+        self.success_bar.map(|bar| match bar {
+            SuccessBar::PassRate(rate) => successes_at_rate(self.samples, rate),
+            SuccessBar::Count(count) => count,
+        })
     }
 
     /// The minimum sample floor that gates `SuccessGuaranteed`
@@ -263,6 +306,19 @@ impl ExecutionConfig {
     pub const fn configured_min_samples_for_validity(&self) -> Option<u32> {
         self.min_samples_for_validity
     }
+}
+
+/// The integer number of successes needed to meet a minimum pass rate over
+/// the given sample count: the ceiling, so that `successes / samples` is the
+/// tightest achievable ratio at or above the rate. A rate of `0.0` yields
+/// zero (the trivially-passing case).
+#[allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    reason = "the rate is validated to [0, 1], so the count is within the u32 sample count"
+)]
+fn successes_at_rate(samples: u32, rate: f64) -> u32 {
+    (f64::from(samples) * rate).ceil() as u32
 }
 
 /// Pacing constraints for rate-limiting trial execution.
@@ -471,6 +527,26 @@ mod tests {
     #[should_panic(expected = "token_budget must be positive")]
     fn rejects_zero_token_budget() {
         let _ = ExecutionConfig::new(100).with_token_budget(0);
+    }
+
+    #[test]
+    fn the_success_bar_is_a_count_whether_set_as_a_rate_or_a_count() {
+        let by_rate = ExecutionConfig::new(100).min_pass_rate(0.95);
+        assert_eq!(by_rate.configured_required_successes(), Some(95));
+        assert_eq!(by_rate.configured_min_pass_rate(), Some(0.95));
+        let by_count = ExecutionConfig::new(100).required_successes(97);
+        assert_eq!(by_count.configured_required_successes(), Some(97));
+        assert_eq!(by_count.configured_min_pass_rate(), None);
+        assert_eq!(
+            ExecutionConfig::new(100).configured_required_successes(),
+            None
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "must not exceed the sample count")]
+    fn rejects_more_required_successes_than_samples() {
+        let _ = ExecutionConfig::new(10).required_successes(11);
     }
 
     #[test]

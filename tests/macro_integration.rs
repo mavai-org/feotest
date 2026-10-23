@@ -14,6 +14,14 @@ fn threshold_first_with_smoke_intent(_input: &str) -> bool {
     true
 }
 
+// An always-succeeding service against 0.99 over 100 samples: verification
+// would refuse the design (it needs 299); under smoke it is decided by
+// compliance/smoke-exact-binomial and passes.
+#[probabilistic_test(samples = 100, threshold = 0.99, intent = "smoke")]
+fn undersized_smoke_requirement_passes(_input: &str) -> bool {
+    true
+}
+
 #[probabilistic_test(
     samples = 60,
     threshold = 0.95,
