@@ -28,6 +28,7 @@ use crate::service_contract::CovariateContext;
 use crate::service_contract::ServiceContract;
 use crate::spec::{BaselineSpec, SpecResolver};
 use crate::statistics::decision::{DimensionDecisions, compose_overall_verdict};
+use crate::statistics::feasibility::feasibility_check;
 use crate::statistics::latency::{plan_nondegeneracy, plan_precedence};
 use crate::statistics::rules::{EnforcementMode, alpha_from_confidence};
 use crate::statistics::smoke::smoke_required_pass;
@@ -362,8 +363,8 @@ fn refused_result(
 }
 
 /// Records the warnings a valid configuration still earns before it runs:
-/// requirements a smoke run cannot demonstrate, a smoke run's non-evidential
-/// verdict, and the latency planning figures (§12.5.3).
+/// the smoke caveats of each normative requirement (§5.7.4), and the
+/// latency planning figures (§12.5.3).
 fn record_pre_run_warnings(
     criteria: &AssessmentCriteria,
     prepared: &Preparation,
@@ -371,20 +372,11 @@ fn record_pre_run_warnings(
     warnings: &mut Vec<Warning>,
 ) {
     if criteria.intent == TestIntent::Smoke {
-        for (requirement, check) in
-            preflight::infeasible_requirements(prepared.plan.samples, requirements)
-        {
-            warnings.push(Warning::new(
-                "UNDERSIZED",
-                diagnostics::infeasibility_message(&requirement.subject, &check, false),
-            ));
-        }
-        if !requirements.is_empty() {
-            warnings.push(Warning::new(
-                "SMOKE_NORMATIVE",
-                "Smoke test against normative requirements — verdict is not evidential",
-            ));
-        }
+        warnings.extend(
+            requirements
+                .iter()
+                .flat_map(|requirement| smoke_caveats(requirement, prepared.plan.samples)),
+        );
     }
     if let Some(spec) = prepared.baseline_spec.as_ref() {
         latency_planning_warnings(
@@ -394,6 +386,34 @@ fn record_pre_run_warnings(
             warnings,
         );
     }
+}
+
+/// The smoke caveats of one normative requirement at the planned size
+/// (§5.7.4): `UNDERSIZED` when the size cannot demonstrate compliance, so a
+/// PASS is no evidence of it; `SMOKE_NORMATIVE` when no outcome can FAIL,
+/// or, at a size that could demonstrate compliance, the pointer to
+/// verification intent.
+fn smoke_caveats(requirement: &Requirement, planned: u32) -> Vec<Warning> {
+    let mut caveats = Vec::new();
+    let check = feasibility_check(planned, requirement.rate, requirement.alpha);
+    if !check.feasible() {
+        caveats.push(Warning::new(
+            "UNDERSIZED",
+            diagnostics::smoke_undersized_message(&requirement.subject, &check),
+        ));
+    }
+    if smoke_required_pass(requirement.rate, planned, requirement.alpha) == 0 {
+        caveats.push(Warning::new(
+            "SMOKE_NORMATIVE",
+            diagnostics::smoke_fail_not_possible_message(&requirement.subject),
+        ));
+    } else if check.feasible() {
+        caveats.push(Warning::new(
+            "SMOKE_NORMATIVE",
+            diagnostics::smoke_pass_possible_message(&requirement.subject),
+        ));
+    }
+    caveats
 }
 
 /// The pre-run latency gates on the expected successful count: warnings and
@@ -1108,6 +1128,18 @@ mod tests {
         )
     }
 
+    fn requirement(rate: f64) -> Requirement {
+        Requirement {
+            subject: "accuracy".to_owned(),
+            rate,
+            alpha: 0.05,
+        }
+    }
+
+    fn codes(warnings: &[Warning]) -> Vec<&str> {
+        warnings.iter().map(Warning::code).collect()
+    }
+
     #[test]
     fn a_smoke_run_of_requirements_ends_on_the_count_the_smoke_rule_requires() {
         let strict = CriterionTarget::NormativeRate(0.99);
@@ -1135,6 +1167,35 @@ mod tests {
         assert_eq!(
             smoke_success_bar(TestIntent::Smoke, &[], |_| 0.05, 100),
             None
+        );
+    }
+
+    #[test]
+    fn an_undersized_smoke_requirement_is_caveated_as_no_evidence_of_compliance() {
+        let caveats = smoke_caveats(&requirement(0.99), 100);
+        assert_eq!(codes(&caveats), ["UNDERSIZED"]);
+        assert!(caveats[0].message().contains("need at least 299"));
+    }
+
+    #[test]
+    fn a_smoke_requirement_no_outcome_can_fail_is_caveated() {
+        let caveats = smoke_caveats(&requirement(0.5), 1);
+        assert_eq!(codes(&caveats), ["UNDERSIZED", "SMOKE_NORMATIVE"]);
+        assert!(
+            caveats[1]
+                .message()
+                .contains("FAIL not possible at this size")
+        );
+    }
+
+    #[test]
+    fn a_smoke_requirement_of_a_feasible_size_points_to_verification() {
+        let caveats = smoke_caveats(&requirement(0.95), 150);
+        assert_eq!(codes(&caveats), ["SMOKE_NORMATIVE"]);
+        assert!(
+            caveats[0]
+                .message()
+                .contains("PASS is possible at this size")
         );
     }
 

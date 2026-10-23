@@ -28,47 +28,38 @@ fn format_target_percent(target: f64) -> String {
     }
 }
 
-/// Produces a structured infeasibility diagnostic.
-///
-/// # Default mode (`verbose: false`)
-///
-/// Reports the test name, configured samples, target, minimum required N,
-/// and remediation guidance.
-///
-/// # Verbose mode (`verbose: true`)
-///
-/// Appends the feasibility criterion, alpha, and confidence level.
+/// The smoke caveat of a requirement this size cannot demonstrate
+/// (§5.7.4): a PASS here is not evidence of compliance, and the feasibility
+/// minimum is the size that could demonstrate it.
 #[must_use]
-pub fn infeasibility_message(test_name: &str, result: &FeasibilityResult, verbose: bool) -> String {
-    let target_pct = format_target_percent(result.target());
-    let configured = result.configured_samples();
-    let minimum = result.minimum_samples();
+pub fn smoke_undersized_message(subject: &str, result: &FeasibilityResult) -> String {
+    format!(
+        "{subject}: this size cannot demonstrate compliance with {} (N = {}, need at least {}). \
+         A PASS at this size is not evidence of compliance; the smoke result reports only \
+         whether there is evidence of non-compliance.",
+        format_target_percent(result.target()),
+        result.configured_samples(),
+        result.minimum_samples()
+    )
+}
 
-    let mut msg = format!(
-        "Infeasible configuration for \"{test_name}\":\n\
-         \x20 Configured:  {configured} samples at target {target_pct}\n\
-         \x20 Minimum:     {minimum} samples required for verification-grade evidence\n\
-         \x20 Remediation: increase samples to at least {minimum},\n\
-         \x20              or use Smoke intent to proceed with reduced confidence."
-    );
+/// The smoke caveat of a requirement no outcome of this size can fail
+/// (§5.7.4).
+#[must_use]
+pub fn smoke_fail_not_possible_message(subject: &str) -> String {
+    format!(
+        "{subject}: FAIL not possible at this size; this result carries no evidence about \
+         the service."
+    )
+}
 
-    if verbose {
-        let alpha = result.configured_alpha();
-        let confidence_pct = format_target_percent(1.0 - alpha);
-        let _ = write!(
-            msg,
-            "\n\
-             \x20 Criterion:   {criterion}\n\
-             \x20 Alpha:       {alpha:.3}\n\
-             \x20 Confidence:  {confidence_pct}\n\
-             \x20 Assessment:  even {configured}/{configured} successes cannot demonstrate \
-             {target:.3}: {target:.3}^{configured} > alpha",
-            criterion = result.criterion(),
-            target = result.target(),
-        );
-    }
-
-    msg
+/// The smoke caveat of a requirement this size could demonstrate (§5.7.4).
+#[must_use]
+pub fn smoke_pass_possible_message(subject: &str) -> String {
+    format!(
+        "{subject}: PASS is possible at this size. Consider verification intent for \
+         evidential strength, and check the power statement."
+    )
 }
 
 /// Produces the diagnostic of a refused configuration: every invalid part,
@@ -85,7 +76,8 @@ pub fn refusal_message(test_name: &str, planned: u32, refused: &[RefusedPart]) -
     msg.push_str(
         "\n  Remediation: a baseline must be at least as large as any test that consumes it \
          — plan a smaller test or measure a larger baseline; a requirement no outcome can \
-         demonstrate needs more samples, or Smoke intent to run it without evidential weight.",
+         demonstrate needs more samples, or Smoke intent to ask only whether there is \
+         evidence that the service falls short of it.",
     );
     msg
 }
@@ -144,32 +136,9 @@ mod tests {
     }
 
     #[test]
-    fn includes_test_name() {
-        let result = feasibility_check(5, 0.95, cl(0.95));
-        let msg = infeasibility_message("shopping-basket", &result, false);
-        assert!(msg.contains("shopping-basket"));
-    }
-
-    #[test]
-    fn includes_minimum_samples() {
-        let result = feasibility_check(5, 0.95, cl(0.95));
-        let msg = infeasibility_message("test", &result, false);
-        let min = result.minimum_samples().to_string();
-        assert!(msg.contains(&min));
-    }
-
-    #[test]
-    fn includes_remediation() {
-        let result = feasibility_check(5, 0.95, cl(0.95));
-        let msg = infeasibility_message("test", &result, false);
-        assert!(msg.contains("increase samples"));
-        assert!(msg.contains("Smoke intent"));
-    }
-
-    #[test]
     fn whole_number_target_no_decimals() {
         let result = feasibility_check(5, 0.90, cl(0.95));
-        let msg = infeasibility_message("test", &result, false);
+        let msg = smoke_undersized_message("test", &result);
         assert!(msg.contains("90%"), "expected '90%' in: {msg}");
         assert!(
             !msg.contains("90.0%"),
@@ -180,7 +149,7 @@ mod tests {
     #[test]
     fn fractional_target_no_trailing_zeros() {
         let result = feasibility_check(5, 0.999, cl(0.95));
-        let msg = infeasibility_message("test", &result, false);
+        let msg = smoke_undersized_message("test", &result);
         assert!(msg.contains("99.9%"), "expected '99.9%' in: {msg}");
         assert!(
             !msg.contains("99.900%"),
@@ -189,31 +158,22 @@ mod tests {
     }
 
     #[test]
-    fn verbose_includes_criterion() {
-        let result = feasibility_check(5, 0.95, cl(0.95));
-        let msg = infeasibility_message("test", &result, true);
-        assert!(msg.contains("exact_binomial_pass_possible"));
+    fn the_smoke_undersized_caveat_disclaims_compliance_and_names_the_minimum() {
+        let result = feasibility_check(100, 0.99, cl(0.95));
+        let msg = smoke_undersized_message("accuracy", &result);
+        assert!(msg.contains("accuracy: this size cannot demonstrate compliance with 99%"));
+        assert!(msg.contains("N = 100, need at least 299"));
+        assert!(msg.contains("not evidence of compliance"));
     }
 
     #[test]
-    fn verbose_includes_alpha() {
-        let result = feasibility_check(5, 0.95, cl(0.95));
-        let msg = infeasibility_message("test", &result, true);
-        assert!(msg.contains("0.050"));
-    }
-
-    #[test]
-    fn default_mode_excludes_verbose_details() {
-        let result = feasibility_check(5, 0.95, cl(0.95));
-        let msg = infeasibility_message("test", &result, false);
-        assert!(
-            !msg.contains("Criterion"),
-            "default mode should not include criterion"
+    fn the_smoke_mirror_caveats_name_their_subject() {
+        assert_eq!(
+            smoke_fail_not_possible_message("coin"),
+            "coin: FAIL not possible at this size; this result carries no evidence about \
+             the service."
         );
-        assert!(
-            !msg.contains("Alpha"),
-            "default mode should not include alpha"
-        );
+        assert!(smoke_pass_possible_message("coin").starts_with("coin: PASS is possible"));
     }
 
     #[test]

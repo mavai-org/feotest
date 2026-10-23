@@ -526,7 +526,25 @@
             <xsl:value-of select="@decision-rule"/>
             <xsl:text> v</xsl:text>
             <xsl:value-of select="@decision-rule-version"/>
+            <!-- The smoke rule reverses the burden of proof: its PASS is no
+                 evidence of a shortfall, never evidence of compliance. -->
+            <xsl:if test="@decision-rule='compliance/smoke-exact-binomial'">
+              <xsl:text>, required pass </xsl:text>
+              <xsl:value-of select="@required-pass"/>
+              <xsl:choose>
+                <xsl:when test="@verdict='PASS'">
+                  <xsl:text> &#x2014; no evidence it falls short of its requirement</xsl:text>
+                </xsl:when>
+                <xsl:when test="@verdict='FAIL'">
+                  <xsl:text> &#x2014; falls short of its requirement</xsl:text>
+                </xsl:when>
+              </xsl:choose>
+            </xsl:if>
           </xsl:for-each>
+          <xsl:if test="v:statistics/@p-value">
+            <xsl:text>&#10;p-value: </xsl:text>
+            <xsl:value-of select="v:statistics/@p-value"/>
+          </xsl:if>
           <xsl:if test="v:statistics/@size-at-assumed-common-rate">
             <xsl:text>&#10;Size at assumed common rate: </xsl:text>
             <xsl:value-of select="v:statistics/@size-at-assumed-common-rate"/>
