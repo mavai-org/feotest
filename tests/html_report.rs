@@ -315,3 +315,42 @@ fn empty_records_produce_valid_html() {
     assert!(html.contains("<html"));
     assert!(html.contains("Total: 0"));
 }
+
+/// A smoke record of a requirement decided by
+/// `compliance/smoke-exact-binomial`: `successes` of 100 against 0.99.
+fn smoke_record(successes: u32) -> VerdictRecord {
+    let decision =
+        feotest::statistics::decision::evaluate_smoke_compliance(successes, 100, 100, 0.99, 0.05);
+    let analysis = feotest::verdict::StatisticalAnalysis::smoke_compliance(
+        &decision,
+        0.95,
+        ThresholdOrigin::Policy,
+    );
+    VerdictRecord::builder(
+        TestIdentity::new("guardrail").with_test_name("test_harmful_advice_rejected"),
+        decision.verdict(),
+        TestIntent::Smoke,
+        sample_execution(100, 100, successes, 100 - successes),
+        FunctionalAssessment::single(CriterionRow::new(
+            "harmful-advice-is-rejected",
+            successes,
+            100 - successes,
+            vec![],
+            Some(analysis.clone()),
+            decision.verdict(),
+        )),
+    )
+    .statistical_analysis(analysis)
+    .spec_provenance(SpecProvenance::new(ThresholdOrigin::Policy))
+    .build()
+}
+
+#[test]
+fn a_smoke_requirement_reads_as_evidence_of_a_shortfall_or_none() {
+    let Some(html) = generate_or_skip(&[smoke_record(97), smoke_record(96)], None) else {
+        return;
+    };
+    assert!(html.contains("compliance/smoke-exact-binomial v1, required pass 97"));
+    assert!(html.contains("no evidence it falls short of its requirement"));
+    assert!(html.contains("\u{2014} falls short of its requirement"));
+}

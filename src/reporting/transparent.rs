@@ -493,7 +493,12 @@ fn write_verdict(record: &VerdictRecord, w: &mut dyn fmt::Write) -> fmt::Result 
     write_blank_line(w)?;
 
     let label = verdict_label(record);
-    if record.intent() == TestIntent::Smoke {
+    let smoke_reading = smoke_compliance_reading(record);
+    if let Some(reading) = smoke_reading {
+        write_line(w, &format!("{label} (Smoke intent)"))?;
+        write_blank_line(w)?;
+        write_wrapped(w, reading)?;
+    } else if record.intent() == TestIntent::Smoke {
         write_line(
             w,
             &format!("{label} (non-evidential \u{2014} Smoke intent)"),
@@ -504,6 +509,25 @@ fn write_verdict(record: &VerdictRecord, w: &mut dyn fmt::Write) -> fmt::Result 
 
     write_blank_line(w)?;
     write_wrapped(w, &verdict_reasoning(record))
+}
+
+/// What a smoke verdict on a requirement states (§5.7.3), when the record's
+/// criterion was decided by `compliance/smoke-exact-binomial`: a PASS is no
+/// evidence of a shortfall, never evidence of compliance; a FAIL is
+/// evidence of one.
+fn smoke_compliance_reading(record: &VerdictRecord) -> Option<&'static str> {
+    let analysis = record.statistical_analysis()?;
+    if !matches!(analysis.evidence(), RuleEvidence::SmokeCompliance(_)) {
+        return None;
+    }
+    match record.verdict()? {
+        Verdict::Pass => Some(
+            "No evidence that the service falls short of its requirement at this size. \
+             This is not evidence of compliance.",
+        ),
+        Verdict::Fail => Some("Evidence that the service falls short of its requirement."),
+        Verdict::Inconclusive => None,
+    }
 }
 
 fn verdict_reasoning(record: &VerdictRecord) -> String {
@@ -633,11 +657,18 @@ mod tests {
         )
     }
 
-    /// Oracle case `p95_n150_pass_at_k_min`: 148 of 150 demonstrate 0.95.
+    /// A record of one oracle compliance case of 150 samples: under
+    /// verification `p95_n150_pass_at_k_min` (148 of 150 demonstrate 0.95),
+    /// under smoke `p95_n150_smoke_pass_below_k_min` (147 of 150, no
+    /// evidence of a shortfall).
     fn compliance_record(intent: TestIntent) -> VerdictRecord {
+        let case = match intent {
+            TestIntent::Verification => "p95_n150_pass_at_k_min",
+            TestIntent::Smoke => "p95_n150_smoke_pass_below_k_min",
+        };
         record_of(
             "payment-gateway",
-            compliance_row("p95_n150_pass_at_k_min", "result", ThresholdOrigin::Sla),
+            compliance_row(case, "result", ThresholdOrigin::Sla),
             150,
             TerminationReason::Completed,
             intent,
@@ -781,7 +812,9 @@ mod tests {
         .warning(Warning::new(
             "UNDERSIZED",
             format!(
-                "no count of 477 can demonstrate 0.995 at alpha 0.05 (feasibility minimum {})",
+                "result: this size cannot demonstrate compliance with 99.5% (N = 477, need at \
+                 least {}). A PASS at this size is not evidence of compliance; the smoke result \
+                 reports only whether there is evidence of non-compliance.",
                 feasibility.minimum_samples()
             ),
         ))

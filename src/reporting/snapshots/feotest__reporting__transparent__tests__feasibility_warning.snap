@@ -13,8 +13,10 @@ expression: "render_with(&record, &threshold_first(477, 0.0))"
 ║─────────────────────────────────────────────────────────────║
 ║ WARNING                                                     ║
 ║                                                             ║
-║ no count of 477 can demonstrate 0.995 at alpha 0.05         ║
-║ (feasibility minimum 598)                                   ║
+║ result: this size cannot demonstrate compliance with 99.5%  ║
+║ (N = 477, need at least 598). A PASS at this size is not    ║
+║ evidence of compliance; the smoke result reports only       ║
+║ whether there is evidence of non-compliance.                ║
 ║─────────────────────────────────────────────────────────────║
 ║ HYPOTHESES                                                  ║
 ║                                                             ║
@@ -37,7 +39,10 @@ expression: "render_with(&record, &threshold_first(477, 0.0))"
 ║─────────────────────────────────────────────────────────────║
 ║ VERDICT                                                     ║
 ║                                                             ║
-║ PASS (non-evidential — Smoke intent)                        ║
+║ PASS (Smoke intent)                                         ║
+║                                                             ║
+║ No evidence that the service falls short of its requirement ║
+║ at this size. This is not evidence of compliance.           ║
 ║                                                             ║
 ║ Every criterion passed under its rule                       ║
 ║ (compliance/smoke-exact-binomial for the first) and every   ║

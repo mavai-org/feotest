@@ -14,28 +14,32 @@ expression: buf
 ║─────────────────────────────────────────────────────────────║
 ║ HYPOTHESES                                                  ║
 ║                                                             ║
-║ H0: p <= 0.950  (compliance not demonstrated)               ║
-║ H1: p >  0.950  (the requirement is met)                    ║
+║ H0: p >= 0.950  (the requirement is met)                    ║
+║ H1: p <  0.950  (the service falls short of it)             ║
 ║─────────────────────────────────────────────────────────────║
 ║ OBSERVED DATA AND INFERENCE                                 ║
 ║                                                             ║
-║ Successes / Total:    148 / 150                             ║
-║ Observed pass rate:   0.987                                 ║
-║ Decision rule:        compliance/exact-binomial v1          ║
+║ Successes / Total:    147 / 150                             ║
+║ Observed pass rate:   0.980                                 ║
+║ Decision rule:        compliance/smoke-exact-binomial v1    ║
 ║ Threshold:            0.950                                 ║
 ║   (declared floor; each criterion decided by its rule)      ║
-║ Smallest passing:     148                                   ║
-║ False compliance:     0.0182                                ║
-║ Clopper-Pearson lower: 0.959 (descriptive)                  ║
-║ Wilson lower [95%]: 0.961 (descriptive)                     ║
-║ Standard error:       0.009                                 ║
+║ Required pass:        138 of 150 planned                    ║
+║ p-value (lower tail): 0.9818                                ║
+║ False non-compliance: 0.0385                                ║
+║ Clopper-Pearson lower: 0.949 (descriptive)                  ║
+║ Wilson lower [95%]: 0.951 (descriptive)                     ║
+║ Standard error:       0.011                                 ║
 ║─────────────────────────────────────────────────────────────║
 ║ VERDICT                                                     ║
 ║                                                             ║
-║ PASS (non-evidential — Smoke intent)                        ║
+║ PASS (Smoke intent)                                         ║
+║                                                             ║
+║ No evidence that the service falls short of its requirement ║
+║ at this size. This is not evidence of compliance.           ║
 ║                                                             ║
 ║ Every criterion passed under its rule                       ║
-║ (compliance/exact-binomial for the first) and every         ║
-║ enforced latency constraint passed: 148 of 150 >= k_min 148 ║
-║ (compliance/exact-binomial).                                ║
+║ (compliance/smoke-exact-binomial for the first) and every   ║
+║ enforced latency constraint passed: 147 of 150 >= required  ║
+║ 138 (compliance/smoke-exact-binomial).                      ║
 ║═════════════════════════════════════════════════════════════║
