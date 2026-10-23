@@ -117,13 +117,13 @@ A **verdict** is the outcome of a probabilistic test:
 
 | Verdict | Meaning |
 |---|---|
-| **Pass** | Against a baseline: no statistically significant degradation. Against a requirement: the evidence demonstrates it. |
-| **Fail** | Against a baseline: evidence of degradation — the call to action. Against a requirement: compliance was not demonstrated. |
+| **Pass** | Against a baseline: no statistically significant degradation. Against a requirement: the evidence demonstrates it — under smoke intent, no evidence that the service falls short of it. |
+| **Fail** | Against a baseline: evidence of degradation — the call to action. Against a requirement: compliance was not demonstrated — under smoke intent, evidence that the service falls short of it. |
 | **Inconclusive** | The data cannot decide (covariate misalignment, too few successful latencies, no latency threshold at this size). |
 
 A verdict is not based on whether individual trials succeeded or failed. Each
 criterion is decided by a versioned **decision rule** of the Statistical
-Companion (methodology 1.6.0), at its **confidence level**; the test's verdict
+Companion (methodology 1.7.1), at its **confidence level**; the test's verdict
 composes the criteria with any latency constraints by one structural rule —
 PASS if every one passes, FAIL if any fails, INCONCLUSIVE otherwise — and
 names what decided a FAIL or an INCONCLUSIVE. Both dimensions are enforced
@@ -371,10 +371,31 @@ Every probabilistic test declares an **intent**:
   95% confidence. A Pass verdict under Verification intent is a genuine
   statistical claim.
 
-- **Smoke** — a lightweight early-warning check. Undersized requirements run —
-  such a test cannot pass, and says so — and the verdict is labelled
-  non-evidential. Smoke tests are intended for frequent monitoring — "is the
-  service obviously broken?" — rather than rigorous verification.
+- **Smoke** — a lightweight early-warning check. Smoke tests are intended for
+  frequent monitoring — "is the service obviously broken?" — rather than
+  rigorous verification. Undersized requirements run, and a requirement is
+  decided at every size by `compliance/smoke-exact-binomial` (an explicit
+  latency ceiling by `latency/smoke-compliance-exact-binomial`), which
+  reverses the burden of proof: the test fails only on evidence that the
+  service falls short of its requirement. A smoke Pass says the run found no
+  such evidence; it is never evidence of compliance. A smoke Fail is
+  evidence of non-compliance at the configured confidence.
+
+**How smoke decides a requirement.** The test fails when the observed count
+is so low that, were the service exactly at its requirement, a count that
+low or lower would occur with probability at most alpha. The smallest count
+that does not fail is the test's **required pass**, recorded on the verdict:
+at a 0.99 requirement, 95% confidence and 100 samples it is 97 — four misses
+in 100 are evidence of a shortfall, three are not — while verification would
+refuse the design, since demonstrating 0.99 needs at least 299 samples. Early
+termination reads the required pass: such a run stops at the 97th success,
+or at the fourth miss. A smoke verdict states its caveats as warnings:
+
+| Condition | Warning |
+|---|---|
+| The size cannot demonstrate compliance | `UNDERSIZED`: a Pass at this size is not evidence of compliance; the size that could demonstrate it is reported |
+| No outcome of the size can fail (a low requirement over very few samples) | `SMOKE_NORMATIVE`: FAIL not possible at this size; the result carries no evidence about the service |
+| The size could demonstrate compliance | `SMOKE_NORMATIVE`: consider verification intent for evidential strength |
 
 Whatever the intent, a test planned larger than the baseline it consumes is
 refused (`TEST_LARGER_THAN_BASELINE`): a baseline must be at least as large as
@@ -424,7 +445,8 @@ the `#[probabilistic_test]` macro and a sentinel included.
 rules, on the same samples and with the same checks, as it would be if
 enforced: a requirement by `compliance/exact-binomial`, a baseline by
 `regression/fisher`, a latency ceiling by `latency/compliance-exact-binomial`,
-a baseline-derived latency threshold by `latency/precedence`. Its verdict —
+a baseline-derived latency threshold by `latency/precedence` (under smoke
+intent, a requirement and a latency ceiling by their smoke rules). Its verdict —
 PASS, FAIL or INCONCLUSIVE — is recorded beside the test verdict and labelled
 advisory in the verdict record, the verdict XML, the console and the HTML
 report. It never fails the test: the test verdict composes the enforced
@@ -755,21 +777,22 @@ A verdict record contains:
 | Field | Content |
 |---|---|
 | `identity` | Service contract ID and test name |
-| `methodology_version` | The Statistical Companion methodology whose rules decided it (1.6.0) |
+| `methodology_version` | The Statistical Companion methodology whose rules decided it (1.7.1) |
 | `verdict` | Pass, Fail, or Inconclusive — the test verdict over the enforced dimensions (Pass when none is enforced); absent when the configuration was refused |
 | `configuration_errors` | For a refused configuration: every applicable error, in order |
 | `triggering` | The criteria and latency constraints of the enforced dimensions that decided a Fail or an Inconclusive |
 | `intent` | Verification or Smoke |
 | `execution` | Samples planned/executed, successes, failures, cost |
 | `functional_assessment` | One row per criterion — pass rate, failure distribution, the rule that decided it — their composite, and whether the dimension was enforced or advisory |
-| `statistical_analysis` | The rule, its evidence (cutoff or smallest passing count), threshold, confidence; the Wilson bound as descriptive context |
+| `statistical_analysis` | The rule, its evidence (cutoff, smallest passing count, or under smoke the required pass and the p-value), threshold, confidence; the Wilson bound as descriptive context |
 | `latency` | Each latency evaluation with its rule, the latency verdict, and whether the dimension was enforced or advisory |
 | `spec_provenance` | Baseline filename, threshold origin, contract reference |
-| `warnings` | Undersized smoke runs, latency planning warnings, etc. |
+| `warnings` | Smoke caveats, latency planning warnings, etc. |
 
-Records are written as verdict XML **1.8**, the family's interchange schema for
-methodology 1.6.0, which states each dimension's mode (`enforced` or
-`advisory`).
+Records are written as verdict XML **1.10**, the family's interchange schema
+for methodology 1.7.1, which states each dimension's mode (`enforced` or
+`advisory`) and names the smoke rules, with each smoke criterion's required
+pass and p-value.
 
 ### JUnit XML output
 

@@ -101,8 +101,9 @@ For a complete worked example, see
 ## Operational approaches
 
 Every probabilistic test decides each criterion by a versioned decision rule
-of the Statistical Companion (methodology 1.6.0): a declared requirement by
-`compliance/exact-binomial`, a baseline-derived bar by `regression/fisher`.
+of the Statistical Companion (methodology 1.7.1): a declared requirement by
+`compliance/exact-binomial` (by `compliance/smoke-exact-binomial` under smoke
+intent), a baseline-derived bar by `regression/fisher`.
 The approaches fix what you know and derive the rest:
 
 | Approach | You specify | Framework computes |
@@ -164,12 +165,13 @@ The statistical model rests on explicit assumptions:
   model version, input distribution) are sufficiently stable during a test run.
 
 Every verdict is decided by an exact finite rule — the one-sided Fisher exact
-test, the exact one-sided binomial test, and, for latency, the precedence rank
-and the exact binomial test on the latencies within a ceiling — with a
+test, the exact one-sided binomial test (its burden of proof reversed under
+smoke intent), and, for latency, the precedence rank and the exact binomial
+test on the latencies within a ceiling — with a
 documented convention for probabilities exactly at alpha. Wilson score
 intervals are reported beside the verdicts as descriptive context; no rule
 decides with them. The rules are conformance-tested against the reference
-oracle of the Statistical Companion, methodology 1.6.0.
+oracle of the Statistical Companion, methodology 1.7.1.
 
 `feotest` does not claim that these assumptions are always perfectly met. It
 insists that they be made explicit and that departures from them be acknowledged

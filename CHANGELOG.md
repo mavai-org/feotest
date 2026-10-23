@@ -33,6 +33,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   required counts, and `<statistics>` carries a smoke criterion's lower-tail
   `@p-value`. Schema 1.9's optional run-control content is not emitted.
 
+### Added
+
+- **User guide**: how smoke decides a requirement, its required pass and its
+  caveats; README and guide state methodology 1.7.1 and verdict XML 1.10.
+
 ### Conformance
 
 - The vendored fixtures are re-pinned at mavai-R **v0.15.0**, adopting the
