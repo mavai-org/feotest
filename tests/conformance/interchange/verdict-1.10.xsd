@@ -48,12 +48,49 @@
       <xs:element name="postcondition-standings" type="tns:PostconditionStandingsType" minOccurs="0"/>
       <xs:element name="verdict"      type="tns:VerdictType"/>
     </xs:all>
-    <!-- version: "1.0", "1.2", "1.3", "1.4", "1.5", "1.6", "1.7" or "1.8". 1.2 emitters set version="1.2"
+    <!-- version: "1.0", "1.2", "1.3", "1.4", "1.5", "1.6", "1.7", "1.8", "1.9" or "1.10". 1.2 emitters set version="1.2"
          when <per-criterion> content is populated; otherwise stay
          at "1.0" so consumers inspecting the version attribute
          remain correctly informed. 1.3 emitters set version="1.3":
          the <postcondition-standings> element is available (emitted
          whenever the run produced standings). -->
+    <!-- 1.10 changes (mavai-R 0.14.0; Statistical Companion 1.7.0), which
+         name the SMOKE rules. Additive: a 1.9 record whose version reads
+         "1.10" and whose @methodology-version reads "1.7.0" or later is a 1.10
+         record when it carries no SMOKE normative decision.
+
+         DecisionRuleEnum gains compliance/smoke-exact-binomial and
+         latency/smoke-compliance-exact-binomial (companion §5.7.3,
+         §12.3.4). Under SMOKE intent a normative criterion, and an
+         explicit latency requirement, is decided with the burden of proof
+         reversed: FAIL iff P(K <= k | n, p_req) <= alpha. @required-pass
+         (and a latency evaluation's @required-within) is then the largest
+         failing count plus one, 0 when no count can FAIL, so the criterion
+         is PASS iff pass >= required-pass, as under every other rule; a
+         @p-value is the binomial lower tail at p_req. A SMOKE PASS is no
+         evidence of non-compliance at this size, never evidence of
+         compliance. -->
+    <!-- 1.9 changes (mavai-R 0.13.0; the run-controls amendment of
+         mavai-services/1, 2026-10-13), which record how a run's budget
+         and pacing shaped it. Additive: a 1.8 record whose version reads
+         "1.9" is a 1.9 record.
+
+         <termination>/@on-exhausted — the exhaustion behaviour applied,
+         INCONCLUSIVE, FAIL or EVALUATE_PARTIAL, present exactly when
+         @reason is TIME_BUDGET_EXHAUSTED or TOKEN_BUDGET_EXHAUSTED. A
+         reader states it beside the verdict, so a FAIL by policy, or a
+         criterion decided by determinacy at the planned sample count, is
+         never shown as an evidential verdict. Under EVALUATE_PARTIAL a
+         criterion is PASS when its passes already reach @required-pass,
+         the planned-n requirement; FAIL when its passes plus the planned
+         samples not run could no longer reach it; INCONCLUSIVE otherwise.
+         No rule ever decides at the truncated count.
+
+         <pacing>: the declared values are optional, since a declared
+         pacing states any of its three keys, and @min-ms-per-sample
+         joins them; the concurrency attributes become optional (no
+         reader samples concurrently). @effective-min-delay-ms, the wait
+         between the starts of consecutive invocations, stays required. -->
     <!-- 1.8 changes (Statistical Companion 1.6.0, mavai-R 0.12.0), which
          record whether each dimension was enforced or advisory. Under
          methodology 1.6.0 every assertion is enforced by default, and a
@@ -559,7 +596,19 @@
   <xs:complexType name="TerminationType">
     <xs:attribute name="reason" type="tns:TerminationReasonEnum" use="required"/>
     <xs:attribute name="detail" type="xs:string"                 use="optional"/>
+    <!-- 1.9: the exhaustion behaviour applied; present exactly when
+         @reason is a budget exhaustion. -->
+    <xs:attribute name="on-exhausted" type="tns:OnExhaustedEnum" use="optional"/>
   </xs:complexType>
+
+  <!-- 1.9: the exhaustion behaviours (mavai-services/1 §II.8). -->
+  <xs:simpleType name="OnExhaustedEnum">
+    <xs:restriction base="xs:string">
+      <xs:enumeration value="INCONCLUSIVE"/>
+      <xs:enumeration value="FAIL"/>
+      <xs:enumeration value="EVALUATE_PARTIAL"/>
+    </xs:restriction>
+  </xs:simpleType>
 
   <xs:simpleType name="TerminationReasonEnum">
     <xs:restriction base="xs:string">
@@ -628,13 +677,17 @@
        Pacing
        =================================================================== -->
 
+  <!-- 1.9: the declared values and the concurrency attributes are
+       optional, and @min-ms-per-sample is added; the effective delay
+       between the starts of consecutive invocations is required. -->
   <xs:complexType name="PacingType">
-    <xs:attribute name="max-rps"                type="xs:double" use="required"/>
-    <xs:attribute name="max-rpm"                type="xs:double" use="required"/>
-    <xs:attribute name="max-concurrent"         type="xs:int"    use="required"/>
+    <xs:attribute name="max-rps"                type="xs:double" use="optional"/>
+    <xs:attribute name="max-rpm"                type="xs:double" use="optional"/>
+    <xs:attribute name="min-ms-per-sample"      type="xs:long"   use="optional"/>
+    <xs:attribute name="max-concurrent"         type="xs:int"    use="optional"/>
     <xs:attribute name="effective-min-delay-ms" type="xs:long"   use="required"/>
-    <xs:attribute name="effective-concurrency"  type="xs:int"    use="required"/>
-    <xs:attribute name="effective-rps"          type="xs:double" use="required"/>
+    <xs:attribute name="effective-concurrency"  type="xs:int"    use="optional"/>
+    <xs:attribute name="effective-rps"          type="xs:double" use="optional"/>
   </xs:complexType>
 
   <!-- ===================================================================
@@ -675,13 +728,16 @@
     </xs:restriction>
   </xs:simpleType>
 
-  <!-- 1.7: the versioned decision rules of methodology 1.5.0, unchanged in 1.6.0. -->
+  <!-- 1.7: the versioned decision rules of methodology 1.5.0, unchanged in
+       1.6.0; 1.10: the two SMOKE rules of methodology 1.7.0. -->
   <xs:simpleType name="DecisionRuleEnum">
     <xs:restriction base="xs:string">
       <xs:enumeration value="regression/fisher"/>
       <xs:enumeration value="compliance/exact-binomial"/>
       <xs:enumeration value="latency/precedence"/>
       <xs:enumeration value="latency/compliance-exact-binomial"/>
+      <xs:enumeration value="compliance/smoke-exact-binomial"/>
+      <xs:enumeration value="latency/smoke-compliance-exact-binomial"/>
     </xs:restriction>
   </xs:simpleType>
 
