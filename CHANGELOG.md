@@ -23,6 +23,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   `DecisionRule::direction()` returns `Option<Direction>`, `None` for the
   smoke rules. `METHODOLOGY_VERSION` is 1.7.1; `evaluate_latency_compliance`
   takes the intent.
+- **Smoke caveats and verdicts are worded for what they are.** `UNDERSIZED`
+  says a PASS at this size is not evidence of compliance and gives the
+  feasibility minimum; `SMOKE_NORMATIVE` says when FAIL is not possible at
+  the size, or points to verification where the size could demonstrate
+  compliance. The transparent statistics and the HTML report read a smoke
+  PASS as no evidence of a shortfall and a smoke FAIL as one.
 
 ### Conformance
 

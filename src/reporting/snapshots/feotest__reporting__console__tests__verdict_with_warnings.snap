@@ -9,5 +9,5 @@ Methodology:         1.7.1
 Pass rate:           1.0000 (10/10 samples)
 Elapsed:             0.5s
 
-Warning:             [UNDERSIZED] Sample size 10 is insufficient for verification-grade evidence
-Warning:             [SMOKE_NORMATIVE] Smoke test against normative threshold — verdict is not evidential
+Warning:             [UNDERSIZED] result: this size cannot demonstrate compliance with 90% (N = 10, need at least 29). A PASS at this size is not evidence of compliance; the smoke result reports only whether there is evidence of non-compliance.
+Warning:             [SMOKE_NORMATIVE] result: FAIL not possible at this size; this result carries no evidence about the service.

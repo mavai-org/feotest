@@ -590,11 +590,14 @@ mod tests {
         )
         .warning(Warning::new(
             "UNDERSIZED",
-            "Sample size 10 is insufficient for verification-grade evidence",
+            "result: this size cannot demonstrate compliance with 90% (N = 10, need at least \
+             29). A PASS at this size is not evidence of compliance; the smoke result reports \
+             only whether there is evidence of non-compliance.",
         ))
         .warning(Warning::new(
             "SMOKE_NORMATIVE",
-            "Smoke test against normative threshold \u{2014} verdict is not evidential",
+            "result: FAIL not possible at this size; this result carries no evidence about \
+             the service.",
         ))
         .build()
     }
