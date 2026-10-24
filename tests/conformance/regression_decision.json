@@ -395,6 +395,61 @@
       }
     },
     {
+      "name": "low_rate_large_n_pass_at_cutoff",
+      "inputs": {
+        "baseline_successes": 100,
+        "baseline_trials": 10000,
+        "test_samples": 10000,
+        "alpha": 0.05,
+        "observed_successes": 78
+      },
+      "expected": {
+        "cutoff_integer": 78,
+        "configuration_error": [],
+        "threshold_real": 0.0078,
+        "displayed_rate": 0.0078,
+        "size_at_assumed_common_rate": 0.0430504892646251,
+        "verdict": "PASS"
+      }
+    },
+    {
+      "name": "low_rate_large_n_fail_below_cutoff",
+      "inputs": {
+        "baseline_successes": 100,
+        "baseline_trials": 10000,
+        "test_samples": 10000,
+        "alpha": 0.05,
+        "observed_successes": 77
+      },
+      "expected": {
+        "cutoff_integer": 78,
+        "configuration_error": [],
+        "threshold_real": 0.0078,
+        "displayed_rate": 0.0078,
+        "size_at_assumed_common_rate": 0.0430504892646251,
+        "verdict": "FAIL"
+      }
+    },
+    {
+      "name": "low_rate_large_n_pass_far_above_mode",
+      "description": "A test far better than its baseline: the p-value of 9000 is about 1, so it PASSes.",
+      "inputs": {
+        "baseline_successes": 100,
+        "baseline_trials": 10000,
+        "test_samples": 10000,
+        "alpha": 0.05,
+        "observed_successes": 9000
+      },
+      "expected": {
+        "cutoff_integer": 78,
+        "configuration_error": [],
+        "threshold_real": 0.0078,
+        "displayed_rate": 0.0078,
+        "size_at_assumed_common_rate": 0.0430504892646251,
+        "verdict": "PASS"
+      }
+    },
+    {
       "name": "conflation_detector_regression_pass",
       "inputs": {
         "baseline_successes": 951,

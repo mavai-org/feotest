@@ -432,6 +432,74 @@
       }
     },
     {
+      "name": "low_rate_large_n_100_of_10000_test10000_a05",
+      "approach": "sample_size_first",
+      "inputs": {
+        "baseline_successes": 100,
+        "baseline_trials": 10000,
+        "test_samples": 10000,
+        "alpha": 0.05
+      },
+      "expected": {
+        "cutoff_integer": 78,
+        "configuration_error": [],
+        "threshold_real": 0.0078,
+        "displayed_rate": 0.0078,
+        "size_at_assumed_common_rate": 0.0430504892646251
+      }
+    },
+    {
+      "name": "low_rate_large_n_2000_of_10000_test10000_a05",
+      "approach": "sample_size_first",
+      "inputs": {
+        "baseline_successes": 2000,
+        "baseline_trials": 10000,
+        "test_samples": 10000,
+        "alpha": 0.05
+      },
+      "expected": {
+        "cutoff_integer": 1907,
+        "configuration_error": [],
+        "threshold_real": 0.1907,
+        "displayed_rate": 0.1907,
+        "size_at_assumed_common_rate": 0.0482129248181073
+      }
+    },
+    {
+      "name": "low_rate_large_n_20000_of_100000_test10000_a05",
+      "approach": "sample_size_first",
+      "inputs": {
+        "baseline_successes": 20000,
+        "baseline_trials": 100000,
+        "test_samples": 10000,
+        "alpha": 0.05
+      },
+      "expected": {
+        "cutoff_integer": 1931,
+        "configuration_error": [],
+        "threshold_real": 0.1931,
+        "displayed_rate": 0.1931,
+        "size_at_assumed_common_rate": 0.0486558992643999
+      }
+    },
+    {
+      "name": "low_rate_large_n_100_of_10000_test1000_a05",
+      "approach": "sample_size_first",
+      "inputs": {
+        "baseline_successes": 100,
+        "baseline_trials": 10000,
+        "test_samples": 1000,
+        "alpha": 0.05
+      },
+      "expected": {
+        "cutoff_integer": 5,
+        "configuration_error": [],
+        "threshold_real": 0.005,
+        "displayed_rate": 0.005,
+        "size_at_assumed_common_rate": 0.033518571254749
+      }
+    },
+    {
       "name": "tf_951_of_1000_test100_cutoff91",
       "approach": "threshold_first",
       "description": "The cutoff the rule yields at alpha 0.05; its implied alpha is at most 0.05.",
