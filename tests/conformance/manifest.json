@@ -1,6 +1,6 @@
 {
   "manifestVersion": 2,
-  "fixtureVersion": "0.15.0",
+  "fixtureVersion": "0.16.0",
   "methodologyVersion": "1.7.1",
   "fixtureSchemaVersion": 2,
   "decisionRules": [
@@ -37,11 +37,11 @@
       "file": "baseline_object.json",
       "tolerance": 0,
       "decisionRules": [],
-      "caseCount": 8,
-      "cases": ["consult_advice_eu_weekday", "consult_advice_readability_eu_weekday", "consult_advice_self_harm_probe_eu_weekday", "guardrail_sentinel_observational_only", "consult_advice_us_weekend_divergent", "perfect_baseline_moderate_n", "consult_advice_cross_policy_counterexample", "paired_evaluability_content_pattern"],
+      "caseCount": 6,
+      "cases": ["consult_advice_eu_weekday", "consult_advice_readability_eu_weekday", "consult_advice_self_harm_probe_eu_weekday", "guardrail_sentinel_observational_only", "consult_advice_us_weekend_divergent", "perfect_baseline_moderate_n"],
       "bindingFields": [],
       "informationalFields": {},
-      "md5": "5754155cbc0ebb9a33cb4d34c568d8d8"
+      "md5": "7f63a6ca7fa4e507a0997adbf392de12"
     },
     "compliance_decision": {
       "file": "compliance_decision.json",
@@ -85,21 +85,21 @@
           "version": 1
         }
       ],
-      "caseCount": 13,
-      "cases": ["regression_clear_pass_consult_advice_well_formed", "regression_clear_fail_K_far_below_cutoff", "regression_borderline_pass_K_equals_cutoff", "regression_borderline_fail_K_one_below_cutoff", "regression_inconclusive_zero_evaluable", "regression_tiny_test_near_perfect_baseline", "regression_policy_diff_conditional", "regression_policy_diff_marginal", "compliance_clear_pass", "compliance_clear_fail", "compliance_strands_disagree_consult_advice_layperson", "compliance_inconclusive_zero_evaluable", "compliance_inconclusive_feasibility_refused"],
+      "caseCount": 12,
+      "cases": ["regression_clear_pass_consult_advice_well_formed", "regression_clear_fail_K_far_below_cutoff", "regression_borderline_pass_K_equals_cutoff", "regression_borderline_fail_K_one_below_cutoff", "regression_inconclusive_zero_evaluable", "regression_tiny_test_near_perfect_baseline", "regression_no_value_trials_count_as_fail", "compliance_clear_pass", "compliance_clear_fail", "compliance_strands_disagree_consult_advice_layperson", "compliance_inconclusive_zero_evaluable", "compliance_inconclusive_feasibility_refused"],
       "bindingFields": ["clopper_pearson_lower", "configuration_error", "cutoff_integer", "displayed_rate", "feasibility_gate", "k_min", "n_c", "observed_rate_status", "operational_caution_category", "p_hat_c", "p_value", "p_value_method", "p_value_tail", "r_obs", "statistical_verdict", "verdict"],
       "informationalFields": {},
-      "md5": "4dd9b9ef24414c9ef1b5c37cdb7f1f82"
+      "md5": "e81a967a46d303dc4482ad3dcd11d044"
     },
     "criterion_verdict_observational": {
       "file": "criterion_verdict_observational.json",
       "tolerance": 0,
       "decisionRules": [],
-      "caseCount": 9,
-      "cases": ["pass_200_probes_zero_failures_conditional", "pass_200_probes_zero_failures_marginal", "pass_sentinel_scale_10_million_marginal", "fail_one_failure_in_1000_conditional", "fail_one_failure_in_1000_marginal", "inconclusive_zero_attempts_conditional", "inconclusive_zero_attempts_marginal", "policy_diff_950_evaluable_conditional_passes", "policy_diff_950_evaluable_marginal_fails"],
+      "caseCount": 5,
+      "cases": ["pass_200_probes_zero_failures", "pass_sentinel_scale_10_million", "fail_one_failure_in_1000", "inconclusive_zero_attempts", "fail_no_value_trials_count_as_fail"],
       "bindingFields": ["n_c", "r_obs", "statement", "verdict"],
       "informationalFields": {},
-      "md5": "5a790feab3fa28876a14ebfbb3109730"
+      "md5": "472df1bc0ed4b2b7953b540cf05c7f32"
     },
     "feasibility": {
       "file": "feasibility.json",
@@ -192,11 +192,11 @@
           "version": 1
         }
       ],
-      "caseCount": 13,
-      "cases": ["consult_advice_well_formed", "consult_advice_readability", "consult_advice_self_harm_probe", "consult_advice_readability_passing_counterfactual", "paired_evaluability_content_non_unit_r_obs", "cross_policy_structural_mismatch", "two_criteria_pass", "two_criteria_fail_regression", "two_criteria_fail_compliance", "two_criteria_inconclusive", "two_criteria_inconclusive_latency_pass", "two_criteria_inconclusive_latency_fail", "two_criteria_fail_dominates_inconclusive"],
-      "bindingFields": ["composite_verdict", "conformance_status", "false_compliance_envelope", "false_degradation_signal_envelope", "latency_constraints", "latency_verdict", "per_criterion_verdicts", "structural_error", "test_triggering", "test_verdict", "triggering_criteria"],
+      "caseCount": 11,
+      "cases": ["consult_advice_well_formed", "consult_advice_readability", "consult_advice_self_harm_probe", "consult_advice_readability_passing_counterfactual", "two_criteria_pass", "two_criteria_fail_regression", "two_criteria_fail_compliance", "two_criteria_inconclusive", "two_criteria_inconclusive_latency_pass", "two_criteria_inconclusive_latency_fail", "two_criteria_fail_dominates_inconclusive"],
+      "bindingFields": ["composite_verdict", "conformance_status", "false_compliance_envelope", "false_degradation_signal_envelope", "latency_constraints", "latency_verdict", "per_criterion_verdicts", "test_triggering", "test_verdict", "triggering_criteria"],
       "informationalFields": {},
-      "md5": "561a81b60779ae481a510e2a053d5673"
+      "md5": "f18f6c09e50a7dff34a3e0edfa2cc23b"
     },
     "power_analysis": {
       "file": "power_analysis.json",

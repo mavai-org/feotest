@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Conformance
+
+- The vendored oracle catches up to mavai-R **v0.16.0**, which removes the
+  per-criterion denominator policy (withdrawn since Statistical Companion
+  1.3.1) from its informational suites. Only `manifest.json` and
+  `cases.schema.json` change; no vendored case and no methodology version
+  changes.
+
 ## [0.5.0] - 2026-10-24
 
 ### Changed (breaking)

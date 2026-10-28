@@ -105,7 +105,7 @@
           ]
         },
         "inputs": {
-          "description": "Input parameters for the statistical computation. Shape varies by suite. Computation suites use a flat numeric-keyed object; per-criterion verdict suites add procedure/denominator_policy strings; baseline-object and scenario suites carry nested baseline / test_run objects.",
+          "description": "Input parameters for the statistical computation. Shape varies by suite. Computation suites use a flat numeric-keyed object; per-criterion verdict suites add a procedure string; baseline-object and scenario suites carry nested baseline / test_run objects.",
           "$ref": "#/$defs/anyJson"
         },
         "expected": {
@@ -171,14 +171,6 @@
           }
         }
       ]
-    },
-    "denominatorPolicy": {
-      "type": "string",
-      "enum": [
-        "CONDITIONAL_ON_EVALUABLE",
-        "MARGINAL_COUNT_UNEVALUABLE_AS_FAIL"
-      ],
-      "description": "Per companion §1.4.5a, the methodology defines exactly two denominator policies. Cited from R generators that need to validate this enum explicitly."
     },
     "criterionMode": {
       "type": "string",
