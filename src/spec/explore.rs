@@ -232,15 +232,16 @@ impl ExploreSpecWriter {
 
         let mut paths = Vec::new();
         for config in result.configs() {
+            let stem = keys::bounded_stem(config.name());
             let spec = Self::build_spec(
                 result.service_contract_id(),
                 result.experiment_id(),
-                config.name(),
+                &stem,
                 config.execution(),
                 config.projections(),
                 factor_values.get(config.name()),
             );
-            let path = dir.join(format!("{}.yaml", config.name()));
+            let path = dir.join(format!("{stem}.yaml"));
             let mut yaml = spec.to_yaml().map_err(std::io::Error::other)?;
 
             let projection_yaml = format_projections(config.projections());
@@ -272,15 +273,16 @@ impl ExploreSpecWriter {
         let dir = self.output_dir.join(service_contract_id);
         std::fs::create_dir_all(&dir)?;
 
+        let stem = keys::bounded_stem(config_name);
         let spec = Self::build_spec(
             service_contract_id,
             experiment_id,
-            config_name,
+            &stem,
             execution,
             projections,
             factors,
         );
-        let path = dir.join(format!("{config_name}.yaml"));
+        let path = dir.join(format!("{stem}.yaml"));
         let yaml = spec.to_yaml().map_err(std::io::Error::other)?;
         std::fs::write(&path, yaml)?;
         Ok(path)

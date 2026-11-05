@@ -9,6 +9,8 @@
 //! a short content hash of the full original, so distinct over-long
 //! identities remain distinct after truncation.
 
+use sha2::{Digest, Sha256};
+
 /// The bound on emitted mapping keys and identity strings, in characters.
 ///
 /// Comfortably under YAML's 1,024-character implicit-key limit, and equal
@@ -40,6 +42,43 @@ pub fn bounded_identity(raw: &str) -> String {
     format!("{prefix}{TRUNCATION_MARKER}{:08x}", fnv1a_32(raw))
 }
 
+/// The bound on an exploration filename stem, in UTF-8 bytes.
+///
+/// Common file systems cap a file name at 255 bytes; 200 leaves room for
+/// the `.yaml` extension. The same bounded stem is the exploration
+/// document's `configuration` (the explore format's whole-stem bound,
+/// amendment 2026-11-04).
+pub const MAX_STEM_BYTES: usize = 200;
+
+/// Hex digits of the SHA-256 appended to a bounded stem.
+const STEM_HASH_CHARS: usize = 8;
+
+/// Bounds an exploration filename stem.
+///
+/// Returns the stem unchanged when it is within [`MAX_STEM_BYTES`] UTF-8
+/// bytes, so every stem that could be written before keeps its name.
+/// Otherwise returns the longest prefix of whole characters within
+/// `MAX_STEM_BYTES - 9` bytes, `-`, and the first eight hex digits of the
+/// SHA-256 of the *whole* stem, so stems that differ only late remain
+/// distinct. Unlike [`bounded_identity`], which bounds mapping keys and
+/// condition identities in characters, this bound is in bytes, because a
+/// file name is.
+#[must_use]
+pub fn bounded_stem(stem: &str) -> String {
+    if stem.len() <= MAX_STEM_BYTES {
+        return stem.to_owned();
+    }
+    let budget = MAX_STEM_BYTES - STEM_HASH_CHARS - 1;
+    let prefix_end = stem
+        .char_indices()
+        .map(|(start, ch)| start + ch.len_utf8())
+        .take_while(|&end| end <= budget)
+        .last()
+        .unwrap_or(0);
+    let digest = format!("{:x}", Sha256::digest(stem.as_bytes()));
+    format!("{}-{}", &stem[..prefix_end], &digest[..STEM_HASH_CHARS])
+}
+
 /// 32-bit FNV-1a hash over the string's UTF-8 bytes.
 ///
 /// Chosen for stability: the truncated form of a given identity must be
@@ -62,6 +101,31 @@ const fn fnv1a_32(s: &str) -> u32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn stems_within_the_byte_bound_pass_through_unchanged() {
+        assert_eq!(bounded_stem("model-gpt-4o"), "model-gpt-4o");
+        let exactly_at_bound = "s".repeat(MAX_STEM_BYTES);
+        assert_eq!(bounded_stem(&exactly_at_bound), exactly_at_bound);
+    }
+
+    #[test]
+    fn over_long_stems_count_bytes_and_never_split_a_character() {
+        let stem = format!("prompt-x{}", "\u{e9}".repeat(150));
+        let bounded = bounded_stem(&stem);
+        assert!(bounded.len() <= MAX_STEM_BYTES);
+        assert_eq!(bounded.len(), 199);
+        assert!(bounded.starts_with(&format!("prompt-x{}-", "\u{e9}".repeat(91))));
+    }
+
+    #[test]
+    fn stems_differing_only_late_stay_distinct() {
+        let shared_prefix = "b".repeat(300);
+        assert_ne!(
+            bounded_stem(&format!("{shared_prefix}-one")),
+            bounded_stem(&format!("{shared_prefix}-two"))
+        );
+    }
 
     #[test]
     fn short_identities_pass_through_unchanged() {

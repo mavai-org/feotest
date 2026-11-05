@@ -1,6 +1,6 @@
 {
   "manifestVersion": 2,
-  "fixtureVersion": "0.16.0",
+  "fixtureVersion": "0.16.2",
   "methodologyVersion": "1.7.1",
   "fixtureSchemaVersion": 2,
   "decisionRules": [

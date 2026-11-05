@@ -7,13 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- Exploration file names are bounded to 200 UTF-8 bytes. A configuration's
+  name became its file name unbounded, so a long `Display` name could exceed
+  the common 255-byte limit, and the run failed at write time after spending
+  its samples. A longer name now keeps a prefix of whole characters and ends
+  in eight hex digits of the SHA-256 of the whole name, so distinct
+  configurations keep distinct names (`spec::keys::bounded_stem`). The
+  document's `configuration` carries the same bounded name (explore format
+  amendment 2026-11-04). Names within the bound are unchanged.
+
 ### Conformance
 
-- The vendored oracle catches up to mavai-R **v0.16.0**, which removes the
+- The vendored oracle catches up to mavai-R **v0.16.2**. v0.16.0 removes the
   per-criterion denominator policy (withdrawn since Statistical Companion
-  1.3.1) from its informational suites. Only `manifest.json` and
-  `cases.schema.json` change; no vendored case and no methodology version
-  changes.
+  1.3.1) from its informational suites; only `manifest.json` and
+  `cases.schema.json` change, and no vendored case and no methodology
+  version changes. v0.16.2 adds the exploration-stem conformance case
+  (`tests/conformance/interchange/naming-explore-stem.yaml`), whose `bound`
+  part `tests/explore_stem_conformance.rs` asserts.
 
 ## [0.5.0] - 2026-10-24
 
