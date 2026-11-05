@@ -1,0 +1,91 @@
+# Conformance case: exploration filename stems (catalog EX05, "Configuration naming").
+#
+# An explore emitter names each configuration's artefact by a readable stem, and the same
+# string is the document's configuration identity (mavai-explore-1, amendment 2026-11-04).
+# This case fixes the whole-stem bound: a stem of at most 200 UTF-8 bytes is unchanged; a
+# longer one becomes the longest prefix of whole characters within 191 bytes, '-', and the
+# first 8 hex characters of the SHA-256 (UTF-8) of the whole stem.
+#
+# bound: given a sanitised stem, the expected bounded stem. Every emitter asserts these.
+# stems: given ordered factors, the expected stem (per-value truncation, joining, sanitising,
+#   then the bound). Values are strings or integers, and the inputs avoid runs of characters
+#   that sanitise to '_' and non-ASCII letters: EX05 does not yet pin the per-value step for
+#   those, and the emitters differ there. An emitter that derives its stem from factor values
+#   asserts these.
+#
+# Every expected value is recomputed independently by scripts/validate_interchange.R
+# (R/explore_stem.R).
+
+case: naming-explore-stem
+maxBytes: 200
+hashChars: 8
+
+bound:
+  - id: within-bound
+    note: "A stem within the bound is unchanged."
+    stem: "model-gpt-4o_temperature-0.7"
+    expected: "model-gpt-4o_temperature-0.7"
+  - id: at-bound
+    note: "Exactly 200 bytes: unchanged."
+    stem: "model-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    expected: "model-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  - id: one-byte-over
+    note: "201 bytes: a 191-byte prefix, '-', and 8 hex characters."
+    stem: "model-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    expected: "model-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-543c1b82"
+  - id: two-byte-characters
+    note: "The prefix ends at 190 bytes, because the next two-byte character would cross 191; the result is 199 bytes."
+    stem: "prompt-xéééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé"
+    expected: "prompt-xééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé-5a73ce04"
+  - id: three-byte-characters
+    note: "Three-byte characters: the prefix ends at 190 bytes; the result is 199 bytes."
+    stem: "prompt-漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢"
+    expected: "prompt-漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢-72da97a1"
+  - id: late-difference-one
+    note: "With late-difference-two: the same 191-byte prefix, distinct hashes."
+    stem: "prompt-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb-ending-one"
+    expected: "prompt-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb-63b6354c"
+  - id: late-difference-two
+    note: "With late-difference-one."
+    stem: "prompt-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb-ending-two"
+    expected: "prompt-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb-65196b22"
+
+stems:
+  - id: six-factors
+    note: "171 bytes: within the bound, unchanged by it."
+    factors:
+      - {name: advisorModel, value: "mistral-small-4"}
+      - {name: advisorSystemPrompt, value: "You advise travellers on the health risks of their destination."}
+      - {name: advisorTemperature, value: "0.2"}
+      - {name: advisorMaxTokens, value: 200}
+      - {name: guardrailKind, value: "llm-judge"}
+      - {name: responseSchema, value: "advice-v1"}
+    expected: "advisorModel-mistral-small-4_advisorSystemPrompt-You_advise_travellers_on-4e92_advisorTemperature-0.2_advisorMaxTokens-200_guardrailKind-llm-judge_responseSchema-advice-v1"
+  - id: ten-factors
+    note: "301 bytes before the bound; the EX05 worked example."
+    factors:
+      - {name: advisorModel, value: "mistral-small-4"}
+      - {name: advisorSystemPrompt, value: "You advise travellers on the health risks of their destination."}
+      - {name: advisorTemperature, value: "0.2"}
+      - {name: advisorMaxTokens, value: 200}
+      - {name: guardrailModel, value: "mistral-small-4"}
+      - {name: guardrailSystemPrompt, value: "You check a reply that an advisor wrote for unsafe advice."}
+      - {name: guardrailTemperature, value: "0.0"}
+      - {name: guardrailMaxTokens, value: 50}
+      - {name: guardrailKind, value: "llm-judge"}
+      - {name: responseSchema, value: "advice-v1"}
+    expected: "advisorModel-mistral-small-4_advisorSystemPrompt-You_advise_travellers_on-4e92_advisorTemperature-0.2_advisorMaxTokens-200_guardrailModel-mistral-small-4_guardrailSystemPrompt-You_check_a_rep-247b4759"
+  - id: ten-factors-late-difference
+    note: "As ten-factors with responseSchema advice-v2: the same prefix, a distinct hash."
+    factors:
+      - {name: advisorModel, value: "mistral-small-4"}
+      - {name: advisorSystemPrompt, value: "You advise travellers on the health risks of their destination."}
+      - {name: advisorTemperature, value: "0.2"}
+      - {name: advisorMaxTokens, value: 200}
+      - {name: guardrailModel, value: "mistral-small-4"}
+      - {name: guardrailSystemPrompt, value: "You check a reply that an advisor wrote for unsafe advice."}
+      - {name: guardrailTemperature, value: "0.0"}
+      - {name: guardrailMaxTokens, value: 50}
+      - {name: guardrailKind, value: "llm-judge"}
+      - {name: responseSchema, value: "advice-v2"}
+    expected: "advisorModel-mistral-small-4_advisorSystemPrompt-You_advise_travellers_on-4e92_advisorTemperature-0.2_advisorMaxTokens-200_guardrailModel-mistral-small-4_guardrailSystemPrompt-You_check_a_rep-a1b572d2"
