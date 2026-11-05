@@ -33,7 +33,7 @@ fn the_case_bound_matches_the_writer() {
 fn bounded_stem_gives_every_expected_stem() {
     let case = conformance_case();
     let entries = case["bound"].as_sequence().unwrap();
-    assert!(!entries.is_empty());
+    assert_ne!(entries.len(), 0);
     for entry in entries {
         let id = entry["id"].as_str().unwrap();
         let expected = entry["expected"].as_str().unwrap();
