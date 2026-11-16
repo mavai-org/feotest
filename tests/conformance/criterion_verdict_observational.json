@@ -1,0 +1,82 @@
+{
+  "suite": "criterion_verdict_observational",
+  "methodologyVersion": "1.7.1",
+  "fixtureSchemaVersion": 2,
+  "decisionRules": [],
+  "description": "Per-observational-criterion verdict cases per the statistical companion §1.4.5 (observational verdict rule) and §1.4.5a (the denominator). The denominator n_c is the number of trials; a trial that produced no testable value is a FAIL. r_obs is the §1.5.2 diagnostic. The verdict is deterministic on (n_c, K_c): PASS if K_c == n_c and n_c > 0; FAIL if K_c < n_c; INCONCLUSIVE if n_c == 0. Observational criteria carry no Wilson construction and no alpha.",
+  "method": "Deterministic application of §1.4.5's three-outcome rule at the denominator n_c = n_attempted.",
+  "tolerance": 0,
+  "cases": [
+    {
+      "name": "pass_200_probes_zero_failures",
+      "inputs": {
+        "n_attempted": 200,
+        "n_evaluable": 200,
+        "K_c": 200
+      },
+      "expected": {
+        "n_c": 200,
+        "r_obs": 1,
+        "verdict": "PASS",
+        "statement": "No failure observed across 200 trials drawn from the criterion's validation set."
+      }
+    },
+    {
+      "name": "pass_sentinel_scale_10_million",
+      "inputs": {
+        "n_attempted": 10000000,
+        "n_evaluable": 10000000,
+        "K_c": 10000000
+      },
+      "expected": {
+        "n_c": 10000000,
+        "r_obs": 1,
+        "verdict": "PASS",
+        "statement": "No failure observed across 10000000 trials drawn from the criterion's validation set."
+      }
+    },
+    {
+      "name": "fail_one_failure_in_1000",
+      "inputs": {
+        "n_attempted": 1000,
+        "n_evaluable": 1000,
+        "K_c": 999
+      },
+      "expected": {
+        "n_c": 1000,
+        "r_obs": 1,
+        "verdict": "FAIL",
+        "statement": "1 failure(s) of the criterion were observed across 1000 trials."
+      }
+    },
+    {
+      "name": "inconclusive_zero_attempts",
+      "inputs": {
+        "n_attempted": 0,
+        "n_evaluable": 0,
+        "K_c": 0
+      },
+      "expected": {
+        "n_c": 0,
+        "r_obs": 0,
+        "verdict": "INCONCLUSIVE",
+        "statement": "No conclusive observation of the criterion was available in the run."
+      }
+    },
+    {
+      "name": "fail_no_value_trials_count_as_fail",
+      "inputs": {
+        "n_attempted": 1000,
+        "n_evaluable": 950,
+        "K_c": 950
+      },
+      "expected": {
+        "n_c": 1000,
+        "r_obs": 0.95,
+        "verdict": "FAIL",
+        "statement": "50 failure(s) of the criterion were observed across 1000 trials."
+      },
+      "description": "50 of 1000 trials produced no testable value: each is a FAIL with its reason, so n_c = 1000 and K_c = 950 → FAIL (§1.4.5a); r_obs = 0.95 is the diagnostic (§1.5.2)."
+    }
+  ]
+}

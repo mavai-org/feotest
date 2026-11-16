@@ -29,6 +29,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Conformance
 
+- The vendored oracle catches up to mavai-R **v0.16.3**, whose manifest
+  changes only its fixture version, and vendors the informational
+  `criterion_verdict_observational` suite: its zero-failures cases run
+  through the production path, which asserts their `n_c` and `verdict`. The
+  suite stays outside the committed scope, since feotest computes neither
+  its `r_obs` diagnostic nor its `statement` wording, and is still reported
+  as unaddressed.
+
 - The vendored oracle catches up to mavai-R **v0.16.0**, which removes the
   per-criterion denominator policy (withdrawn since Statistical Companion
   1.3.1) from its informational suites. Only `manifest.json` and
