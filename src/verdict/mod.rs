@@ -11,7 +11,7 @@ mod assessment;
 pub mod enforcement;
 mod record;
 
-pub use assessment::{CriterionRow, FunctionalAssessment};
+pub use assessment::{CriterionMode, CriterionRow, FunctionalAssessment};
 pub use enforcement::AssertionEnforcement;
 pub use record::{
     BaselineProvenance, ComplianceEvidence, CovariateStatus, DesignDisclosure, Misalignment,

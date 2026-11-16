@@ -49,7 +49,12 @@ const TOKENS_SAVED_KEY: &str = "sizing-tokens-saved";
 
 /// Computes the sizing-transparency entries one verdict record carries.
 ///
-/// The approach entry (with its declared parameters) is always present; a
+/// A test whose criteria are all observational discloses its sample count
+/// alone, whatever the approach: the operational approaches size
+/// inferential claims, and a zero-failures criterion makes none, so it
+/// states no approach and no declared minimum pass rate (Statistical
+/// Companion §1.4.5). Otherwise the approach entry (with its declared
+/// parameters) is always present; a
 /// threshold-first plan against a baseline adds the implied alpha of its
 /// cutoff. The downsizing pair — the detectable rate at the run's size and
 /// the estimated savings versus a baseline-sized run — is present iff the
@@ -63,12 +68,16 @@ const TOKENS_SAVED_KEY: &str = "sizing-tokens-saved";
 /// whole-contract tally.
 // mavai-ref: JVI-RX30FM8 — do not remove (resolves in mavai-orchestrator)
 pub(super) fn sizing_disclosure_entries(
+    observational: bool,
     approach: &ThresholdApproach,
     plan: &RunPlan,
     aggregate: Option<&CriterionBaselineTally>,
     criterion_tallies: &[CriterionBaselineTally],
     execution: &ExecutionSummary,
 ) -> Vec<(String, String)> {
+    if observational {
+        return observational_entries(approach, execution.samples_planned());
+    }
     let mut entries = approach_entries(approach, execution.samples_planned());
     if let Some(implied) = plan.implied_alpha
         && let (Some(alpha), Some(sound)) = (implied.alpha(), implied.is_sound())
@@ -86,6 +95,17 @@ pub(super) fn sizing_disclosure_entries(
 /// Appends one entry.
 fn push(entries: &mut Vec<(String, String)>, key: &str, value: String) {
     entries.push((key.to_owned(), value));
+}
+
+/// The sample count of an all-observational test: the count the approach
+/// declared, or the planned count when the approach computed it.
+fn observational_entries(approach: &ThresholdApproach, planned: u32) -> Vec<(String, String)> {
+    let samples = match approach {
+        ThresholdApproach::SampleSizeFirst { samples, .. }
+        | ThresholdApproach::ThresholdFirst { samples, .. } => *samples,
+        ThresholdApproach::ConfidenceFirst { .. } | ThresholdApproach::RiskDriven { .. } => planned,
+    };
+    vec![(DECLARED_SAMPLES_KEY.to_owned(), samples.to_string())]
 }
 
 /// The approach's name and its declared parameters.
@@ -272,11 +292,62 @@ mod tests {
             samples: 100,
             min_pass_rate: 0.9,
         };
-        let entries =
-            sizing_disclosure_entries(&approach, &plan(100), None, &[], &execution(100, 5000, 0));
+        let entries = sizing_disclosure_entries(
+            false,
+            &approach,
+            &plan(100),
+            None,
+            &[],
+            &execution(100, 5000, 0),
+        );
         assert_eq!(value(&entries, APPROACH_KEY), Some("threshold-first"));
         assert_eq!(value(&entries, DECLARED_SAMPLES_KEY), Some("100"));
         assert_eq!(value(&entries, DECLARED_MIN_PASS_RATE_KEY), Some("0.9"));
+    }
+
+    #[test]
+    fn an_observational_test_discloses_its_sample_count_alone() {
+        // A threshold-first plan declaring a minimum pass rate of 1.0 would
+        // otherwise present the zero-failures criterion as a 100% threshold.
+        let approach = ThresholdApproach::ThresholdFirst {
+            samples: 300,
+            min_pass_rate: 1.0,
+        };
+        let mut with_inversion = plan(300);
+        with_inversion.implied_alpha = Some(regression::implied_alpha(951, 1000, 300, 280));
+        let entries = sizing_disclosure_entries(
+            true,
+            &approach,
+            &with_inversion,
+            Some(&tally("aggregate", 960, 1000)),
+            &[],
+            &execution(300, 5000, 120_000),
+        );
+        assert_eq!(
+            entries,
+            vec![(DECLARED_SAMPLES_KEY.to_owned(), "300".to_owned())]
+        );
+    }
+
+    #[test]
+    fn an_observational_test_of_a_computed_size_discloses_the_planned_count() {
+        let approach = ThresholdApproach::RiskDriven {
+            design_alternative_rate: 0.85,
+            confidence: 0.95,
+            target_power: 0.8,
+        };
+        let entries = sizing_disclosure_entries(
+            true,
+            &approach,
+            &plan(180),
+            None,
+            &[],
+            &execution(180, 9000, 0),
+        );
+        assert_eq!(
+            entries,
+            vec![(DECLARED_SAMPLES_KEY.to_owned(), "180".to_owned())]
+        );
     }
 
     #[test]
@@ -286,8 +357,14 @@ mod tests {
             confidence: 0.95,
             target_power: 0.8,
         };
-        let entries =
-            sizing_disclosure_entries(&approach, &plan(180), None, &[], &execution(180, 9000, 0));
+        let entries = sizing_disclosure_entries(
+            false,
+            &approach,
+            &plan(180),
+            None,
+            &[],
+            &execution(180, 9000, 0),
+        );
         assert_eq!(
             value(&entries, APPROACH_KEY),
             Some("confidence-first (risk-driven)")
@@ -307,6 +384,7 @@ mod tests {
         let mut with_inversion = plan(100);
         with_inversion.implied_alpha = Some(regression::implied_alpha(951, 1000, 100, 91));
         let entries = sizing_disclosure_entries(
+            false,
             &approach,
             &with_inversion,
             None,
@@ -320,6 +398,7 @@ mod tests {
     #[test]
     fn downsizing_pair_appears_iff_planned_below_baseline_size() {
         let downsized = sizing_disclosure_entries(
+            false,
             &sample_size_first(),
             &plan(100),
             Some(&tally("aggregate", 960, 1000)),
@@ -330,6 +409,7 @@ mod tests {
         assert!(value(&downsized, SAVED_FRACTION_KEY).is_some());
 
         let full_size = sizing_disclosure_entries(
+            false,
             &sample_size_first(),
             &plan(100),
             Some(&tally("aggregate", 96, 100)),
@@ -340,6 +420,7 @@ mod tests {
         assert!(value(&full_size, SAVED_FRACTION_KEY).is_none());
 
         let baseline_less = sizing_disclosure_entries(
+            false,
             &sample_size_first(),
             &plan(100),
             None,
@@ -356,6 +437,7 @@ mod tests {
             tally("content faithful", 940, 1000),
         ];
         let entries = sizing_disclosure_entries(
+            false,
             &sample_size_first(),
             &plan(100),
             Some(&tally("aggregate", 960, 1000)),
@@ -378,6 +460,7 @@ mod tests {
         // 100 samples over 5,000 ms and 120,000 tokens: 50 ms and 1,200
         // tokens per sample; 900 saved samples versus the baseline's 1,000.
         let entries = sizing_disclosure_entries(
+            false,
             &sample_size_first(),
             &plan(100),
             Some(&tally("aggregate", 960, 1000)),
@@ -392,6 +475,7 @@ mod tests {
     #[test]
     fn token_half_degrades_away_when_no_tokens_are_recorded() {
         let entries = sizing_disclosure_entries(
+            false,
             &sample_size_first(),
             &plan(100),
             Some(&tally("aggregate", 960, 1000)),
@@ -405,6 +489,7 @@ mod tests {
     #[test]
     fn a_perfect_baseline_suppresses_the_downsizing_pair() {
         let entries = sizing_disclosure_entries(
+            false,
             &sample_size_first(),
             &plan(100),
             Some(&tally("aggregate", 1000, 1000)),

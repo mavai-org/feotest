@@ -171,9 +171,7 @@
         <xsl:value-of select="v:functional/@successes"/>
         <xsl:text>/</xsl:text>
         <xsl:value-of select="v:functional/@successes + v:functional/@failures"/>
-        <xsl:text> (</xsl:text>
-        <xsl:value-of select="v:functional/@pass-rate"/>
-        <xsl:text>)</xsl:text>
+        <xsl:call-template name="functional-rate"/>
         <xsl:if test="v:per-criterion/v:composite/@mode='advisory'">
           <xsl:text> </xsl:text>
           <span class="advisory-tag" title="advisory: decided and reported, does not fail the test">
@@ -281,9 +279,7 @@
       <xsl:value-of select="v:functional/@successes"/>
       <xsl:text>/</xsl:text>
       <xsl:value-of select="v:functional/@successes + v:functional/@failures"/>
-      <xsl:text> (</xsl:text>
-      <xsl:value-of select="v:functional/@pass-rate"/>
-      <xsl:text>)</xsl:text>
+      <xsl:call-template name="functional-rate"/>
       <xsl:if test="v:statistics">
         <xsl:text>&#10;Threshold: </xsl:text>
         <xsl:value-of select="v:statistics/@threshold"/>
@@ -329,6 +325,22 @@
         </xsl:for-each>
       </xsl:if>
     </pre>
+  </xsl:template>
+
+  <!-- The functional figure's parenthesis: the pass rate, or - when every
+       criterion is observational (zero failures) - no rate at all, since
+       such a criterion estimates none. -->
+  <xsl:template name="functional-rate">
+    <xsl:choose>
+      <xsl:when test="v:per-criterion/v:criterion and not(v:per-criterion/v:criterion[not(@mode='observational')])">
+        <xsl:text> (zero failures)</xsl:text>
+      </xsl:when>
+      <xsl:otherwise>
+        <xsl:text> (</xsl:text>
+        <xsl:value-of select="v:functional/@pass-rate"/>
+        <xsl:text>)</xsl:text>
+      </xsl:otherwise>
+    </xsl:choose>
   </xsl:template>
 
   <!-- ===================================================================

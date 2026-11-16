@@ -277,4 +277,37 @@ mod tests {
         assert!(XSLT_STYLESHEET.contains("<xsl:stylesheet"));
         assert!(XSLT_STYLESHEET.contains("http://mavai.org/verdict/1.0"));
     }
+
+    #[test]
+    fn a_zero_failures_record_shows_its_counts_without_a_rate() {
+        let row = crate::verdict::CriterionRow::new("no-harm", 300, 0, vec![], None, Verdict::Pass)
+            .observational();
+        let record = VerdictRecord::builder(
+            TestIdentity::new("guardrail"),
+            Verdict::Pass,
+            TestIntent::Verification,
+            sample_execution(300, 300, 300, 0),
+            FunctionalAssessment::single(row),
+        )
+        .environment(vec![(
+            "sizing-declared-samples".to_owned(),
+            "300".to_owned(),
+        )])
+        .build();
+        match HtmlReportWriter::generate(&[record], None) {
+            Ok(html) => {
+                assert!(html.contains("300/300 (zero failures)"), "{html}");
+                assert!(
+                    html.contains("Functional: 300/300 (zero failures)"),
+                    "{html}"
+                );
+                assert!(!html.contains("1.0000"), "{html}");
+                assert!(!html.contains("Threshold:"), "{html}");
+            }
+            Err(e) if e.kind() == io::ErrorKind::NotFound => {
+                eprintln!("skipping HTML report test: {e}");
+            }
+            Err(e) => panic!("unexpected error: {e}"),
+        }
+    }
 }

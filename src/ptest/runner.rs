@@ -508,9 +508,11 @@ fn decide<O: 'static>(
         criteria,
         &mut warnings,
     );
+    // The record's statistics describe an inferential criterion only: the
+    // first one a rule decided, never an observational one (§1.4.5).
     let analysis = rows
-        .first()
-        .and_then(|row| row.statistical_analysis().cloned());
+        .iter()
+        .find_map(|row| row.statistical_analysis().cloned());
     let (provenance, baseline_prov, disclosure_entries) =
         build_record_provenance(criteria, prepared, &rows, expiration_info, summary);
 
@@ -584,8 +586,9 @@ fn build_record_provenance(
     Vec<(String, String)>,
 ) {
     let baseline_spec = prepared.baseline_spec.as_ref();
+    let observational = !rows.is_empty() && rows.iter().all(|row| row.mode().is_observational());
     let provenance = build_provenance(
-        criteria.threshold_origin,
+        record_origin(criteria.threshold_origin, observational),
         baseline_spec,
         criteria.contract_ref.as_deref(),
         expiration_info,
@@ -593,6 +596,7 @@ fn build_record_provenance(
     let baseline_prov = baseline_spec.map(|spec| build_baseline_provenance(spec, rows));
     let aggregate = baseline_spec.map(aggregate_tally);
     let disclosure_entries = disclosure::sizing_disclosure_entries(
+        observational,
         &criteria.approach,
         &prepared.plan,
         aggregate.as_ref(),
@@ -600,6 +604,19 @@ fn build_record_provenance(
         summary,
     );
     (provenance, baseline_prov, disclosure_entries)
+}
+
+/// The origin the record's provenance states. A test whose criteria are all
+/// observational states its criteria's origin — the normative origin the
+/// test declared, as a declared requirement records it, else
+/// `Unspecified` — never the empirical default: a zero-failures criterion
+/// derives nothing from a baseline.
+const fn record_origin(declared: ThresholdOrigin, observational: bool) -> ThresholdOrigin {
+    if observational && !declared.is_normative() {
+        ThresholdOrigin::Unspecified
+    } else {
+        declared
+    }
 }
 
 /// Derives a baseline provenance record from the resolved spec — filename,
@@ -1138,6 +1155,26 @@ mod tests {
 
     fn codes(warnings: &[Warning]) -> Vec<&str> {
         warnings.iter().map(Warning::code).collect()
+    }
+
+    #[test]
+    fn an_observational_test_states_its_criteria_origin_not_the_empirical_default() {
+        assert_eq!(
+            record_origin(ThresholdOrigin::Empirical, true),
+            ThresholdOrigin::Unspecified
+        );
+        assert_eq!(
+            record_origin(ThresholdOrigin::Policy, true),
+            ThresholdOrigin::Policy
+        );
+        assert_eq!(
+            record_origin(ThresholdOrigin::Empirical, false),
+            ThresholdOrigin::Empirical
+        );
+        assert_eq!(
+            record_origin(ThresholdOrigin::Sla, false),
+            ThresholdOrigin::Sla
+        );
     }
 
     #[test]
