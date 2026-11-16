@@ -119,6 +119,12 @@ pub fn render_verdict_line(record: &VerdictRecord, writer: &mut dyn fmt::Write) 
             analysis.decision_rule(),
             func.total(),
         )
+    } else if func.mode().is_observational() {
+        write!(
+            writer,
+            "feotest: {name} \u{2014} {verdict} (zero failures: {})",
+            func.observation(),
+        )
     } else {
         write!(
             writer,
@@ -198,7 +204,10 @@ fn write_header(
         .test_name()
         .unwrap_or_else(|| record.identity().service_contract_id());
     write_line(w, &format!("Test:        {name}"))?;
-    write_line(w, &format!("Approach:    {}", approach.canonical_name()))?;
+    write_line(
+        w,
+        &format!("Approach:    {}", approach_label(record, approach)),
+    )?;
     write_line(w, &format!("Intent:      {}", record.intent()))?;
     write_line(w, &format!("Methodology: {}", record.methodology_version()))?;
 
@@ -210,6 +219,17 @@ fn write_header(
     }
 
     Ok(())
+}
+
+/// The approach the header names: none for a test whose criteria are all
+/// observational, since the approaches size inferential claims and a
+/// zero-failures criterion makes none.
+fn approach_label(record: &VerdictRecord, approach: &ThresholdApproach) -> &'static str {
+    if record.functional_assessment().is_observational() {
+        "none (zero failures, decided by observation)"
+    } else {
+        approach.canonical_name()
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -539,6 +559,18 @@ fn verdict_reasoning(record: &VerdictRecord) -> String {
         .latency()
         .is_some_and(|dimension| !dimension.mode().is_enforced());
     match record.verdict() {
+        Some(Verdict::Pass)
+            if functional_binds
+                && !latency_advisory
+                && record.functional_assessment().is_observational() =>
+        {
+            format!(
+                "No criterion observed a failure, so every zero-failures criterion \
+                 passed by observation, with no rule, and every enforced latency \
+                 constraint passed: {}.",
+                record.verdict_reason()
+            )
+        }
         Some(Verdict::Pass) if functional_binds && !latency_advisory => format!(
             "Every criterion passed under its rule ({rule} for the first) and every \
              enforced latency constraint passed: {}.",
@@ -1029,5 +1061,54 @@ mod tests {
         let reasoning = verdict_reasoning(&record);
         assert!(reasoning.starts_with("Every enforced assertion passed; an advisory dimension"));
         assert!(reasoning.ends_with("no assertion enforced; functional advisory."));
+    }
+
+    /// A zero-failures criterion over `pass + fail` trials: observational,
+    /// with no statistics.
+    fn zero_failures_record(pass: u32, fail: u32) -> VerdictRecord {
+        let verdict = if fail == 0 {
+            Verdict::Pass
+        } else {
+            Verdict::Fail
+        };
+        let row = CriterionRow::new("no-harm", pass, fail, vec![], None, verdict).observational();
+        VerdictRecord::builder(
+            TestIdentity::new("guardrail"),
+            verdict,
+            TestIntent::Verification,
+            execution(pass + fail, &row, TerminationReason::Completed),
+            FunctionalAssessment::single(row),
+        )
+        .spec_provenance(SpecProvenance::new(ThresholdOrigin::Policy))
+        .build()
+    }
+
+    #[test]
+    fn a_zero_failures_verdict_line_states_counts_not_a_rate() {
+        let mut pass = String::new();
+        render_verdict_line(&zero_failures_record(300, 0), &mut pass).unwrap();
+        assert_eq!(
+            pass,
+            "feotest: guardrail \u{2014} PASS (zero failures: no failure in 300 trials)"
+        );
+        let mut fail = String::new();
+        render_verdict_line(&zero_failures_record(2989, 11), &mut fail).unwrap();
+        assert_eq!(
+            fail,
+            "feotest: guardrail \u{2014} FAIL (zero failures: 11 failures in 3000 trials)"
+        );
+    }
+
+    #[test]
+    fn a_zero_failures_report_names_no_approach_rate_or_threshold() {
+        let output = render_with(&zero_failures_record(300, 0), &threshold_first(300, 1.0));
+        assert!(output.contains("Approach:    none (zero failures, decided by observation)"));
+        assert!(
+            output.contains("criterion passed by observation"),
+            "{output}"
+        );
+        for absent in ["threshold-first", "pass rate", "Threshold", "100%"] {
+            assert!(!output.contains(absent), "{absent} in:\n{output}");
+        }
     }
 }

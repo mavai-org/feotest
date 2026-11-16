@@ -140,12 +140,17 @@ impl JunitXmlWriter {
             exec.samples_planned()
         ));
         if let Some(func) = verdict.functional_summary() {
-            lines.push(format!(
-                "Pass rate: {:.4} ({}/{})",
-                func.pass_rate(),
-                func.pass(),
-                func.total()
-            ));
+            if func.mode().is_observational() {
+                // A zero-failures criterion estimates no rate (§1.4.5).
+                lines.push(format!("Observed: {} (zero failures)", func.observation()));
+            } else {
+                lines.push(format!(
+                    "Pass rate: {:.4} ({}/{})",
+                    func.pass_rate(),
+                    func.pass(),
+                    func.total()
+                ));
+            }
         }
 
         if let Some(stats) = verdict.statistical_analysis() {
@@ -482,5 +487,33 @@ mod tests {
         let xml = String::from_utf8(buf).unwrap();
 
         assert!(xml.contains("name=\"no-name-service\""));
+    }
+
+    #[test]
+    fn a_zero_failures_verdict_states_counts_not_a_rate() {
+        let row =
+            CriterionRow::new("no-harm", 2989, 11, vec![], None, Verdict::Fail).observational();
+        let record = VerdictRecord::builder(
+            TestIdentity::new("guardrail"),
+            Verdict::Fail,
+            TestIntent::Verification,
+            ExecutionSummary::new(
+                3000,
+                3000,
+                2989,
+                11,
+                TerminationInfo::new(TerminationReason::Completed),
+                CostSummary::new(Duration::from_millis(500), 1000, 3000),
+            ),
+            FunctionalAssessment::single(row),
+        )
+        .build();
+        let detail = JunitXmlWriter::build_detail(&record);
+        assert!(
+            detail.contains("Observed: 11 failures in 3000 trials (zero failures)"),
+            "{detail}"
+        );
+        assert!(!detail.contains("Pass rate"), "{detail}");
+        assert!(!detail.contains("Threshold"), "{detail}");
     }
 }

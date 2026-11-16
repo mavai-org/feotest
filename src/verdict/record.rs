@@ -196,9 +196,20 @@ impl VerdictRecord {
     /// The rule that decided the whole test, when exactly one did: every
     /// judged criterion and latency evaluation of the enforced dimensions was
     /// decided by it. `None` when several rules decided (each is stated where
-    /// it decided) or none did; an advisory dimension's rules do not count.
+    /// it decided), when an enforced criterion was decided by observation
+    /// (a zero-failures criterion, decided by no rule), or when none did; an
+    /// advisory dimension's rules do not count.
     #[must_use]
     pub fn single_decision_rule(&self) -> Option<DecisionRule> {
+        let assessment = &self.functional_assessment;
+        if assessment.mode().is_enforced()
+            && assessment
+                .criteria()
+                .iter()
+                .any(|row| row.mode().is_observational())
+        {
+            return None;
+        }
         let mut rules = self.decisions().map(|(rule, _)| rule);
         let first = rules.next()?;
         rules.all(|rule| rule == first).then_some(first)
@@ -257,11 +268,13 @@ impl VerdictRecord {
         &self.functional_assessment
     }
 
-    /// The first criterion row, for renderers that show one functional
-    /// figure; `None` for a refused configuration, which judged nothing.
+    /// The criterion row a renderer showing one functional figure shows:
+    /// the row the record's statistics describe when it has any, never an
+    /// observational row beside an inferential one; `None` for a refused
+    /// configuration, which judged nothing.
     #[must_use]
     pub(crate) fn functional_summary(&self) -> Option<&CriterionRow> {
-        self.functional_assessment.criteria().first()
+        self.functional_assessment.summary_row()
     }
 
     /// Statistical analysis, if performed.
@@ -1212,6 +1225,9 @@ fn judged_comparison(row: Option<&CriterionRow>) -> String {
     let Some(row) = row else {
         return "no criterion judged".to_owned();
     };
+    if row.mode().is_observational() {
+        return format!("zero failures: {}", row.observation());
+    }
     let Some(analysis) = row.statistical_analysis() else {
         return format!("{} of {} observed", row.pass(), row.total());
     };
@@ -1315,7 +1331,12 @@ fn binding_reason(
     triggering: &[Trigger],
 ) -> String {
     let is_budget_exhausted = execution.termination().reason().is_budget_exhausted();
-    let first_row = binding_rows.first();
+    // A PASS is explained by the first criterion a rule decided, when one
+    // did: an observational criterion beside it passed by observation alone.
+    let first_row = binding_rows
+        .iter()
+        .find(|row| row.statistical_analysis().is_some())
+        .or_else(|| binding_rows.first());
     let single_row_trigger = matches!(
         (first_row, triggering),
         (Some(row), [trigger]) if binding_rows.len() == 1

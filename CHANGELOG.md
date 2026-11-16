@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- **Verdict XML moves to schema 1.11**, and a zero-failures criterion is
+  never presented as a rate or a threshold (Statistical Companion §1.4.5).
+  Its `<criterion>` row states `mode="observational"` and its counts alone,
+  no longer an `observed-rate`; `<statistics>` describe the first criterion
+  a rule decided, so a zero-failures criterion declared first no longer
+  hides a later criterion's statistics, and a test whose criteria are all
+  zero-failures carries none. Such a test discloses its sample count alone,
+  with no `sizing-approach` and no `sizing-declared-min-pass-rate` whatever
+  the approach declares, and its `<provenance>` states the normative origin
+  it declared, else `UNSPECIFIED`, rather than the empirical default.
+  `<verdict>` names no single rule when a zero-failures criterion was
+  decided by observation beside it.
+- `CriterionRow` carries its `CriterionMode` (`inferential` or
+  `observational`), and the console, JUnit, transparent-statistics and HTML
+  output word a zero-failures criterion by its counts ("no failure in 300
+  trials", "11 failures in 3000 trials") with no pass rate, threshold or
+  approach; a mixed test's summary figure is its inferential criterion's.
+
 ### Conformance
 
 - The vendored oracle catches up to mavai-R **v0.16.0**, which removes the

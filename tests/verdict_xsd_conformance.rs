@@ -2,19 +2,22 @@
 //!
 //! The verdict XML this crate emits is validated against the vendored copy
 //! of the published family schema
-//! (`tests/conformance/interchange/verdict-1.10.xsd`, pinned per family
+//! (`tests/conformance/interchange/verdict-1.11.xsd`, pinned per family
 //! schema release) — not merely against this crate's own snapshots, which
 //! could drift together with the emitter. The records validated come from
 //! the production run path wherever the shape can be produced by a run: a
 //! decided record naming its rules, a record with a saturated latency
-//! evaluation, a record with an explicit latency requirement, and a refused
-//! configuration; a record whose functional dimension is advisory is
+//! evaluation, a record with an explicit latency requirement, zero-failures
+//! records that pass and fail, a zero-failures criterion beside a
+//! requirement, and a refused configuration; a record whose functional dimension is advisory is
 //! assembled by hand, the switch being the run's environment. The
 //! co-constraints XSD 1.0 cannot state (a refused record states codes and no
 //! value; a saturated evaluation has no threshold and no baseline rank; the
 //! latency dimension states its mode exactly when it states its verdict; a
 //! criterion row's `required-pass` is the count its rule decided with,
-//! absent when no count can pass, and under smoke the smoke rule's count)
+//! absent when no count can pass, and under smoke the smoke rule's count;
+//! an observational row states its counts alone, and `<statistics>` and the
+//! sizing approach describe inferential criteria only)
 //! are asserted here. Validation shells out
 //! to `xmllint`; when it is not installed the test skips, mirroring the HTML
 //! report tests' handling of `xsltproc`.
@@ -46,7 +49,7 @@ mod common;
 /// The vendored published schema.
 const XSD: &str = concat!(
     env!("CARGO_MANIFEST_DIR"),
-    "/tests/conformance/interchange/verdict-1.10.xsd"
+    "/tests/conformance/interchange/verdict-1.11.xsd"
 );
 
 /// Validates a record against the published schema, returning the record's
@@ -269,7 +272,7 @@ fn a_decided_record_naming_its_rules_validates() {
     );
     assert!(!record.is_refused());
     let xml = assert_validates(&record);
-    assert!(xml.contains("version=\"1.10\""));
+    assert!(xml.contains("version=\"1.11\""));
     assert!(xml.contains("methodology-version=\"1.7.1\""));
     assert!(xml.contains("mode=\"enforced\"/>"));
     assert!(xml.contains("decision-rule=\"compliance/exact-binomial\""));
@@ -506,4 +509,211 @@ fn a_record_with_an_advisory_functional_dimension_validates() {
     assert!(xml.contains("<composite value=\"FAIL\" mode=\"advisory\"/>"));
     assert!(xml.contains("<verdict value=\"PASS\" reason="));
     assert!(xml.contains("functional advisory"));
+}
+
+/// A contract with a zero-failures criterion that holds on exactly the first
+/// `passing` judged samples, optionally declared before a requirement over
+/// the same postcondition.
+struct ZeroFailuresContract {
+    id: &'static str,
+    passing: u32,
+    requirement: Option<f64>,
+}
+
+impl ServiceContract for ZeroFailuresContract {
+    type Input = String;
+    type Output = String;
+
+    fn id(&self) -> &str {
+        self.id
+    }
+
+    fn invoke(
+        &self,
+        input: &String,
+        _cost: &mut feotest::controls::Cost,
+    ) -> Result<String, feotest::model::Defect> {
+        Ok(input.clone())
+    }
+
+    fn criteria(&self) -> Criteria<String> {
+        let zero_failures = Criterion::meeting()
+            .zero_failures()
+            .name("no-harmful-advice")
+            .satisfies("well-formed", scripted(self.passing))
+            .build();
+        let Some(rate) = self.requirement else {
+            return Criteria::of([zero_failures]);
+        };
+        let requirement = Criterion::meeting()
+            .pass_rate(rate)
+            .name("well-formed")
+            .satisfies("well-formed", scripted(self.passing))
+            .build();
+        Criteria::of([zero_failures, requirement])
+    }
+}
+
+/// Runs a zero-failures contract under a threshold-first plan whose
+/// declared minimum pass rate of 1.0 an observational test must not echo.
+fn run_zero_failures(
+    contract: ZeroFailuresContract,
+    samples: u32,
+    origin: Option<ThresholdOrigin>,
+) -> VerdictRecord {
+    let inputs = vec!["input".to_string()];
+    let mut test = ProbabilisticTest::for_contract(contract)
+        .inputs(&inputs)
+        .approach(ThresholdApproach::ThresholdFirst {
+            samples,
+            min_pass_rate: 1.0,
+        })
+        .disable_early_termination();
+    if let Some(origin) = origin {
+        test = test.threshold_origin(origin);
+    }
+    test.run().verdict_record().clone()
+}
+
+/// The `<environment>` entry keys of an emitted record, in order.
+fn environment_keys(xml: &str) -> Vec<String> {
+    xml.lines()
+        .filter(|line| line.contains("<entry key=\""))
+        .map(|line| {
+            let start = line.find("key=\"").unwrap() + 5;
+            let end = line[start..].find('"').unwrap() + start;
+            line[start..end].to_owned()
+        })
+        .collect()
+}
+
+/// An observational row states its mode and its counts alone.
+fn assert_observational_row(xml: &str, id: &str) {
+    assert_eq!(
+        criterion_attribute(xml, id, "mode").as_deref(),
+        Some("observational")
+    );
+    for absent in [
+        "observed-rate",
+        "threshold",
+        "decision-rule",
+        "decision-rule-version",
+        "required-pass",
+    ] {
+        assert_eq!(criterion_attribute(xml, id, absent), None, "{id}: {absent}");
+    }
+}
+
+#[test]
+fn a_zero_failures_record_that_observes_no_failure_validates() {
+    let record = run_zero_failures(
+        ZeroFailuresContract {
+            id: "xsd-zero-failures-pass",
+            passing: u32::MAX,
+            requirement: None,
+        },
+        300,
+        Some(ThresholdOrigin::Policy),
+    );
+    assert_eq!(record.verdict(), Some(Verdict::Pass));
+    assert!(record.functional_assessment().is_observational());
+
+    let xml = assert_validates(&record);
+    assert!(xml.contains("version=\"1.11\""));
+    assert_observational_row(&xml, "no-harmful-advice");
+    assert_eq!(
+        criterion_attribute(&xml, "no-harmful-advice", "total").as_deref(),
+        Some("300")
+    );
+    assert!(!xml.contains("<statistics"), "{xml}");
+    assert_eq!(environment_keys(&xml), ["sizing-declared-samples"]);
+    assert!(xml.contains("<entry key=\"sizing-declared-samples\" value=\"300\"/>"));
+    assert!(xml.contains("<provenance origin=\"POLICY\""), "{xml}");
+    // Decided by observation, so <verdict> names no rule.
+    assert!(
+        xml.contains(
+            "<verdict value=\"PASS\" reason=\"zero failures: no failure in 300 trials\"/>"
+        ),
+        "{xml}"
+    );
+}
+
+#[test]
+fn a_zero_failures_record_that_observes_failures_validates() {
+    let record = run_zero_failures(
+        ZeroFailuresContract {
+            id: "xsd-zero-failures-fail",
+            passing: 2989,
+            requirement: None,
+        },
+        3000,
+        Some(ThresholdOrigin::Policy),
+    );
+    assert_eq!(record.verdict(), Some(Verdict::Fail));
+    assert_eq!(record.execution().samples_executed(), 3000);
+
+    let xml = assert_validates(&record);
+    assert_observational_row(&xml, "no-harmful-advice");
+    assert_eq!(
+        criterion_attribute(&xml, "no-harmful-advice", "fail").as_deref(),
+        Some("11")
+    );
+    assert!(!xml.contains("<statistics"), "{xml}");
+    assert_eq!(environment_keys(&xml), ["sizing-declared-samples"]);
+    assert!(!xml.contains("decision-rule"), "{xml}");
+}
+
+#[test]
+fn a_zero_failures_record_without_a_declared_origin_states_none() {
+    // The test-level origin defaults to empirical, which a zero-failures
+    // criterion, deriving nothing from a baseline, would misstate.
+    let record = run_zero_failures(
+        ZeroFailuresContract {
+            id: "xsd-zero-failures-origin",
+            passing: u32::MAX,
+            requirement: None,
+        },
+        50,
+        None,
+    );
+    let xml = assert_validates(&record);
+    assert!(xml.contains("<provenance origin=\"UNSPECIFIED\""), "{xml}");
+}
+
+#[test]
+fn a_mixed_record_describes_its_inferential_criterion_validates() {
+    // The zero-failures criterion is declared first; the record's
+    // statistics still describe the requirement of 0.95, decided by
+    // compliance/exact-binomial, and <verdict> names no rule, since one
+    // criterion was decided by observation.
+    let record = run_zero_failures(
+        ZeroFailuresContract {
+            id: "xsd-mixed",
+            passing: u32::MAX,
+            requirement: Some(0.95),
+        },
+        200,
+        Some(ThresholdOrigin::Policy),
+    );
+    assert_eq!(record.verdict(), Some(Verdict::Pass));
+    let analysis = record
+        .statistical_analysis()
+        .expect("the inferential criterion's statistics");
+    assert!((analysis.threshold() - 0.95).abs() < 1e-12);
+
+    let xml = assert_validates(&record);
+    assert_observational_row(&xml, "no-harmful-advice");
+    assert_eq!(criterion_attribute(&xml, "well-formed", "mode"), None);
+    assert_eq!(
+        criterion_attribute(&xml, "well-formed", "decision-rule").as_deref(),
+        Some("compliance/exact-binomial")
+    );
+    assert!(
+        xml.contains("threshold=\"0.9500\" threshold-origin=\"POLICY\""),
+        "{xml}"
+    );
+    assert!(xml.contains("<verdict value=\"PASS\" reason="), "{xml}");
+    // The inferential criterion keeps its sizing approach.
+    assert!(environment_keys(&xml).contains(&"sizing-approach".to_owned()));
+    assert_eq!(assert_required_pass_is_the_rules_count(&record, &xml), 1);
 }

@@ -176,16 +176,21 @@ fn render_pass_rate(record: &VerdictRecord, writer: &mut dyn fmt::Write) -> fmt:
     let Some(func) = record.functional_summary() else {
         return Ok(());
     };
-    label_value(
-        writer,
-        "Pass rate:",
-        &format!(
-            "{:.4} ({}/{} samples)",
-            func.pass_rate(),
-            func.pass(),
-            func.total(),
-        ),
-    )?;
+    if func.mode().is_observational() {
+        // A zero-failures criterion estimates no rate (§1.4.5).
+        label_value(writer, "Observed:", &observation_summary(func))?;
+    } else {
+        label_value(
+            writer,
+            "Pass rate:",
+            &format!(
+                "{:.4} ({}/{} samples)",
+                func.pass_rate(),
+                func.pass(),
+                func.total(),
+            ),
+        )?;
+    }
 
     if let Some(analysis) = record.statistical_analysis() {
         label_value(writer, "Rule:", &decision_summary(func))?;
@@ -225,8 +230,11 @@ fn render_advisory_functional(record: &VerdictRecord, writer: &mut dyn fmt::Writ
 
 /// The rule that decided a criterion row and the bar it compared against.
 fn decision_summary(row: &CriterionRow) -> String {
+    if row.mode().is_observational() {
+        return "zero failures (by observation, no rule)".to_owned();
+    }
     let Some(analysis) = row.statistical_analysis() else {
-        return "observational (no rule)".to_owned();
+        return "undecided (no rule)".to_owned();
     };
     let bar = match analysis.evidence() {
         RuleEvidence::Compliance(evidence) => evidence
@@ -236,6 +244,12 @@ fn decision_summary(row: &CriterionRow) -> String {
         RuleEvidence::Regression(evidence) => format!("cutoff {}", evidence.cutoff),
     };
     format!("{} ({bar})", analysis.decision_rule())
+}
+
+/// An observational row's counts in words, labelled as the zero-failures
+/// commitment it is.
+fn observation_summary(row: &CriterionRow) -> String {
+    format!("{} (zero failures)", row.observation())
 }
 
 /// The criteria after the first, one line each, when there are several.
@@ -775,5 +789,56 @@ mod tests {
             )
         );
         assert!(output.contains("[FAIL; latency/compliance-exact-binomial]"));
+    }
+
+    #[test]
+    fn a_zero_failures_verdict_states_counts_not_a_rate() {
+        let row =
+            CriterionRow::new("no-harm", 2989, 11, vec![], None, Verdict::Fail).observational();
+        let record = VerdictRecord::builder(
+            TestIdentity::new("guardrail"),
+            Verdict::Fail,
+            TestIntent::Verification,
+            sample_execution(3000, 3000, 2989, 11),
+            FunctionalAssessment::single(row),
+        )
+        .build();
+        let output = ConsoleRenderer::without_colour().render_verdict_to_string(&record);
+        assert!(
+            output.contains("Observed:            11 failures in 3000 trials (zero failures)"),
+            "{output}"
+        );
+        assert!(
+            output.contains("(zero failures: 11 failures in 3000 trials)"),
+            "{output}"
+        );
+        assert!(!output.contains("Pass rate"), "{output}");
+        assert!(!output.contains("Threshold"), "{output}");
+    }
+
+    #[test]
+    fn a_mixed_verdict_summarises_its_inferential_criterion() {
+        let observational =
+            CriterionRow::new("no-harm", 100, 0, vec![], None, Verdict::Pass).observational();
+        let inferential = regression_row("worked_example_pass_above_cutoff", "well-formed");
+        let analysis = analysis_of(&inferential);
+        let record = VerdictRecord::builder(
+            TestIdentity::new("consult-advice"),
+            Verdict::Pass,
+            TestIntent::Verification,
+            sample_execution(100, 100, inferential.pass(), inferential.fail()),
+            FunctionalAssessment::new(vec![observational, inferential]),
+        )
+        .statistical_analysis(analysis)
+        .build();
+        let output = ConsoleRenderer::without_colour().render_verdict_to_string(&record);
+        assert!(
+            output.contains("Pass rate:           0.9700 (97/100 samples)"),
+            "{output}"
+        );
+        assert!(
+            output.contains("100/100 zero failures (by observation, no rule) [PASS]"),
+            "{output}"
+        );
     }
 }

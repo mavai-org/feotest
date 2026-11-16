@@ -43,9 +43,10 @@ pub(super) struct CriterionContext<'a> {
     pub(super) samples_not_run: u32,
 }
 
-/// Builds one criterion's verdict row. A criterion with no in-scope trials
-/// is `Inconclusive`; a zero-failures criterion is observational — `Pass`
-/// iff it recorded no failures; otherwise its rule decides. A
+/// Builds one criterion's verdict row. A zero-failures criterion is
+/// observational — `Pass` iff it recorded no failures, `Inconclusive` with
+/// no trials; any other criterion with no in-scope trials is
+/// `Inconclusive`; otherwise its rule decides. A
 /// baseline-derived criterion with no baseline tally — reachable only when
 /// the run makes the functional dimension advisory — has no rule to decide
 /// it and is `Inconclusive`.
@@ -63,25 +64,13 @@ pub(super) fn criterion_row(
             .collect()
     });
     let total = pass + fail;
-    if total == 0 {
-        return CriterionRow::new(
-            context.name,
-            pass,
-            fail,
-            distribution,
-            None,
-            Verdict::Inconclusive,
-        );
-    }
     let (verdict, analysis) = match context.target {
         CriterionTarget::ZeroFailures => {
-            let verdict = if fail == 0 {
-                Verdict::Pass
-            } else {
-                Verdict::Fail
-            };
-            (verdict, None)
+            let verdict = observational_verdict(pass, fail);
+            return CriterionRow::new(context.name, pass, fail, distribution, None, verdict)
+                .observational();
         }
+        _ if total == 0 => (Verdict::Inconclusive, None),
         CriterionTarget::NormativeRate(rate) => {
             let (verdict, analysis) = judge_compliance(pass, total, *rate, context);
             (verdict, Some(analysis))
@@ -96,6 +85,16 @@ pub(super) fn criterion_row(
         }
     };
     CriterionRow::new(context.name, pass, fail, distribution, analysis, verdict)
+}
+
+/// The observational verdict of Statistical Companion §1.4.5: PASS iff no
+/// trial failed, FAIL on any failed trial, INCONCLUSIVE only with no trials.
+const fn observational_verdict(pass: u32, fail: u32) -> Verdict {
+    match (pass, fail) {
+        (0, 0) => Verdict::Inconclusive,
+        (_, 0) => Verdict::Pass,
+        _ => Verdict::Fail,
+    }
 }
 
 /// Decides a declared requirement by the rule the intent selects:
@@ -202,7 +201,7 @@ mod tests {
     use crate::model::ContractViolation;
     use crate::ptest::approach::DesignAlternative;
     use crate::statistics::rules::DecisionRule;
-    use crate::verdict::RuleEvidence;
+    use crate::verdict::{CriterionMode, RuleEvidence};
 
     fn counts_of(criterion: &str, passes: u32, fails: u32) -> CriteriaCounts {
         let mut counts = CriteriaCounts::new();
@@ -332,6 +331,31 @@ mod tests {
         let row = criterion_row(&context(&target, None), &counts_of("c", 10, 0));
         assert_eq!(row.verdict(), Verdict::Pass);
         assert!(row.statistical_analysis().is_none());
+        assert_eq!(row.mode(), CriterionMode::Observational);
+    }
+
+    #[test]
+    fn a_zero_failures_criterion_fails_on_any_failure() {
+        let target = CriterionTarget::ZeroFailures;
+        let row = criterion_row(&context(&target, None), &counts_of("c", 2989, 11));
+        assert_eq!(row.verdict(), Verdict::Fail);
+        assert_eq!(row.mode(), CriterionMode::Observational);
+    }
+
+    #[test]
+    fn a_zero_failures_criterion_with_no_trials_is_inconclusive_and_observational() {
+        let target = CriterionTarget::ZeroFailures;
+        let row = criterion_row(&context(&target, None), &CriteriaCounts::new());
+        assert_eq!(row.verdict(), Verdict::Inconclusive);
+        assert_eq!(row.mode(), CriterionMode::Observational);
+    }
+
+    #[test]
+    fn observational_verdict_follows_the_three_outcome_rule() {
+        assert_eq!(observational_verdict(0, 0), Verdict::Inconclusive);
+        assert_eq!(observational_verdict(200, 0), Verdict::Pass);
+        assert_eq!(observational_verdict(0, 1), Verdict::Fail);
+        assert_eq!(observational_verdict(999, 1), Verdict::Fail);
     }
 
     #[test]

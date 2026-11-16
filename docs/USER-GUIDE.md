@@ -783,16 +783,22 @@ A verdict record contains:
 | `triggering` | The criteria and latency constraints of the enforced dimensions that decided a Fail or an Inconclusive |
 | `intent` | Verification or Smoke |
 | `execution` | Samples planned/executed, successes, failures, cost |
-| `functional_assessment` | One row per criterion — pass rate, failure distribution, the rule that decided it — their composite, and whether the dimension was enforced or advisory |
+| `functional_assessment` | One row per criterion — its mode (a zero-failures criterion is observational), pass rate, failure distribution, the rule that decided it — their composite, and whether the dimension was enforced or advisory |
 | `statistical_analysis` | The rule, its evidence (cutoff, smallest passing count, or under smoke the required pass and the p-value), threshold, confidence; the Wilson bound as descriptive context |
 | `latency` | Each latency evaluation with its rule, the latency verdict, and whether the dimension was enforced or advisory |
 | `spec_provenance` | Baseline filename, threshold origin, contract reference |
 | `warnings` | Smoke caveats, latency planning warnings, etc. |
 
-Records are written as verdict XML **1.10**, the family's interchange schema
+Records are written as verdict XML **1.11**, the family's interchange schema
 for methodology 1.7.1, which states each dimension's mode (`enforced` or
 `advisory`) and names the smoke rules, with each smoke criterion's required
-pass and p-value.
+pass and p-value. A zero-failures criterion's row states
+`mode="observational"` and its counts alone: no observed rate, threshold or
+rule, since it estimates no rate. Its record's `<statistics>` describe the
+first criterion a rule decided, and a test whose criteria are all
+zero-failures carries no `<statistics>`, discloses its sample count without a
+sizing approach, and states the origin it declared (`UNSPECIFIED` unless it
+is SLA, SLO or policy).
 
 ### JUnit XML output
 

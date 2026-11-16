@@ -48,7 +48,7 @@
       <xs:element name="postcondition-standings" type="tns:PostconditionStandingsType" minOccurs="0"/>
       <xs:element name="verdict"      type="tns:VerdictType"/>
     </xs:all>
-    <!-- version: "1.0", "1.2", "1.3", "1.4", "1.5", "1.6", "1.7", "1.8", "1.9" or "1.10". 1.2 emitters set version="1.2"
+    <!-- version: "1.0", "1.2", "1.3", "1.4", "1.5", "1.6", "1.7", "1.8", "1.9", "1.10" or "1.11". 1.2 emitters set version="1.2"
          when <per-criterion> content is populated; otherwise stay
          at "1.0" so consumers inspecting the version attribute
          remain correctly informed. 1.3 emitters set version="1.3":
@@ -70,6 +70,30 @@
          @p-value is the binomial lower tail at p_req. A SMOKE PASS is no
          evidence of non-compliance at this size, never evidence of
          compliance. -->
+    <!-- 1.11 changes (Statistical Companion §1.4.5, §10.2), which state
+         a criterion's mode. Additive: a 1.10 record whose version reads
+         "1.11" is a 1.11 record when every criterion row it carries is
+         inferential.
+
+         <criterion> gains an optional @mode, CriterionModeEnum:
+         inferential (the default when absent) or observational. An
+         observational criterion is a zero-failures commitment: PASS iff no
+         trial failed, FAIL on any failed trial, INCONCLUSIVE only with no
+         trials. It estimates no rate and carries no threshold, so its row
+         states the counts alone - no @observed-rate, @threshold,
+         @decision-rule, @decision-rule-version or @required-pass. It is
+         never written as an inferential row at threshold 1.
+
+         <statistics> describes inferential criteria only: a test whose
+         criteria are all observational omits it, and in a mixed test it
+         describes the first inferential criterion, never an observational
+         one. Such a test also states no sizing approach and no declared
+         minimum pass rate among its <environment> entries: the approaches
+         size inferential claims, and an observational criterion makes none.
+
+         Both are emitter obligations XSD 1.0 cannot state. @mode is
+         Criterion Mode, not the enforcement @mode of <composite> and
+         <latency>; the element tells them apart. -->
     <!-- 1.9 changes (mavai-R 0.13.0; the run-controls amendment of
          mavai-services/1, 2026-10-13), which record how a run's budget
          and pacing shaped it. Additive: a 1.8 record whose version reads
@@ -495,6 +519,10 @@
        Statistical analysis
        =================================================================== -->
 
+  <!-- 1.11: describes inferential criteria only. A test whose criteria
+       are all observational omits <statistics>; in a mixed test it
+       describes the first inferential criterion, never an observational
+       one. -->
   <xs:complexType name="StatisticsType">
     <xs:attribute name="confidence-level" type="xs:double"               use="required"/>
     <xs:attribute name="standard-error"   type="xs:double"               use="required"/>
@@ -818,7 +846,22 @@
          count can pass (a compliance design too small). A reader states
          its absence; it never derives the count from @threshold. -->
     <xs:attribute name="required-pass"         type="xs:nonNegativeInteger" use="optional"/>
+    <!-- 1.11: the criterion's mode, inferential when absent. An
+         observational row carries none of @observed-rate, @threshold,
+         @decision-rule, @decision-rule-version or @required-pass (an
+         emitter obligation). -->
+    <xs:attribute name="mode"                  type="tns:CriterionModeEnum" use="optional"/>
   </xs:complexType>
+
+  <!-- 1.11: Criterion Mode. inferential: the criterion estimates its rate
+       and is decided by a rule. observational: a zero-failures criterion,
+       decided by observation alone. -->
+  <xs:simpleType name="CriterionModeEnum">
+    <xs:restriction base="xs:string">
+      <xs:enumeration value="inferential"/>
+      <xs:enumeration value="observational"/>
+    </xs:restriction>
+  </xs:simpleType>
 
   <xs:complexType name="CompositeType">
     <xs:attribute name="value" type="tns:VerdictEnum" use="required"/>

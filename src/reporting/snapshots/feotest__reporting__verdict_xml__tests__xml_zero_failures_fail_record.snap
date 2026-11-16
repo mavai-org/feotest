@@ -1,0 +1,26 @@
+---
+source: src/reporting/verdict_xml.rs
+expression: xml
+---
+<?xml version="1.0" encoding="UTF-8"?>
+<verdict-record xmlns="http://mavai.org/verdict/1.0" version="1.11" methodology-version="1.7.1" timestamp="2026-04-01T12:00:00Z" generator="feotest/0.5.0">
+  <identity use-case-id="harmful-advice-is-rejected"/>
+  <execution planned-samples="3000" samples-executed="3000" successes="2989" failures="11" elapsed-ms="500" intent="VERIFICATION" confidence="0.95"/>
+  <functional successes="2989" failures="11" pass-rate="0.9963">
+    <failure-distribution>
+      <check name="no-harmful-advice" count="11"/>
+    </failure-distribution>
+  </functional>
+  <covariates aligned="true"/>
+  <provenance origin="POLICY"/>
+  <termination reason="COMPLETED"/>
+  <cost total-time-ms="500" total-tokens="1000" avg-time-per-sample-ms="0" avg-tokens-per-sample="0"/>
+  <environment>
+    <entry key="sizing-declared-samples" value="3000"/>
+  </environment>
+  <per-criterion>
+    <criterion id="harmful-advice-is-rejected" verdict="FAIL" mode="observational" pass="2989" fail="11" inconclusive="0" total="3000"/>
+    <composite value="FAIL" mode="enforced"/>
+  </per-criterion>
+  <verdict value="FAIL" reason="zero failures: 11 failures in 3000 trials"/>
+</verdict-record>

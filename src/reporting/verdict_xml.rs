@@ -1,11 +1,14 @@
 //! Verdict XML serialisation (the verdict XML interchange format).
 //!
 //! Serialises a [`VerdictRecord`] to XML conforming to the
-//! `http://mavai.org/verdict/1.0` schema, version 1.10 (Statistical
+//! `http://mavai.org/verdict/1.0` schema, version 1.11 (Statistical
 //! Companion 1.7.1): the record states the methodology version whose
 //! decision rules produced it, each decision names its versioned rule — a
 //! normative criterion under smoke intent the smoke rule, with the count it
-//! requires and the lower-tail p-value of the observed count — each dimension
+//! requires and the lower-tail p-value of the observed count — a
+//! zero-failures criterion states its observational mode and its counts
+//! alone, never a rate or a threshold (§1.4.5), and `<statistics>`
+//! describes an inferential criterion only, each dimension
 //! states whether the run enforced it or made it advisory, the record's
 //! verdict is the overall test verdict over the enforced dimensions, and a
 //! configuration refused before any sample ran carries its configuration
@@ -27,7 +30,7 @@ use crate::verdict::{RuleEvidence, StatisticalAnalysis, Verdict, VerdictRecord};
 const NAMESPACE: &str = "http://mavai.org/verdict/1.0";
 
 /// The schema version this emitter writes.
-const SCHEMA_VERSION: &str = "1.10";
+const SCHEMA_VERSION: &str = "1.11";
 
 /// Serialises verdict records to the verdict XML interchange format.
 // mavai-ref: JVI-DQWKY4Z — do not remove (resolves in mavai-orchestrator)
@@ -525,15 +528,22 @@ fn write_per_criterion(w: &mut String, record: &VerdictRecord) {
         write!(w, "    <criterion").unwrap();
         write!(w, " id=\"{}\"", escape_attr(row.name())).unwrap();
         write!(w, " verdict=\"{}\"", verdict_str(row.verdict())).unwrap();
+        // The mode is stated only when observational; absent, the row is
+        // inferential.
+        if row.mode().is_observational() {
+            write!(w, " mode=\"{}\"", row.mode().name()).unwrap();
+        }
         write!(w, " pass=\"{}\"", row.pass()).unwrap();
         write!(w, " fail=\"{}\"", row.fail()).unwrap();
         // The per-trial outcome is two-valued; inconclusive is a
         // verdict-level state, never a per-sample tally.
         write!(w, " inconclusive=\"0\"").unwrap();
         write!(w, " total=\"{}\"", row.total()).unwrap();
-        // observed-rate is undefined for a zero-trial criterion; threshold is
-        // absent for an observational criterion (it carries none).
-        if row.total() > 0 {
+        // observed-rate is undefined for a zero-trial criterion, and an
+        // observational criterion estimates no rate (§1.4.5): its row states
+        // the counts alone. It carries no analysis, hence no threshold, rule
+        // or required count either.
+        if row.total() > 0 && !row.mode().is_observational() {
             write!(w, " observed-rate=\"{:.4}\"", row.pass_rate()).unwrap();
         }
         if let Some(analysis) = row.statistical_analysis() {
@@ -704,6 +714,69 @@ mod tests {
         )
         .triggering(triggering)
         .confidence_level(0.95)
+        .build()
+    }
+
+    /// A zero-failures criterion over `pass + fail` trials: observational,
+    /// decided by no rule, so the record carries no statistics and
+    /// discloses its sample count alone.
+    fn zero_failures_record(pass: u32, fail: u32) -> VerdictRecord {
+        let verdict = if fail == 0 {
+            Verdict::Pass
+        } else {
+            Verdict::Fail
+        };
+        let distribution = if fail == 0 {
+            vec![]
+        } else {
+            vec![("no-harmful-advice".to_owned(), fail)]
+        };
+        let row = CriterionRow::new(
+            "harmful-advice-is-rejected",
+            pass,
+            fail,
+            distribution,
+            None,
+            verdict,
+        )
+        .observational();
+        let total = pass + fail;
+        VerdictRecord::builder(
+            TestIdentity::new("harmful-advice-is-rejected"),
+            verdict,
+            TestIntent::Verification,
+            sample_execution(total, total, pass, fail),
+            FunctionalAssessment::single(row),
+        )
+        .confidence_level(0.95)
+        .spec_provenance(SpecProvenance::new(ThresholdOrigin::Policy))
+        .environment(vec![(
+            "sizing-declared-samples".to_owned(),
+            total.to_string(),
+        )])
+        .build()
+    }
+
+    /// A zero-failures criterion declared before an inferential one: the
+    /// statistics describe the inferential criterion (oracle case
+    /// `worked_example_pass_above_cutoff`, 97 of 100), never the
+    /// observational one.
+    fn mixed_record() -> VerdictRecord {
+        let observational =
+            CriterionRow::new("no-harmful-advice", 100, 0, vec![], None, Verdict::Pass)
+                .observational();
+        let inferential = regression_row("worked_example_pass_above_cutoff", "well-formed");
+        let analysis = analysis_of(&inferential);
+        VerdictRecord::builder(
+            TestIdentity::new("consult-advice"),
+            Verdict::Pass,
+            TestIntent::Verification,
+            sample_execution(100, 100, inferential.pass(), inferential.fail()),
+            FunctionalAssessment::new(vec![observational, inferential]),
+        )
+        .confidence_level(0.95)
+        .statistical_analysis(analysis)
+        .spec_provenance(SpecProvenance::new(ThresholdOrigin::Empirical))
         .build()
     }
 
@@ -902,9 +975,9 @@ mod tests {
     }
 
     #[test]
-    fn a_record_states_schema_1_10_and_its_methodology() {
+    fn a_record_states_schema_1_11_and_its_methodology() {
         let xml = VerdictXmlWriter::write_record(&pass_record(), Some("2026-04-01T12:00:00Z"));
-        assert!(xml.contains("version=\"1.10\""));
+        assert!(xml.contains("version=\"1.11\""));
         assert!(xml.contains("methodology-version=\"1.7.1\""));
         assert!(xml.contains(
             "<criterion id=\"result\" verdict=\"PASS\" pass=\"97\" fail=\"3\" \
@@ -918,6 +991,75 @@ mod tests {
             "<verdict value=\"PASS\" decision-rule=\"regression/fisher\" \
              decision-rule-version=\"1\""
         ));
+    }
+
+    #[test]
+    fn a_zero_failures_row_states_its_mode_and_counts_alone() {
+        for (pass, fail) in [(300, 0), (2989, 11)] {
+            let xml = VerdictXmlWriter::write_record(
+                &zero_failures_record(pass, fail),
+                Some("2026-04-01T12:00:00Z"),
+            );
+            let row = xml
+                .lines()
+                .find(|line| line.contains("<criterion "))
+                .unwrap();
+            assert!(row.contains(" mode=\"observational\""), "{row}");
+            for absent in [
+                "observed-rate",
+                "threshold",
+                "decision-rule",
+                "required-pass",
+            ] {
+                assert!(!row.contains(absent), "{absent} on {row}");
+            }
+            assert!(!xml.contains("<statistics"), "{xml}");
+            assert!(!xml.contains("sizing-approach"), "{xml}");
+            assert!(!xml.contains("min-pass-rate"), "{xml}");
+            assert!(xml.contains("<provenance origin=\"POLICY\"/>"), "{xml}");
+        }
+    }
+
+    #[test]
+    fn a_mixed_record_states_the_inferential_criterions_statistics() {
+        let xml = VerdictXmlWriter::write_record(&mixed_record(), Some("2026-04-01T12:00:00Z"));
+        assert!(xml.contains(
+            "<criterion id=\"no-harmful-advice\" verdict=\"PASS\" mode=\"observational\" \
+             pass=\"100\" fail=\"0\" inconclusive=\"0\" total=\"100\"/>"
+        ));
+        assert!(xml.contains("<statistics confidence-level=\"0.9500\""));
+        assert!(xml.contains(" threshold=\"0.9100\""));
+        assert!(xml.contains("<functional successes=\"97\" failures=\"3\""));
+        // The inferential row states no mode: absent means inferential.
+        let inferential = xml
+            .lines()
+            .find(|line| line.contains("id=\"well-formed\""))
+            .unwrap();
+        assert!(!inferential.contains(" mode="), "{inferential}");
+    }
+
+    #[test]
+    fn xml_zero_failures_pass_record() {
+        let xml = VerdictXmlWriter::write_record(
+            &zero_failures_record(300, 0),
+            Some("2026-04-01T12:00:00Z"),
+        );
+        assert_snapshot!(xml);
+    }
+
+    #[test]
+    fn xml_zero_failures_fail_record() {
+        let xml = VerdictXmlWriter::write_record(
+            &zero_failures_record(2989, 11),
+            Some("2026-04-01T12:00:00Z"),
+        );
+        assert_snapshot!(xml);
+    }
+
+    #[test]
+    fn xml_mixed_record() {
+        let xml = VerdictXmlWriter::write_record(&mixed_record(), Some("2026-04-01T12:00:00Z"));
+        assert_snapshot!(xml);
     }
 
     #[test]

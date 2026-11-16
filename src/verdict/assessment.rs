@@ -13,16 +13,61 @@ use crate::statistics::rules::EnforcementMode;
 use crate::verdict::StatisticalAnalysis;
 use crate::verdict::Verdict;
 
+/// A criterion's mode (Statistical Companion §1.4.5).
+///
+/// An inferential criterion estimates its pass rate and is decided by a
+/// rule. An observational criterion is a zero-failures commitment, decided
+/// by observation alone: PASS iff no trial failed, FAIL on any failed
+/// trial, INCONCLUSIVE only with no trials. It estimates no rate and
+/// carries no threshold, so nothing reports it as either.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum CriterionMode {
+    /// Decided by a rule against a rate (the default).
+    #[default]
+    Inferential,
+    /// A zero-failures criterion, decided by observation alone.
+    Observational,
+}
+
+impl CriterionMode {
+    /// The mode's wire name, as the verdict interchange format spells it.
+    #[must_use]
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Inferential => "inferential",
+            Self::Observational => "observational",
+        }
+    }
+
+    /// Whether the mode is observational.
+    #[must_use]
+    pub const fn is_observational(self) -> bool {
+        matches!(self, Self::Observational)
+    }
+
+    /// Whether the mode is inferential (for serde's `skip_serializing_if`).
+    #[expect(
+        clippy::trivially_copy_pass_by_ref,
+        reason = "serde's skip_serializing_if passes a reference"
+    )]
+    const fn is_inferential(&self) -> bool {
+        matches!(self, Self::Inferential)
+    }
+}
+
 /// One criterion's line in the composite assessment.
 ///
-/// Carries its name, its pass/fail tally (denominator `pass + fail`), the
-/// statistical analysis behind its verdict (absent for observational
-/// criteria), and its three-valued verdict.
+/// Carries its name, its mode, its pass/fail tally (denominator
+/// `pass + fail`), the statistical analysis behind its verdict (absent for
+/// observational criteria), and its three-valued verdict.
 // mavai-ref: JVI-8E4WNW5 — do not remove (resolves in mavai-orchestrator)
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CriterionRow {
     name: String,
+    #[serde(skip_serializing_if = "CriterionMode::is_inferential")]
+    mode: CriterionMode,
     pass: u32,
     fail: u32,
     pass_rate: f64,
@@ -68,6 +113,7 @@ impl CriterionRow {
         };
         Self {
             name: name.into(),
+            mode: CriterionMode::Inferential,
             pass,
             fail,
             pass_rate,
@@ -89,10 +135,33 @@ impl CriterionRow {
         Self::new("result", pass, fail, failure_distribution, None, verdict)
     }
 
+    /// The same row for an observational (zero-failures) criterion. It
+    /// carries no statistical analysis: observation alone decided it.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the row carries a statistical analysis.
+    #[must_use]
+    pub fn observational(mut self) -> Self {
+        assert!(
+            self.statistical_analysis.is_none(),
+            "an observational criterion is decided by no rule"
+        );
+        self.mode = CriterionMode::Observational;
+        self
+    }
+
     /// The criterion name.
     #[must_use]
     pub fn name(&self) -> &str {
         &self.name
+    }
+
+    /// The criterion's mode: inferential unless it is a zero-failures
+    /// criterion.
+    #[must_use]
+    pub const fn mode(&self) -> CriterionMode {
+        self.mode
     }
 
     /// Clean passes.
@@ -123,6 +192,20 @@ impl CriterionRow {
     #[must_use]
     pub fn failure_distribution(&self) -> &[(String, u32)] {
         &self.failure_distribution
+    }
+
+    /// What an observational row observed, in words — its counts alone,
+    /// never a rate: `"no failure in 300 trials"`, `"11 failures in 3000
+    /// trials"`, or `"no trials"`.
+    #[must_use]
+    pub(crate) fn observation(&self) -> String {
+        let total = self.total();
+        match self.fail {
+            _ if total == 0 => "no trials".to_owned(),
+            0 => format!("no failure in {total} trials"),
+            1 => format!("1 failure in {total} trials"),
+            failures => format!("{failures} failures in {total} trials"),
+        }
     }
 
     /// The statistical analysis behind the verdict, if inferential.
@@ -233,6 +316,35 @@ impl FunctionalAssessment {
     pub fn criteria(&self) -> &[CriterionRow] {
         &self.criteria
     }
+
+    /// Whether every criterion is observational: the test then makes no
+    /// inferential claim, so it carries no statistics and no sizing
+    /// approach. `false` for a refused configuration, which judged nothing.
+    #[must_use]
+    pub fn is_observational(&self) -> bool {
+        !self.criteria.is_empty()
+            && self
+                .criteria
+                .iter()
+                .all(|row| row.mode().is_observational())
+    }
+
+    /// The row that summarises the functional dimension: the first
+    /// criterion decided by a rule, else the first inferential criterion,
+    /// else the first criterion. An observational criterion summarises
+    /// the dimension only when no criterion is inferential.
+    #[must_use]
+    pub(crate) fn summary_row(&self) -> Option<&CriterionRow> {
+        self.criteria
+            .iter()
+            .find(|row| row.statistical_analysis().is_some())
+            .or_else(|| {
+                self.criteria
+                    .iter()
+                    .find(|row| !row.mode().is_observational())
+            })
+            .or_else(|| self.criteria.first())
+    }
 }
 
 #[cfg(test)]
@@ -297,5 +409,54 @@ mod tests {
     #[test]
     fn a_refused_assessment_has_no_rows() {
         assert!(FunctionalAssessment::refused().criteria().is_empty());
+        assert!(!FunctionalAssessment::refused().is_observational());
+    }
+
+    #[test]
+    fn a_row_is_inferential_unless_marked_observational() {
+        let row = CriterionRow::new("c", 5, 0, vec![], None, Verdict::Pass);
+        assert_eq!(row.mode(), CriterionMode::Inferential);
+        assert_eq!(row.observational().mode(), CriterionMode::Observational);
+    }
+
+    #[test]
+    #[should_panic(expected = "decided by no rule")]
+    fn a_row_decided_by_a_rule_cannot_be_observational() {
+        let row = crate::oracle_examples::regression_row("worked_example_pass_at_cutoff", "c");
+        let _ = row.observational();
+    }
+
+    #[test]
+    fn an_observation_states_counts_never_a_rate() {
+        let observation = |pass, fail| {
+            CriterionRow::new("c", pass, fail, vec![], None, Verdict::Pass).observation()
+        };
+        assert_eq!(observation(300, 0), "no failure in 300 trials");
+        assert_eq!(observation(999, 1), "1 failure in 1000 trials");
+        assert_eq!(observation(2989, 11), "11 failures in 3000 trials");
+        assert_eq!(observation(0, 0), "no trials");
+    }
+
+    #[test]
+    fn an_assessment_is_observational_iff_every_row_is() {
+        let zero = CriterionRow::new("zero", 10, 0, vec![], None, Verdict::Pass).observational();
+        let rate = CriterionRow::new("rate", 10, 0, vec![], None, Verdict::Pass);
+        assert!(FunctionalAssessment::single(zero.clone()).is_observational());
+        assert!(!FunctionalAssessment::new(vec![zero, rate]).is_observational());
+    }
+
+    #[test]
+    fn the_summary_row_is_the_first_decided_by_a_rule() {
+        let zero = CriterionRow::new("zero", 10, 0, vec![], None, Verdict::Pass).observational();
+        let undecided = CriterionRow::new("undecided", 0, 0, vec![], None, Verdict::Inconclusive);
+        let decided =
+            crate::oracle_examples::regression_row("worked_example_pass_at_cutoff", "decided");
+        let mixed = FunctionalAssessment::new(vec![zero.clone(), undecided.clone(), decided]);
+        assert_eq!(mixed.summary_row().unwrap().name(), "decided");
+        let without_rule = FunctionalAssessment::new(vec![zero.clone(), undecided]);
+        assert_eq!(without_rule.summary_row().unwrap().name(), "undecided");
+        let observational = FunctionalAssessment::single(zero);
+        assert_eq!(observational.summary_row().unwrap().name(), "zero");
+        assert!(FunctionalAssessment::refused().summary_row().is_none());
     }
 }
