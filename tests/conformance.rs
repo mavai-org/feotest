@@ -34,7 +34,11 @@
 //! latency suites supply latencies as data, which a run cannot reproduce;
 //! they are evaluated through the statistics functions the latency
 //! dimension delegates to, and the test-size design rule through the same
-//! `check_test_size` the runner's preflight applies.
+//! `check_test_size` the runner's preflight applies. The zero-failures
+//! cases of the informational `criterion_verdict_observational` suite run
+//! through the production path too; the suite sits outside the committed
+//! scope, since its `r_obs` diagnostic and its `statement` wording are not
+//! computed here.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::panic::{AssertUnwindSafe, catch_unwind};
@@ -45,6 +49,7 @@ use md5::Digest;
 use serde::Deserialize;
 use serde_json::{Value, json};
 
+use feotest::controls::ExecutionConfig;
 use feotest::criteria::{Criteria, Criterion};
 use feotest::experiment::MeasureExperiment;
 use feotest::model::{ContractViolation, TestIntent, ThresholdOrigin};
@@ -2157,6 +2162,116 @@ fn conformance_verdict() {
 }
 
 // ---------------------------------------------------------------------------
+// criterion_verdict_observational — a zero-failures criterion through the
+// production path
+// ---------------------------------------------------------------------------
+
+/// A contract with one zero-failures criterion: a transform that yields a
+/// testable value on exactly the first `evaluable` samples (a no-value
+/// trial is a FAIL, §1.4.5a), and a postcondition that holds on exactly the
+/// first `passing` of those.
+struct ObservationalContract {
+    id: String,
+    evaluable: u32,
+    passing: u32,
+}
+
+impl ServiceContract for ObservationalContract {
+    type Input = String;
+    type Output = String;
+
+    fn id(&self) -> &str {
+        &self.id
+    }
+
+    fn invoke(
+        &self,
+        input: &String,
+        _cost: &mut feotest::controls::Cost,
+    ) -> Result<String, feotest::model::Defect> {
+        Ok(input.clone())
+    }
+
+    fn criteria(&self) -> Criteria<String> {
+        let (evaluable, passing) = (self.evaluable, self.passing);
+        let (attempted, judged) = (AtomicU32::new(0), AtomicU32::new(0));
+        Criteria::of([Criterion::meeting()
+            .zero_failures()
+            .name("observational")
+            .transforming(move |output: &String| {
+                if attempted.fetch_add(1, Ordering::SeqCst) < evaluable {
+                    Ok(output.clone())
+                } else {
+                    Err(ContractViolation::new("value", "no testable value"))
+                }
+            })
+            .satisfies("scripted acceptance", move |_: &String| {
+                if judged.fetch_add(1, Ordering::SeqCst) < passing {
+                    Ok(())
+                } else {
+                    Err(ContractViolation::new(
+                        "scripted acceptance",
+                        "scripted failure",
+                    ))
+                }
+            })
+            .build()])
+    }
+}
+
+/// The record of an observational case run through the production path:
+/// every attempted trial, or — with none attempted — a run whose token
+/// budget its per-sample charge exhausts before the first sample.
+fn run_observational(case: &Value) -> VerdictRecord {
+    let attempted = input_u32(case, "n_attempted");
+    let contract = ObservationalContract {
+        id: unique_id(case),
+        evaluable: input_u32(case, "n_evaluable"),
+        passing: input_u32(case, "K_c"),
+    };
+    let inputs = vec!["input".to_string()];
+    let test = ProbabilisticTest::for_contract(contract)
+        .inputs(&inputs)
+        .disable_early_termination();
+    let test = if attempted == 0 {
+        test.execution_config(
+            ExecutionConfig::new(1)
+                .with_token_budget(1)
+                .with_static_token_charge(1),
+        )
+    } else {
+        test.samples(attempted)
+    };
+    test.run().verdict_record().clone()
+}
+
+/// The `n_c` and `verdict` binding fields, asserted through the production
+/// verdict path. The suite's `r_obs` diagnostic (§1.5.2) and its
+/// `statement` wording are not computed by this crate, so the suite sits
+/// outside the committed scope and is reported as unaddressed.
+fn check_criterion_verdict_observational(ledger: &mut Ledger) {
+    let suite = "criterion_verdict_observational";
+    assert_eq!(
+        ledger.vendored_md5(suite),
+        ledger.manifest_md5(suite),
+        "{suite}: vendored fixture differs from the manifest's content hash"
+    );
+    for_each_case(suite, |case, _| {
+        let record = run_observational(case);
+        let row = &record.functional_assessment().criteria()[0];
+        assert!(row.mode().is_observational());
+        assert!(row.statistical_analysis().is_none());
+        check_json(ledger, suite, case, "n_c", &json!(row.total()));
+        check_json(ledger, suite, case, "verdict", &verdict_name(row.verdict()));
+    });
+}
+
+#[test]
+fn conformance_criterion_verdict_observational() {
+    check_criterion_verdict_observational(&mut Ledger::load());
+}
+
+// ---------------------------------------------------------------------------
 // Vendoring drift and the coverage obligation
 // ---------------------------------------------------------------------------
 
@@ -2198,7 +2313,7 @@ fn conformance_coverage_meets_manifest() {
     type SuiteCheck = fn(&mut Ledger);
 
     let mut ledger = Ledger::load();
-    let checks: [(&str, SuiteCheck); 13] = [
+    let checks: [(&str, SuiteCheck); 14] = [
         ("wilson_ci", check_wilson_ci),
         ("wilson_lower", check_wilson_lower),
         ("regression_decision", check_regression_decision),
@@ -2217,6 +2332,10 @@ fn conformance_coverage_meets_manifest() {
         (
             "latency_compliance_decision",
             check_latency_compliance_decision,
+        ),
+        (
+            "criterion_verdict_observational",
+            check_criterion_verdict_observational,
         ),
     ];
 
