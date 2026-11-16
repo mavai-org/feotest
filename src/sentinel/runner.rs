@@ -45,7 +45,6 @@ impl SentinelOutcome {
     ///
     /// The sentinel binary uses the simple `0` / `1` pairing. The richer
     /// exit-code taxonomy (`2` inconclusive, `3` error, `4` usage) layers on later.
-    #[must_use]
     pub const fn exit_code(self) -> ExitCode {
         match self {
             Self::Pass => ExitCode::SUCCESS,
@@ -331,7 +330,6 @@ enum Commands {
 ///     feotest::sentinel::run_cli()
 /// }
 /// ```
-#[must_use]
 pub fn run_cli() -> ExitCode {
     let cli = Cli::parse();
     match cli.command {
